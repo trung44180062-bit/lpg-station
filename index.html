@@ -2597,7 +2597,8 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .pv-veh .rm{display:block;font-size:9.5px;color:#8a99a9;}
 .pv-drv{max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .pv-num{font-family:'JetBrains Mono',monospace;text-align:right;white-space:nowrap;}
-.pv-num.act{color:#2d8a4e;font-weight:600;}
+.pv-num.act{color:#157a40;font-weight:700;}
+.pv-num.act.act-empty{color:var(--ink-3);font-weight:500;font-style:italic;}
 .pv-c{text-align:center;}
 .pv-do{font-family:'JetBrains Mono',monospace;font-weight:600;color:#0a3a5c;}
 .pv-do.temp{color:#c77700;font-style:italic;}
@@ -3446,7 +3447,10 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
                 oninput="SCALE.scFmtTime(this)" onkeydown="SCALE.scTabNext(event,'tc-press-in')" autocomplete="off">
             </div>
             <div class="sc-fld">
-              <span class="sc-lbl">Seal No.</span>
+              <span class="sc-lbl" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <span>Seal No.</span>
+                <span id="sc-net-inline" style="font-family:'JetBrains Mono',monospace;font-weight:700;color:#157a40;font-variant-numeric:tabular-nums">—</span>
+              </span>
               <input id="tc-seal" type="text" placeholder="Seal number" tabindex="3"
                 onkeydown="SCALE.scTabNext(event,'tc-fq')" autocomplete="off">
             </div>
@@ -3465,12 +3469,6 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
               <input id="tc-press-out" type="text" inputmode="decimal" placeholder="0.0" tabindex="8"
                 onkeydown="SCALE.scTabNext(event,'tc-dest')" autocomplete="off">
             </div>
-            <!-- v4.49.9 — faint live Net Weight inside the entry grid so it stays
-                 in view while filling the remaining fields (spot mismatches early) -->
-            <div id="sc-net-ghost"
-                 style="grid-column:1/-1;text-align:right;font-family:'JetBrains Mono',monospace;
-                        font-size:12px;font-weight:600;color:#9aa7b4;opacity:.7;
-                        padding:2px 2px 0;letter-spacing:.3px;pointer-events:none;">Net: — </div>
           </div>
 
           <!-- Dest / Note / Error: 3-col grid -->
@@ -5576,9 +5574,32 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
        currentUser placeholder + canWrite() hook (whitelist later).
      • Fleet : adds Last Edit column (who + when) per row.
    ============================================================ */
-const APP_VERSION='v4.49.9', APP_BUILD_ID='p30.9-ptt-dn-tl-scale-fixes';
+const APP_VERSION='v4.49.11', APP_BUILD_ID='p30.11-diff-pct-netfq';
 /* ============================================================
    VERSION HISTORY (read this to resume work in later sessions)
+   ------------------------------------------------------------
+   v4.49.11 (p30.11-diff-pct-netfq) — current
+     TL Data Diff% redefined per user: it is a PERCENTAGE, not a signed
+     deviation. Diff% = Net / FQ × 100, rendered with a "%" sign (e.g.
+     "98.4%"). Was (Net−FQ)/FQ×100 in p30.10 which read as small negatives
+     (−2%, −1.6% …). Live formatter + the edit-path store both updated.
+   ------------------------------------------------------------
+   v4.49.10 (p30.10-diff-net-ledger-tlcol) — current
+     Follow-up UI fixes on top of p30.9:
+       (1) TL Data Diff% (pct) is now a LIVE render-time formatter, so every
+           row shows it — not only manually-edited ones (previously blank for
+           scale/paste-created rows, which read as "not calculating").
+           Diff% = (Net − FQ)/FQ × 100, 1-dp (matches the historical -1.6
+           reference). Edit path still stores it for report freshness.
+       (2) Scale Data modal: the live Net Weight now also shows CLEARLY (bold
+           green, not faint) right next to the "Seal No." label (#sc-net-inline).
+           The earlier faint bottom-of-grid ghost was removed.
+       (3) Plan ledger ACTUAL cell restyled to match the table view: green
+           #157a40 / weight 700 (was #2d8a4e / 600); empty "—" now grey-italic
+           via .pv-num.act.act-empty, same as table's tp-actual-empty.
+       (4) TL Data: Net Weight column DISPLAYS between Driver and C3 now
+           (UI-only reorder of the Tabulator column array — COLS / field keys
+           untouched, so report + paste mapping are unchanged).
    ------------------------------------------------------------
    v4.49.9 (p30.9-ptt-dn-tl-scale-fixes) — current
      Print-form, TL-Data and Scale-input usability fixes (RAM-only; the
@@ -11931,7 +11952,7 @@ function _makePlanModule(opts){
           + '<td class="pv-drv'+ec('driver')+'" title="Click to edit">'+drvH+'</td>'
           + '<td class="pv-num'+ec('qty')+'" title="Click to edit">'+escapeHtml(String(r.qty||'—'))+'</td>'
           + '<td class="pv-num tol'+ec('tolerance')+'" title="Click to edit">'+(tolRaw?escapeHtml(tolRaw):'—')+'</td>'
-          + (isTmr?'':'<td class="pv-num act'+(autoOn?'">':' pv-editable" title="Click to edit actual (manual)" onclick="'+G+'.ledgerCellEdit(\''+oid+'\',\'_actualQty\',this,event)">')+(actMT>0?_fmtMT(actMT):'—')+'</td>')
+          + (isTmr?'':'<td class="pv-num act'+(actMT>0?'':' act-empty')+(autoOn?'">':' pv-editable" title="Click to edit actual (manual)" onclick="'+G+'.ledgerCellEdit(\''+oid+'\',\'_actualQty\',this,event)">')+(actMT>0?_fmtMT(actMT):'—')+'</td>')
           + '<td class="pv-c pv-editable" title="Double-click to toggle OK / NO" ondblclick="'+G+'.ledgerToggleGL(\''+oid+'\',\'allowGate\',event)">'+gateH+'</td>'
           + '<td class="pv-c pv-editable" title="Double-click to toggle OK / NO" ondblclick="'+G+'.ledgerToggleGL(\''+oid+'\',\'allowLoad\',event)">'+loadH+'</td>'
           + '<td class="pv-doc'+ec('doNum')+'" title="Click to edit DO">'+doH+doBadges+'</td>'
@@ -14096,10 +14117,29 @@ const TL = (function(){
         editor: c.ed ? (c.num ? 'number' : 'input') : false,
         editorParams: c.num ? { verticalNavigation:'table' } : {},
         cellEdited: c.ed ? function(cell){ onCellEdited(cell); } : undefined,
-        formatter: c.num ? function(cell){ const v=cell.getValue(); return v!=null&&v!==''?fmtNum(v):''; } : undefined
+        /* v4.49.11 — Diff% = Net / FQ × 100, shown as a percentage ("98.4%").
+           Live render-time so EVERY row shows it; falls back to any stored
+           value when net/FQ are absent. */
+        formatter: (c.k === 'pct')
+          ? function(cell){
+              const d = cell.getRow().getData();
+              const net = parseNum(d.lpgQty), fq = parseNum(d.fq);
+              if(fq > 0 && net > 0) return fmtNum(Math.round(net / fq * 1000) / 10) + '%';
+              const v = cell.getValue(); return v!=null && v!=='' ? fmtNum(v) + '%' : '';
+            }
+          : (c.num ? function(cell){ const v=cell.getValue(); return v!=null&&v!==''?fmtNum(v):''; } : undefined)
       };
       cols.push(def);
     });
+    /* v4.49.10 — UI-only: display the Net Weight column between Driver and C3.
+       COLS / field keys are untouched, so report + paste mapping stay identical;
+       only the on-screen column order changes for readability. */
+    const _iNet = cols.findIndex(c => c.field === 'lpgQty');
+    if(_iNet > -1){
+      const [netCol] = cols.splice(_iNet, 1);
+      const _iC3 = cols.findIndex(c => c.field === 'c3Kg');
+      if(_iC3 > -1) cols.splice(_iC3, 0, netCol); else cols.push(netCol);
+    }
     return cols;
   }
 
@@ -14211,9 +14251,8 @@ const TL = (function(){
     /* v4.49.9 — recompute derived weights when TW / GW / FQ / Net Weight change.
          • Net Weight (lpgQty) = Gross Wt − Truck Wt  (only when BOTH are present;
            a missing side leaves the existing Net untouched).
-         • Diff% (pct)        = (Net − FQ) / FQ × 100  (meter-vs-scale deviation,
-           1-decimal %).  ⚠ Formula assumption — confirm if a different Diff% is
-           expected and it is a one-line change here. */
+         • Diff% (pct)        = Net / FQ × 100  (scale-vs-meter yield %, shown
+           with a "%" sign by the column formatter). */
     const _extra = {};
     if(field === 'truckWt' || field === 'grossWt'){
       const tw = parseNum(ROWS[rid].truckWt), gw = parseNum(ROWS[rid].grossWt);
@@ -14225,7 +14264,7 @@ const TL = (function(){
     if(['truckWt','grossWt','lpgQty','fq'].includes(field) || _extra.lpgQty != null){
       const net = parseNum(ROWS[rid].lpgQty), fq = parseNum(ROWS[rid].fq);
       if(fq > 0 && net > 0){
-        const pct = Math.round((net - fq) / fq * 1000) / 10;
+        const pct = Math.round(net / fq * 1000) / 10;  /* Net/FQ × 100, 1-dp */
         if(String(ROWS[rid].pct) !== String(pct)){ ROWS[rid].pct = pct; _extra.pct = pct; }
       }
     }
@@ -16964,17 +17003,17 @@ const SCALE = (function(){
     const gw = parseFloat(_stripCommas(document.getElementById('tc-gross-wt')?.value)) || 0;
     const el = document.getElementById('sc-net-disp');
     const bar = document.getElementById('sc-net-bar');
-    const ghost = document.getElementById('sc-net-ghost');
+    const inline = document.getElementById('sc-net-inline');
     if(!el || !bar) return;
     if(tw > 0 && gw > 0){
       const net = gw - tw;
       el.textContent = net.toLocaleString('en-US') + ' kg  (' + (net/1000).toFixed(3) + ' T)';
       bar.classList.toggle('neg', net <= 0);
-      if(ghost){ ghost.textContent = 'Net: ' + net.toLocaleString('en-US') + ' kg'; ghost.style.color = net <= 0 ? '#d27' : '#9aa7b4'; }
+      if(inline){ inline.textContent = net.toLocaleString('en-US') + ' kg'; inline.style.color = net <= 0 ? '#d32f2f' : '#157a40'; }
     } else {
       el.textContent = '—';
       bar.classList.remove('neg');
-      if(ghost){ ghost.textContent = 'Net: — '; ghost.style.color = '#9aa7b4'; }
+      if(inline){ inline.textContent = '—'; inline.style.color = '#157a40'; }
     }
   }
 
