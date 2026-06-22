@@ -1039,22 +1039,6 @@
       </div>
     </div><!-- /sub-price -->
 
-    <!-- FLEET Paste Modal (Fleet certs: Tank Lorry / Tractor / Rmooc / Driver / TW AVG) -->
-    <div class="tl-paste-modal" id="pasteModal">
-      <div class="tl-paste-box">
-        <div class="tl-paste-hdr"><h3>📋 Paste from Excel</h3>
-          <button class="tl-paste-x" onclick="closePaste()">✕</button></div>
-        <div class="tl-paste-body">
-          <p style="font-size:11px;color:var(--ink-2);margin:0 0 8px">Copy rows from Excel <b>kèm dòng tiêu đề (header)</b> rồi Ctrl+V vào ô bên dưới. Dữ liệu sẽ <b>thay thế toàn bộ</b> sub-tab hiện tại.<br>Cột "Safe Fill (T)" (nếu có) sẽ tự bỏ qua vì được tính từ Cap.</p>
-          <textarea id="pasteArea" placeholder="Ctrl+V dữ liệu Excel vào đây… (gồm cả dòng tiêu đề)"></textarea>
-        </div>
-        <div class="tl-paste-foot">
-          <button class="btn" onclick="closePaste()">Cancel</button>
-          <button class="btn btn-green" onclick="doPaste()">📥 Import</button>
-        </div>
-      </div>
-    </div>
-
     <!-- SAP Paste Modal -->
     <div class="tl-paste-modal" id="spPasteModal">
       <div class="tl-paste-box">
@@ -2915,6 +2899,22 @@
     <div class="tp-diff-foot">
       <button class="btn" onclick="wsCloseDiff()">Cancel</button>
       <button class="btn btn-green" id="wsDiffConfirmBtn" onclick="wsConfirmDiff()">✓ Apply Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- FLEET Paste Modal (body-level so it shows on the Fleet page) -->
+<div class="tl-paste-modal" id="pasteModal">
+  <div class="tl-paste-box">
+    <div class="tl-paste-hdr"><h3>📋 Paste from Excel</h3>
+      <button class="tl-paste-x" onclick="closePaste()">✕</button></div>
+    <div class="tl-paste-body">
+      <p style="font-size:11px;color:var(--ink-2);margin:0 0 8px">Copy rows from Excel <b>kèm dòng tiêu đề (header)</b> rồi Ctrl+V vào ô bên dưới. Dữ liệu sẽ <b>thay thế toàn bộ</b> sub-tab hiện tại.<br>Cột "Safe Fill (T)" (nếu có) sẽ tự bỏ qua vì được tính từ Cap.</p>
+      <textarea id="pasteArea" placeholder="Ctrl+V dữ liệu Excel vào đây… (gồm cả dòng tiêu đề)"></textarea>
+    </div>
+    <div class="tl-paste-foot">
+      <button class="btn" onclick="closePaste()">Cancel</button>
+      <button class="btn btn-green" onclick="doPaste()">📥 Import</button>
     </div>
   </div>
 </div>

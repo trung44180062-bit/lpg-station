@@ -213,30 +213,12 @@ const SC = (function(){
     });
   }
 
-  /* ---- first run: if FB has nothing AND cache has nothing → seed ---- */
-  function seedIfEmpty(){
-    FB.ref('fleet_').once('value').then(s=>{
-      if(s.exists()) return; // FB has data — child_added will fill us
-      // FB empty AND we have no cache → push sample
-      if(Object.keys(DATA.tanklorry).length===0){
-        const batch=[];
-        FLEET_TABS.forEach(tab=>{
-          (SAMPLE_ARR[tab]||[]).forEach(r=>{
-            const rid = newRid();
-            DATA[tab][rid] = { _rid:rid, ...r };
-            // build individual field changes for audit clarity
-            Object.entries(DATA[tab][rid]).forEach(([k,v])=>{
-              if(k==='_rid') return;
-              batch.push({ tab, rid, field:k, value:v });
-            });
-          });
-        });
-        applyAndPush(batch, 'seed');
-        if(curTab) rebuildTableData();
-        buildFleetSubs();
-      }
-    });
-  }
+  /* ---- auto-seed REMOVED (v4.x) ----
+     Firebase is the single source of truth. The app must NEVER push sample
+     data up. If Firebase is empty, the fleet stays empty (the reconcile step
+     in attachListeners() prunes any stale local/cached rows to match FB).
+     Kept as a no-op so any stray caller doesn't throw. */
+  function seedIfEmpty(){ /* intentionally does nothing */ }
 
   /* ---- public API ---- */
   return {
@@ -335,7 +317,7 @@ const SC = (function(){
 
         attachListeners();
         attachAuditListener();
-        seedIfEmpty();
+        /* NOTE: auto-seed intentionally NOT called — Firebase is authoritative. */
       }catch(e){ console.error('FB init',e); setLed(false,'FB ERROR'); }
     },
     getAuditFor,

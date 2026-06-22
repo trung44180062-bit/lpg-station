@@ -241,15 +241,23 @@ window.AUTH = (function () {
       return;
     }
     // THAT (P6): Email/Mat khau + whitelist. Chua dang nhap -> overlay, KHONG boot app.
-    firebase.auth().onAuthStateChanged(function (user) {
-      if (!user) { applyRole('viewer', 'Khach', '', ''); showLogin(); return; }
-      lookupWhitelist(user.email).then(function (wl) {
-        if (!wl || wl.active !== true) { showBlocked(user.email); return; }
-        hideOverlay();
-        applyRole(wl.role || 'viewer', wl.name || user.displayName, user.email, user.uid);
-        ready(window.CURRENT_USER);
-      }).catch(function (e) { console.error('[AUTH] whitelist loi', e); showBlocked(user.email); });
-    });
+    // Persistence = NONE: phien dang nhap CHI giu trong bo nho trang hien tai.
+    // => Moi lan F5 / dong-mo lai trinh duyet deu PHAI dang nhap lai.
+    //    (Doi NONE -> SESSION neu muon giu trong cung tab khi F5; -> LOCAL neu muon nho lau dai.)
+    function _attach() {
+      firebase.auth().onAuthStateChanged(function (user) {
+        if (!user) { applyRole('viewer', 'Khach', '', ''); showLogin(); return; }
+        lookupWhitelist(user.email).then(function (wl) {
+          if (!wl || wl.active !== true) { showBlocked(user.email); return; }
+          hideOverlay();
+          applyRole(wl.role || 'viewer', wl.name || user.displayName, user.email, user.uid);
+          ready(window.CURRENT_USER);
+        }).catch(function (e) { console.error('[AUTH] whitelist loi', e); showBlocked(user.email); });
+      });
+    }
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.NONE)
+      .catch(function (e) { console.warn('[AUTH] setPersistence loi', e); })
+      .then(_attach);
   }
 
   // Bat che do dev ngay khi nap (de app chay duoc truoc khi P6 bat auth that).

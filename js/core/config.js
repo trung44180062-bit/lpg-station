@@ -68,35 +68,10 @@ function newRid(){
   return Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 }
 
-/* sample seed (only used if Firebase + localStorage both empty) */
-const SAMPLE_ARR={
-  tanklorry:[
-    {stt:1,plate:'72C-10742',cap:31.70,tankInspect:'21/05/26',periodical:'06/05/26',chemTransport:'10/06/26',insurance:'30/06/26',safetyValve:'21/05/26',pressureGauge:'31/05/26',tempGauge:'31/05/26',remark:''},
-    {stt:2,plate:'72C-07468',cap:24.46,tankInspect:'29/01/26',periodical:'09/01/26',chemTransport:'23/07/26',insurance:'31/03/26',safetyValve:'05/11/25',pressureGauge:'31/01/26',tempGauge:'01/11/25',remark:''},
-    {stt:3,plate:'72H-06161',cap:35.25,tankInspect:'05/04/27',periodical:'19/09/26',chemTransport:'03/04/27',insurance:'07/10/26',safetyValve:'09/04/27',pressureGauge:'30/04/27',tempGauge:'09/04/27',remark:''},
-    {stt:4,plate:'61H-06814',cap:29.34,tankInspect:'21/01/28',periodical:'27/05/26',chemTransport:'10/12/26',insurance:'11/12/26',safetyValve:'21/01/27',pressureGauge:'31/01/27',tempGauge:'31/01/27',remark:''},
-    {stt:5,plate:'51D-42130',cap:24.00,tankInspect:'17/12/27',periodical:'03/11/26',chemTransport:'25/06/27',insurance:'22/09/26',safetyValve:'17/12/26',pressureGauge:'31/12/26',tempGauge:'31/12/26',remark:'P'}
-  ],
-  tractor:[
-    {stt:1,plate:'70C-04755',periodical:'23/09/26',chemTransport:'11/09/26',insurance:'07/07/26',remark:'P'},
-    {stt:2,plate:'43C-17735',periodical:'09/11/24',chemTransport:'09/11/24',insurance:'31/01/25',remark:'P'},
-    {stt:3,plate:'50LD-19813',periodical:'28/07/26',chemTransport:'19/09/26',insurance:'21/10/26',remark:'P'}
-  ],
-  rmooc:[
-    {stt:1,plate:'70R-00645',cap:43.00,tankInspect:'18/03/27',periodical:'12/11/26',chemTransport:'19/11/27',safetyValve:'20/10/26',pressureGauge:'31/10/26',tempGauge:'20/10/26',remark:'P'},
-    {stt:2,plate:'43R-01664',cap:56.10,tankInspect:'05/04/26',periodical:'09/05/25',chemTransport:'09/11/24',safetyValve:'05/04/25',pressureGauge:'30/04/25',tempGauge:'30/04/25',remark:'P'}
-  ],
-  driver:[
-    {stt:1,name:'Lê Thành Công',phone:'0933 174 285',license:'25/10/26',fireSafety:'22/10/26',hazmat:'17/03/25',remark:''},
-    {stt:2,name:'Lưu Văn Đạt',phone:'0983 484 059',license:'25/09/28',fireSafety:'22/10/26',hazmat:'10/03/27',remark:''},
-    {stt:3,name:'Nguyễn Hùng Anh',phone:'0933 254 755',license:'11/09/29',fireSafety:'01/09/27',hazmat:'04/03/27',remark:''}
-  ],
-  twavg:[
-    {stt:1,truck:'15C-12556',rmooc:'',avgWt:19050,remark:''},
-    {stt:2,truck:'15C-27584',rmooc:'29R-50975',avgWt:24210,remark:''},
-    {stt:3,truck:'15C-27704',rmooc:'29R-50303',avgWt:23740,remark:''}
-  ]
-};
+/* sample seed — EMPTIED (v4.x). Auto-seeding was removed so the app never
+   pushes demo data to Firebase. Firebase is the single source of truth.
+   Kept as an empty structure only so any legacy reference stays valid. */
+const SAMPLE_ARR={ tanklorry:[], tractor:[], rmooc:[], driver:[], twavg:[] };
 
 /* ============================================================
    FIREBASE config
