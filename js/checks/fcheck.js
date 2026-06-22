@@ -98,9 +98,14 @@ const FCHECK = (function(){
     if(!def) return out;
     def.certs.forEach(function(c){
       var v = row[c.k];
-      if(!v) return;
-      var d = (typeof parseDate === 'function') ? parseDate(v) : null;
-      if(!d) return;
+      var d = (v && typeof parseDate === 'function') ? parseDate(v) : null;
+      /* v4.55.x — cert TRỐNG hoặc không đọc được ngày = THIẾU DỮ LIỆU.
+         Theo yêu cầu: gộp chung vào cảnh báo như cert hết hạn (cho mọi cert),
+         vẫn cho tiếp tục, chỉ cảnh báo. */
+      if(!v || !d){
+        out.push({ vehicle: vehicleLabel, subject: subjectKey, cert: c.name, expired: '', missing: true });
+        return;
+      }
       d.setHours(0,0,0,0);
       if(d < checkDate){
         out.push({ vehicle: vehicleLabel, subject: subjectKey, cert: c.name, expired: v });
@@ -167,11 +172,11 @@ const FCHECK = (function(){
     expired.forEach(function(w){
       var k = w.subject || w.vehicle;
       if(!bySubj[k]) bySubj[k] = [];
-      bySubj[k].push(w.cert);
+      bySubj[k].push(w.cert + (w.missing ? ' (thiếu)' : ''));
     });
     var parts = [];
     for(var k in bySubj){ parts.push(k + ': ' + bySubj[k].join(', ')); }
-    return 'Expired: ' + parts.join(' | ');
+    return 'Expired/Missing: ' + parts.join(' | ');
   }
 
   function esc(s){
