@@ -2422,6 +2422,9 @@ function _makePlanModule(opts){
     getEffectiveStatus,   /* v4.22.7 — RAM-only status check (TL.ROWS + DB_SC.stations).
                               Used by SCALE.scShowResults to gray out done/cancel orders
                               and by scAssignToStation as a defense-in-depth race guard. */
+    getEffectiveActual,   /* RAM-only ACTUAL loaded (kg) for a row from TL weights.
+                              Dùng cho PLAN card donut (SCALE._updateRow1) để LOADED
+                              lấy ĐÚNG khối lượng cân thực, không dùng plan qty. */
     get table(){ return table; },
     get PLAN(){ return PLAN; },
     get planDate(){ return planDate; },

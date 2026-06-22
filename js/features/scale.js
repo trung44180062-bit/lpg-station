@@ -362,11 +362,19 @@ const SCALE = (function(){
        loading a truck not represented in today's plan). Their station.qty
        (operator-typed in-progress volume) is added to LOADED so the figure
        includes every truck physically loading at this moment. */
+    /* v4.55.x — KHỚP logic với Customer Ledger (đúng số liệu):
+       • PLAN  = Σ qty (CHỈ trường qty, KHÔNG fallback contractQty — contractQty là
+                 cả hợp đồng, dùng nó sẽ thổi phồng PLAN) của đơn KHÔNG cancel.
+       • LOADED= Σ khối lượng cân THỰC (TL) cho đơn 'done' (đổi kg→MT), thiếu thì
+                 dùng qty; cộng thêm qty trạm đang nạp (live) ở vòng 2 bên dưới.
+       Tránh các lỗi cũ: dùng plan qty thay vì cân thực, đếm cả đơn cancel. */
     let planTotalMt = 0, planDoneLoadMt = 0;
     const countedOids = new Set();
     const hasTP = (typeof TP !== 'undefined' && TP.PLAN);
     const getEff = (hasTP && typeof TP.getEffectiveStatus === 'function')
       ? TP.getEffectiveStatus : null;
+    const getAct = (hasTP && typeof TP.getEffectiveActual === 'function')
+      ? TP.getEffectiveActual : null;
     let planRowCount = 0;
     if(hasTP){
       const d = new Date(), p = n => String(n).padStart(2,'0');
@@ -374,17 +382,19 @@ const SCALE = (function(){
       Object.values(TP.PLAN).forEach(r => {
         const fd = String(r._forDate || '').trim();
         if(fd && fd !== today) return;                       /* today's plan only */
-        const qty = parseFloat(r.qty || r.contractQty || 0) || 0;
+        const qty = parseFloat(r.qty || 0) || 0;             /* qty only — no contractQty */
         if(qty <= 0) return;
+        const st = getEff ? String(getEff(r)||'').toLowerCase() : String(r._status||'').toLowerCase();
+        if(st === 'cancel') return;                          /* đơn huỷ: bỏ khỏi mọi tổng */
         planRowCount++;
         planTotalMt += qty;
-        const st = getEff ? String(getEff(r)||'').toLowerCase() : String(r._status||'').toLowerCase();
-        if(st === 'done' || st === 'loading'){
-          planDoneLoadMt += qty;
-          /* remember this plan's _oid so the station pass doesn't double-count it */
+        if(st === 'done'){
+          const akg = getAct ? parseFloat(getAct(r)) : NaN;  /* khối lượng cân thực (kg) */
+          planDoneLoadMt += (isFinite(akg) && akg > 0) ? akg/1000 : qty;
           const oid = String(r._oid||'').trim();
-          if(oid) countedOids.add(oid);
+          if(oid) countedOids.add(oid);                      /* tránh trạm đếm trùng */
         }
+        /* 'loading' KHÔNG cộng ở đây — vòng 2 cộng qty trạm đang nạp (live) */
       });
     }
     /* v4.22.17 — Station-level second pass: add qty for any station currently
@@ -405,7 +415,7 @@ const SCALE = (function(){
         });
       }
     }catch(_){}
-    const planRemainMt = planTotalMt - planDoneLoadMt;
+    const planRemainMt = Math.max(0, planTotalMt - planDoneLoadMt);
     const fmtMt = v => v > 0
       ? (Math.round(v * 10) / 10).toFixed(1)
       : (planRowCount > 0 ? '0' : '—');
@@ -2646,16 +2656,3 @@ const SCALE = (function(){
     _scWaitBackFromStation, _scWaitInit, _scWaitPositionRes
   };
 })();
-
-
-
-
-
-
-/* ============================================================
-   FLEET / CERT CHECK MODULE  (ported from V406)
-   RAM-only: reads global DATA + TP.PLAN, never writes Firebase.
-   - Paste warning: run after Today Plan paste is applied, show overlay.
-   - Assign warning: run inside SCALE.scAssignToStation, show confirm().
-   Strings are English. No persistence of results.
-   ============================================================ */
