@@ -79,8 +79,7 @@ function cavToggle(id, btn){
 window.cavToggle = cavToggle;
 
 /* ============================================================
-   CURRENT USER  (placeholder — Auth wired in a later build)
-   When Firebase Auth is enabled, populate CURRENT_USER from
-   firebase.auth().currentUser and read /users_whitelist + /users_roles.
-   Until then, dev mode pretends "Dev User".
+   CURRENT USER — quản lý hoàn toàn trong js/core/auth.js.
+   CURRENT_USER được nạp từ firebase.auth().currentUser + /users_whitelist
+   (vai trò admin/editor/viewer). KHÔNG có chế độ dev / tài khoản mặc định.
    ============================================================ */

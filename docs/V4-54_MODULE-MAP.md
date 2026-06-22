@@ -214,3 +214,62 @@ Bổ sung đúng các ô input mà cột J (comment) trong `Cavern_SAP_WMS_FillM
 2. **Butane (C4)**: dùng lại collectors (đã gom cả c4) + bản đồ cột sheet Butane (58 cột).
 3. **Giá $/ton**: thêm ô user input + fallback giá ngày trước.
 4. **Xác nhận mapping D/E thực tế**: đọc legend "Phân loại" trong Preview để chốt giá trị `trade`/`shipToId` → chỉnh `_dir` nếu cần.
+
+---
+
+## 5. VLOG — IMPORT từ Excel (paste) — v4.55.x  ⬆
+> Tab **Eng ▸ 📋 Vessel Log**. Nút **⬆ IMPORT** mở modal `#vlogImpModal`.
+> **UI giống Tank Log** (class `.tl-paste-modal/.tl-paste-box` trong core.css) — KHÔNG dùng bảng preview lớn (đã bỏ vì bể layout).
+> Nguồn tham chiếu cấu trúc cột: **`VesselLog_2026-06-22.xlsx`** (sheet "Vessel Log", **44 cột**, A1:AR).
+
+### 5.1 Luồng (Tank-Log style)
+Paste TSV (Ctrl+V) vào `#vlogImpArea` → 1 nút **⬆ Import** gọi `VLOG.doImport()`: parse → `pushEntry` từng dòng → đóng modal →
+hiện popup tóm tắt nhỏ `#vlogImpDiffModal` ("✅ Added N row(s)"). Paste rỗng → `#vlogImpInfo` báo "⚠ No data found".
+**1 dòng paste = 1 entry VLOG** (`pushEntry` → RAM + 1 child Firebase `/vessel_mix_log`). Helper parse thuần: `_parseRows()`.
+- **Tự nhận header**: nếu dòng đầu chuẩn hoá (lowercase, bỏ ký tự không phải a-z0-9) chứa `lot` **và** `tank` → map theo **tên cột**; nếu không → dùng **thứ tự cột cố định** `IMP_ORDER` (đúng layout Excel).
+- **Trùng lặp = giữ tất cả** (thêm mới, theo yêu cầu user 2026-06-22). Không skip/overwrite.
+- **Ngày → DD/MM/YY** qua `normalizeDate`. `_impDate` sửa lỗi gõ **YYYY-DD-MM** (phần giữa > 12) trước khi chuẩn hoá: `2026-17-06`→`17/06/26`. ⚠️ Trường hợp cả hai ≤12 vẫn nhập nhằng (vd `2026-12-06`→`06/12/26` thay vì 12/06) — user phải soát ở Preview.
+
+### 5.2 Bản đồ cột Excel → field entry VLOG  (`IMP_MAP` trong vlog.js)
+| # | Cột Excel | field | | # | Cột Excel | field |
+|---|---|---|---|---|---|---|
+| 0 | No | *(bỏ)* | | 22–28 | T1 C3H8/i-C4/n-C4/1.3BD/C5+/Ole/Dens | `gc.prop/ibut/nbut/buta/c5/ole`, `labdens` |
+| 1 | Lot | `lot` | | 29–37 | T2 CH4…Dens | `gc2.*`, `labdens2` |
+| 2 | Tank | `tank` | | 38 | FQ C3 | `c3fq` |
+| 3 | Ship | `ship` | | 39 | FQ C4 | `c4fq` |
+| 4 | Customer | `customer` | | 40 | Odo T1 | `odoTk1` |
+| 5 | Date | `date` (chuẩn hoá) | | 41 | Odo T2 | `odoTk2` |
+| 6/7 | Start/Finish | `tStart`/`tEnd` | | 42 | Quality | `quality` |
+| 8 | Qty | `qty` (+`cTotal`) | | 43 | Remark | `remark` |
+| 9/10 | %Vol C3/C4 | `volC3`/`volC4` | | | | |
+| 11 | LPG Mix | `lpgMixQty` (+`lpgWt` nếu trống) | | | | |
+| 12/13/14 | Tgt/Min/Max | `targetC3`/`minC3`/`maxC3` | | | | |
+| 15/16 | %Wt C3/C4 | `wtC3`/`wtC4` | | | | |
+| 17/18/19 | C3 Wt/C4 Wt/LPG Wt | `stC3`/`stC4`/`lpgWt` | | 20/21 | T1 CH4/C2H6 | `gc.meth`/`gc.eth` |
+
+- `type` tự suy từ chữ giữa lot: `LPG-2026-S-25`→`'S'` (regex `-([A-Za-z])-`).
+- **GC giữ nguyên T1→`gc`, T2→`gc2`** (không gán theo số tank); bảo toàn dữ liệu thô cho module export/edit/GC view sau.
+- Số: bỏ dấu phẩy, `parseFloat`; ô trống → bỏ field. Text: lot/tank/ship/customer/date/start/finish/quality/remark.
+
+### 5.3 API VLOG mới
+`openImport()`, `closeImport()`, `doImport()` (đã export trong return). Không còn state preview.
+Helper: `_normHdr`, `_impNum`, `_impDate`, `_setPath`, `_rowToEntry`, `_parseRows`. Audit: `eng:vessel_log:import`.
+UI: `index.html` toolbar nút ⬆ IMPORT + 2 modal `#vlogImpModal` (paste) & `#vlogImpDiffModal` (summary) — đều style `.tl-paste-*`.
+
+---
+
+## 6. INV — Export tách C3/C4 (sửa lọc EXPORT + chọn dòng) — v4.55.x
+> Modal `#invExportModal`, mở từ tab **Inventory** nút "📋 Export C3/C4 split" → `INV.openExport()`. Code: `inv.js` `_renderExport`.
+
+### 6.1 Bug đã sửa: chỉ tính khách EXPORT
+Trước đây `_renderExport` lấy **mọi** xe TL hôm nay của tank (chỉ lọc ngày + tank), gồm cả **domestic**. Đã thêm bộ lọc
+`_isExport(r)` → `/EX|EXPORT|수출|XK|XUAT/` test trên `r.trade` (+ `dest`/`cust` fallback). **Domestic bị loại.**
+- Nguồn chân lý: `scale.js` set `r.trade = isExport ? 'Export' : 'Domestic'` với `isExport = /export/i.test(custFull)`
+  (tên khách trong plan có chữ "export"). `_isExport` của INV mirror đúng logic này + `CAV._dir`.
+
+### 6.2 Tính năng mới: chọn/bỏ chọn dòng để tính tổng
+- State: `_exportRows[]` (`{doNo,cust,lpg,c3,c4,sel}`), `_exportMeta{sloc,pctC3,dmy}`.
+- Mỗi dòng có checkbox + click cả dòng để toggle; header có ô "select all" `#invExportAll` (có trạng thái indeterminate).
+- `_recalcExport()` tính lại 4 ô tổng (SỐ XE hiện "n / N" khi lọc bớt) + TSV copy **chỉ từ dòng được chọn**.
+- API thêm: `toggleExportRow(i)`, `toggleExportAll(on)`. CSS: `inventory.css` `.inv-export-row.off`, `td.pick`.
+- Lưu ý: `_renderExport` không còn dùng biến `ds()` thừa. Đã bỏ khối comment SCHEDULER mồ côi (unterminated) ở cuối `inv.js` — scheduler thật nằm trong `boot.js`.

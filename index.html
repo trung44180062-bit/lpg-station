@@ -33,8 +33,8 @@
     <div class="nav-right">
       <div class="fb-status" id="fbStatus" title="Firebase activity (hover for breakdown)"><span class="fb-led off" id="fbLed"></span><span id="fbTxt">LOCAL</span><span class="fb-counts" id="fbCounts"></span></div>
       <button class="nav-icobtn" title="Settings">⚙</button>
-      <div class="nav-user"><div class="avatar">D</div>
-        <div><div class="uname">Dev User</div><div class="urole">Developer</div></div></div>
+      <div class="nav-user"><div class="avatar">–</div>
+        <div><div class="uname">—</div><div class="urole">—</div></div></div>
       <div class="nav-clock"><div class="t" id="clk">--:--:--</div><div class="d" id="dat">—</div></div>
     </div>
   </nav>
@@ -1985,6 +1985,7 @@
           <input type="text" id="vlog-q-wt"  class="vsmix-inp vslog-search-tight" placeholder="🔍 %Wt C3"
             oninput="VLOG.render()" inputmode="decimal">
           <span class="vslog-stats" id="vlog-stats">—</span>
+          <button type="button" class="vsmix-act-btn vsmix-act-vessel" onclick="VLOG.openImport()" title="Import rows by pasting from the Vessel Log Excel">⬆ IMPORT</button>
           <button type="button" class="vsmix-act-btn vsmix-act-density" onclick="VLOG.exportCsv()" title="Export visible rows to CSV">⬇ EXPORT</button>
           <button type="button" class="vsmix-act-btn vsmix-act-reset" onclick="VLOG.rangeDelete()" title="Delete rows by date range (downloads a CSV backup first)">🗑 Range delete</button>
         </div>
@@ -2022,6 +2023,33 @@
           </table>
         </div>
 
+      </div>
+    </div>
+
+    <!-- ═══ VESSEL LOG — IMPORT (paste from Excel) — Tank-Log style ═══ -->
+    <div class="tl-paste-modal" id="vlogImpModal">
+      <div class="tl-paste-box">
+        <div class="tl-paste-hdr"><h3>⬆ Import Vessel Log — Paste from Excel</h3>
+          <button class="tl-paste-x" onclick="VLOG.closeImport()">✕</button></div>
+        <div class="tl-paste-body">
+          <textarea id="vlogImpArea" placeholder="Paste rows from the Vessel Log Excel here (Ctrl+V)…&#10;Columns: No · Lot · Tank · Ship · Customer · Date · Start · Finish · Qty · %Vol C3/C4 · LPG Mix · Tgt/Min/Max · %Wt C3/C4 · C3/C4/LPG Wt · T1(CH4…Dens) · T2(CH4…Dens) · FQ C3/C4 · Odo T1/T2 · Quality · Remark&#10;Header row optional · dates → DD/MM/YY · duplicate rows kept"></textarea>
+        </div>
+        <div class="tl-paste-foot">
+          <span class="tl-paste-info" id="vlogImpInfo"></span>
+          <button class="btn" onclick="VLOG.closeImport()">Cancel</button>
+          <button class="btn btn-green" onclick="VLOG.doImport()">⬆ Import</button>
+        </div>
+      </div>
+    </div>
+    <!-- Vessel Log import summary -->
+    <div class="tl-paste-modal" id="vlogImpDiffModal">
+      <div class="tl-paste-box" style="max-width:440px">
+        <div class="tl-paste-hdr"><h3>⬆ Vessel Log Import Summary</h3>
+          <button class="tl-paste-x" onclick="document.getElementById('vlogImpDiffModal').classList.remove('on')">✕</button></div>
+        <div class="tl-paste-body" id="vlogImpDiffBody" style="font-size:13px;line-height:1.8"></div>
+        <div class="tl-paste-foot">
+          <button class="btn btn-green" onclick="document.getElementById('vlogImpDiffModal').classList.remove('on')">OK</button>
+        </div>
       </div>
     </div>
 
@@ -2525,9 +2553,10 @@
         </div>
       </div>
       <div class="inv-export-sum" id="invExportSum"></div>
+      <p class="inv-hint" style="margin:0 0 6px">Chỉ gồm khách <b>EXPORT</b> (tên khách có chữ "Export"). Bấm vào dòng hoặc ô tick để chọn/bỏ chọn xe tính tổng.</p>
       <div class="inv-hist-scroll">
         <table class="inv-export-tbl">
-          <thead><tr><th>DO No.</th><th>Customer</th><th>Net (kg)</th><th>C3 (kg)</th><th>C4 (kg)</th></tr></thead>
+          <thead><tr><th class="pick"><input type="checkbox" id="invExportAll" checked onclick="INV.toggleExportAll(this.checked)" title="Chọn / bỏ chọn tất cả"></th><th>DO No.</th><th>Customer</th><th>Net (kg)</th><th>C3 (kg)</th><th>C4 (kg)</th></tr></thead>
           <tbody id="invExportBody"></tbody>
         </table>
       </div>

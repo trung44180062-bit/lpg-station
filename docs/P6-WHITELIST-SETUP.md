@@ -11,8 +11,8 @@
 Trạng thái wiring (đã kiểm 2026-06-20):
 - `index.html` đã nạp `firebase-auth-compat.js` (dòng ~2926) ✓
 - `firebaseConfig` (config.js): project `hsvc-lpg-station`, RTDB `asia-southeast1` ✓
-- `auth.js` có sẵn: `MATRIX` quyền, `emailKey()`, `lookupWhitelist()`, `login()/logout()`,
-  `onAuthStateChanged`. Đang để **DEV = admin** (dòng `applyRole('admin',...)`).
+- `auth.js`: `MATRIX` quyền, `emailKey()`, `lookupWhitelist()`, `login()/logout()`,
+  `onAuthStateChanged`. **Đăng nhập BẮT BUỘC** — đã gỡ DEV/admin mặc định (mặc định = viewer khách, `canWrite=false`).
 
 ---
 
@@ -46,16 +46,19 @@ Trạng thái wiring (đã kiểm 2026-06-20):
    > Lưu ý: trong RTDB rules, `.replace('.', ',')` thay **mọi** dấu `.` (khớp `emailKey` ở client).
    > `apiKey` công khai trong source là **bình thường** (Firebase thiết kế vậy); an toàn đến từ Rules + Auth.
 
-## B4 · Bật cờ trong code (LÀM SAU CÙNG)
-Trong `js/core/auth.js`, đổi 1 dòng:
-```js
-var AUTH_ENFORCE = false;   // ⇦ đổi thành true để bật đăng nhập thật
-```
-- `false` (mặc định): giữ DEV = admin, app chạy ngay, KHÔNG cần đăng nhập (dùng khi đang phát triển).
-- `true`: kích hoạt `onAuthStateChanged` → chưa đăng nhập thì hiện màn **Đăng nhập Google**;
-  email không có trong whitelist (hoặc `active:false`) → màn **Bị chặn** + tự đăng xuất.
+## B4 · Đăng nhập LUÔN bật — không còn công tắc, không còn dev/admin mặc định
+> **Cập nhật bảo mật:** đã **gỡ bỏ** công tắc `AUTH_ENFORCE` và mọi tài khoản dev/admin nhúng cứng.
+> Đăng nhập Firebase nay **bắt buộc** ở mọi lúc; không có cửa hậu trong mã nguồn.
 
-Commit + push. Mở qua GitHub Pages (domain đã Authorize ở B1).
+Hành vi hiện tại của `js/core/auth.js`:
+- Khi nạp: `CURRENT_USER` mặc định = **viewer khách, không danh tính, không quyền ghi** (`canWrite()` luôn `false`).
+- `AUTH.init()` (gọi trong boot) **luôn** chạy `onAuthStateChanged`:
+  - Chưa đăng nhập → hiện màn **Đăng nhập** (Email/Mật khẩu), app **KHÔNG** boot.
+  - Đăng nhập xong nhưng email không có trong whitelist (hoặc `active:false`) → màn **Bị chặn** + nút Đăng xuất.
+  - Hợp lệ → nạp `role` (admin/editor/viewer) từ `/users_whitelist` rồi mới boot các module.
+- **FAIL CLOSED:** nếu thư viện `firebase-auth` không nạp được → **chặn truy cập**, tuyệt đối không cấp quyền.
+
+Vai trò `admin` vẫn tồn tại nhưng **chỉ** được gán qua `/users_whitelist` trên Firebase — không có tài khoản admin nào trong code.
 
 ---
 
@@ -63,14 +66,5 @@ Commit + push. Mở qua GitHub Pages (domain đã Authorize ở B1).
 - [ ] Đăng nhập bằng email admin → vào được, nút ghi hiện đủ.
 - [ ] Đăng nhập email KHÔNG trong whitelist → bị chặn.
 - [ ] Email `viewer` → vào xem được nhưng nút ghi bị ẩn (canWrite=false).
-- [ ] Mở DevTools thử `firebase.database().ref('/raw_data').set(...)` bằng tài khoản
-      ngoài whitelist → **Rules chặn** (PERMISSION_DENIED). Đây là khoá thật.
-
-## Lỡ tự khoá mình ra ngoài?
-- Vẫn sửa được whitelist qua **Firebase Console** (không qua app): thêm lại email mình
-  với `active:true, role:admin`. Hoặc tạm sửa Rules về `".read"/".write": "auth != null"`
-  để gỡ, rồi dựng lại whitelist.
-
-## Tham chiếu
-- Thiết kế chi tiết & ma trận quyền: `PLAN-TACH-MODULE.md` §7.
-- Rules deploy: `../firebase.rules.json`. Whitelist mẫu: `users_whitelist.sample.json`.
+- [ ] Mở DevTools → Console: gõ `canWrite("scale")` — viewer trả `false`, editor/admin trả `true`.
+- [ ] Chặn `firebase-auth-compat.js` (mạng) → app phải **bị chặn**, KHÔNG vào được (fail closed).

@@ -2,9 +2,9 @@
  * AUTH  —  auth.js   ★ MODULE MỚI (whitelist + roles + login)
  * ------------------------------------------------------------
  * Đây là nơi DUY NHẤT chứa logic người dùng / phân quyền.
- * Gốc trong V4-54: CURRENT_USER (dòng 8790) + canWrite() (dòng 8798)
- *   — hiện đang ở chế độ "dev" (luôn cho ghi). canWrite() đã được
- *   gọi 28 lần khắp app ⇒ chỉ cần SỬA Ở ĐÂY là khoá được toàn bộ.
+ * Gốc trong V4-54: CURRENT_USER (dòng 8790) + canWrite() (dòng 8798).
+ *   Đăng nhập BẮT BUỘC qua Firebase Auth — KHÔNG có chế độ dev / tài khoản
+ *   mặc định. canWrite() được gọi khắp app ⇒ chỉ cần SỬA Ở ĐÂY là khoá toàn bộ.
  *
  * Global xuất ra : window.CURRENT_USER, window.canWrite, window.AUTH
  * Phase tách     : P2 (core) — bật thật ở P6
@@ -20,20 +20,20 @@
  *   - apiKey trong firebaseConfig là CÔNG KHAI theo thiết kế — commit được.
  *   - canWrite() phía client CHỈ ẩn nút. KHÓA THẬT đặt ở Firebase Security Rules
  *     (xem docs/PLAN-TACH-MODULE.md §7 + docs/P6-WHITELIST-SETUP.md).
- *   - CÔNG TẮC bật auth thật: var AUTH_ENFORCE (ngay dưới).
+ *   - Đăng nhập luôn bật; không có công tắc tắt auth, không có cửa hậu.
  * ============================================================ */
 window.AUTH = (function () {
   'use strict';
 
-  // ⇩ CÔNG TẮC P6: false = DEV (admin, KHÔNG cần đăng nhập, kể cả khi đã nạp
-  //   firebase-auth-compat). true = bật đăng nhập Email/Mật khẩu + whitelist THẬT.
-  //   CHỈ đổi sang true SAU KHI đã cấu hình Console + Rules. Xem docs/P6-WHITELIST-SETUP.md.
-  var AUTH_ENFORCE = true;
+  // ⚠ KHÔNG CÓ CHẾ ĐỘ DEV / KHÔNG CÓ TÀI KHOẢN MẶC ĐỊNH.
+  //   Đăng nhập LUÔN bắt buộc qua Firebase Auth (Email/Mật khẩu) + whitelist.
+  //   Vai trò (admin/editor/viewer) CHỈ đến từ /users_whitelist trên Firebase,
+  //   không có tài khoản admin/dev nào nhúng cứng trong mã nguồn.
 
   // Bảng phân quyền: vai trò nào được ghi vùng nào. CHỈNH Ở ĐÂY.
   var MATRIX = {
     admin:  '*',                                   // ghi mọi vùng
-    editor: ['plan_today','plan_tomorrow','scale','cavern','vlog','raw_data'],
+    editor: '*',                                   // ghi mọi vùng — hiện editor = admin (mọi tab)
     viewer: []                                     // chỉ xem
   };
 
@@ -43,6 +43,20 @@ window.AUTH = (function () {
 
   function applyRole(role, name, email, uid) {
     window.CURRENT_USER = { uid: uid || '', name: name || email || '', email: email || '', role: role || 'viewer' };
+    _paintUser();
+  }
+
+  // Cap nhat goc nguoi dung tren thanh nav tu CURRENT_USER (khong con hardcode "Dev User").
+  var ROLE_LABEL = { admin: 'Administrator', editor: 'Editor', viewer: 'Viewer' };
+  function _paintUser() {
+    var u = window.CURRENT_USER || {};
+    var nm = document.querySelector('.nav-user .uname');
+    var rl = document.querySelector('.nav-user .urole');
+    var av = document.querySelector('.nav-user .avatar');
+    var name = u.name || u.email || '—';
+    if (nm) nm.textContent = name;
+    if (rl) rl.textContent = u.email ? (ROLE_LABEL[u.role] || u.role || 'Viewer') : '—';
+    if (av) av.textContent = (name && name !== '—') ? name.trim().charAt(0).toUpperCase() : '–';
   }
 
   // canWrite(area) — cổng trung tâm MỌI lệnh ghi phải đi qua (giữ nguyên chữ ký cũ).
@@ -234,13 +248,15 @@ window.AUTH = (function () {
     var _done = false;
     function ready(u) { if (_done) return; _done = true; if (onReady) onReady(u); }
 
-    // DEV (AUTH_ENFORCE=false) hoac chua nap firebase-auth: luon admin, boot ngay.
-    if (!AUTH_ENFORCE || !firebase.auth) {
-      applyRole('admin', 'Dev User', 'dev@local', 'dev');
-      ready(window.CURRENT_USER);
+    // FAIL CLOSED: neu thu vien firebase-auth khong nap duoc thi CHAN truy cap,
+    // TUYET DOI khong cap quyen mac dinh. (Khong con cua hau dev/admin.)
+    if (typeof firebase === 'undefined' || !firebase.auth) {
+      _overlay('<div style="font-size:19px;font-weight:800;color:#b91c1c;margin-bottom:8px">He thong xac thuc chua san sang</div>'
+        + '<div style="color:#475569;line-height:1.6">Khong nap duoc module dang nhap Firebase. Vui long tai lai trang.<br>Neu van loi, kiem tra ket noi mang / lien he quan tri vien.</div>');
+      console.error('[AUTH] firebase-auth chua san sang — CHAN truy cap (fail closed).');
       return;
     }
-    // THAT (P6): Email/Mat khau + whitelist. Chua dang nhap -> overlay, KHONG boot app.
+    // BAT BUOC: Email/Mat khau + whitelist. Chua dang nhap -> overlay, KHONG boot app.
     // Persistence = NONE: phien dang nhap CHI giu trong bo nho trang hien tai.
     // => Moi lan F5 / dong-mo lai trinh duyet deu PHAI dang nhap lai.
     //    (Doi NONE -> SESSION neu muon giu trong cung tab khi F5; -> LOCAL neu muon nho lau dai.)
@@ -260,8 +276,10 @@ window.AUTH = (function () {
       .then(_attach);
   }
 
-  // Bat che do dev ngay khi nap (de app chay duoc truoc khi P6 bat auth that).
-  applyRole('admin', 'Dev User', 'dev@local', 'dev');
+  // Mac dinh KHACH: viewer, khong danh tinh, KHONG quyen ghi (MATRIX.viewer = []).
+  // canWrite() se tra ve false cho moi vung cho toi khi dang nhap Firebase thanh cong.
+  // KHONG con tai khoan admin/dev mac dinh.
+  applyRole('viewer', '', '', '');
   window.canWrite = canWrite;   // giu canWrite() la global nhu V4-54
 
   return { init: init, login: login, logout: logout, canWrite: canWrite,

@@ -1,3 +1,10 @@
 /* inventory.css — INV/TKV tank UI.
    Nguồn: khối <style> trong lpg-station-v4_54_0-cavern-collapsible-sections.html (tách theo tiền tố selector).
    TODO[P1]: dán các quy tắc CSS tương ứng vào đây. */
+
+/* ===== Export tách C3/C4 — row select/deselect ===== */
+.inv-export-tbl th.pick,.inv-export-tbl td.pick{width:30px;text-align:center;padding-left:4px;padding-right:4px}
+.inv-export-tbl td.pick input,.inv-export-tbl th.pick input{cursor:pointer;width:15px;height:15px}
+.inv-export-row{cursor:pointer}
+.inv-export-row.off td{opacity:.4;text-decoration:line-through}
+.inv-export-row.off td.pick{opacity:1;text-decoration:none}

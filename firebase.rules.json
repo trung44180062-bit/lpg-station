@@ -1,0 +1,17 @@
+// ============================================================
+//  HSVC LPG STATION — Realtime Database Rules (gon)
+//  • Chi user DA DANG NHAP + co trong /users_whitelist (active:true)
+//    moi DOC va GHI duoc. Khong co trong whitelist -> tu choi het (vang).
+//  • Danh sach whitelist chi sua tu Firebase Console (chong cua hau).
+// ============================================================
+{
+  "rules": {
+    ".read":  "auth != null && root.child('users_whitelist').child(auth.token.email.toLowerCase().replace('.', ',')).child('active').val() === true",
+
+    "users_whitelist": { ".write": false },
+
+    "$rest": {
+      ".write": "auth != null && root.child('users_whitelist').child(auth.token.email.toLowerCase().replace('.', ',')).child('active').val() === true"
+    }
+  }
+}

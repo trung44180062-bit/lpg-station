@@ -577,6 +577,17 @@ const INV = (function(){
      re-runs the calculation against TL.ROWS without closing the modal. */
   let _exportTSV = '';
   let _exportPick = '2100';
+  let _exportRows = [];                 // {doNo, cust, lpg, c3, c4, sel}
+  let _exportMeta = { sloc:'2100', pctC3:0, dmy:'' };
+
+  /* EXPORT detection — mirrors scale.js (trade = 'Export' when the customer
+     name contains "export") and CAV._dir. Domestic trucks are excluded.
+     Checks trade first (authoritative), then dest/cust as a fallback. */
+  function _isExport(r){
+    const t = (String(r.trade||'')+' '+String(r.dest||'')+' '+String(r.cust||'')).toUpperCase();
+    return /EX|EXPORT|수출|XK|XUAT/.test(t);
+  }
+
   function openExport(){
     _exportPick = sel;       // default to the tank shown in XFER card
     _setPick('invExportPick', _exportPick);
@@ -589,7 +600,6 @@ const INV = (function(){
     _renderExport(sloc);
   }
   function _renderExport(sloc){
-    const d=ds();
     const c=compute(sloc);
     const pctC3=(num(c.wtC3)||DEFAULT_WT)/100;
     const suffix = sloc==='2100' ? '3501' : '3502';
@@ -600,38 +610,77 @@ const INV = (function(){
         if(!r || r.disabled || !r.date) return;
         if(r.date!==dmy) return;
         if(!String(r.ltank||'').toUpperCase().includes(suffix)) return;
+        if(!_isExport(r)) return;                 // ⬅ EXPORT customers only (skip domestic)
         const lpg=num(r.lpgQty);
         if(lpg<=0) return;
-        rows.push({ doNo:String(r.doNo||'—'), cust:String(r.cust||''), lpg, c3:lpg*pctC3, c4:lpg*(1-pctC3) });
+        rows.push({ doNo:String(r.doNo||'—'), cust:String(r.cust||''), lpg, c3:lpg*pctC3, c4:lpg*(1-pctC3), sel:true });
       });
     }
     rows.sort((a,b)=>String(a.doNo).localeCompare(String(b.doNo),undefined,{numeric:true}));
-    const totLpg=rows.reduce((s,r)=>s+r.lpg,0);
-    const totC3 =rows.reduce((s,r)=>s+r.c3,0);
-    const totC4 =rows.reduce((s,r)=>s+r.c4,0);
-
+    _exportRows = rows;
+    _exportMeta = { sloc, pctC3, dmy };
     document.getElementById('invExportTitle').textContent='📋 Export tách C3/C4 · '+TKNAME[sloc]+' · '+dmy;
+    _renderExportBody();
+    _recalcExport();
+  }
+
+  /* render the per-truck rows with a select checkbox (click row or box to toggle) */
+  function _renderExportBody(){
+    const body=document.getElementById('invExportBody');
+    if(!body) return;
+    if(!_exportRows.length){
+      body.innerHTML='<tr><td colspan="6" class="inv-export-empty">No EXPORT trucks today from '+TKNAME[_exportMeta.sloc]+'</td></tr>';
+      return;
+    }
+    body.innerHTML=_exportRows.map((r,i)=>
+      '<tr class="inv-export-row'+(r.sel?'':' off')+'" onclick="INV.toggleExportRow('+i+')">'
+      +'<td class="pick"><input type="checkbox" '+(r.sel?'checked':'')+' onclick="event.stopPropagation();INV.toggleExportRow('+i+')"></td>'
+      +'<td>'+r.doNo+'</td><td>'+(r.cust||'—')+'</td><td>'+fmtKg(r.lpg)+'</td>'
+      +'<td class="c3">'+fmtKg(r.c3)+'</td><td class="c4">'+fmtKg(r.c4)+'</td></tr>').join('');
+  }
+
+  /* recompute totals + TSV from SELECTED rows only */
+  function _recalcExport(){
+    const pctC3=_exportMeta.pctC3||0;
+    const selRows=_exportRows.filter(r=>r.sel);
+    const totLpg=selRows.reduce((s,r)=>s+r.lpg,0);
+    const totC3 =selRows.reduce((s,r)=>s+r.c3,0);
+    const totC4 =selRows.reduce((s,r)=>s+r.c4,0);
     const sumEl=document.getElementById('invExportSum');
     if(sumEl){
+      const cntTxt = (_exportRows.length && selRows.length!==_exportRows.length)
+        ? selRows.length+' / '+_exportRows.length : String(selRows.length);
       sumEl.innerHTML=
-        '<div class="box"><span class="k">SỐ XE</span><span class="v">'+rows.length+'</span></div>'+
+        '<div class="box"><span class="k">SỐ XE</span><span class="v">'+cntTxt+'</span></div>'+
         '<div class="box"><span class="k">TỔNG LPG (kg)</span><span class="v lpg">'+fmtKg(totLpg)+'</span></div>'+
         '<div class="box"><span class="k">TỔNG C3 (kg)</span><span class="v c3">'+fmtKg(totC3)+'</span></div>'+
         '<div class="box"><span class="k">TỔNG C4 (kg)</span><span class="v c4">'+fmtKg(totC4)+'</span></div>';
     }
-    const body=document.getElementById('invExportBody');
-    if(body){
-      body.innerHTML = rows.length
-        ? rows.map(r=>'<tr><td>'+r.doNo+'</td><td>'+(r.cust||'—')+'</td><td>'+fmtKg(r.lpg)+'</td>'+
-            '<td class="c3">'+fmtKg(r.c3)+'</td><td class="c4">'+fmtKg(r.c4)+'</td></tr>').join('')
-        : '<tr><td colspan="5" class="inv-export-empty">No trucks exported today from '+TKNAME[sloc]+'</td></tr>';
+    /* keep the "select all" header box in sync */
+    const allBox=document.getElementById('invExportAll');
+    if(allBox){
+      allBox.checked = _exportRows.length>0 && selRows.length===_exportRows.length;
+      allBox.indeterminate = selRows.length>0 && selRows.length<_exportRows.length;
     }
-    /* TSV for clipboard: header + total + per-truck (split by entered %wt) */
+    /* TSV for clipboard: header + total + per-truck (selected only) */
     const lines=[['DO No.','Customer','Net_kg','C3_kg','C4_kg','%wtC3'].join('\t')];
-    lines.push(['TỔNG','('+rows.length+' xe)',Math.round(totLpg),Math.round(totC3),Math.round(totC4),+(pctC3*100).toFixed(1)].join('\t'));
-    rows.forEach(r=>lines.push([r.doNo,r.cust,Math.round(r.lpg),Math.round(r.c3),Math.round(r.c4),''].join('\t')));
+    lines.push(['TỔNG','('+selRows.length+' xe)',Math.round(totLpg),Math.round(totC3),Math.round(totC4),+(pctC3*100).toFixed(1)].join('\t'));
+    selRows.forEach(r=>lines.push([r.doNo,r.cust,Math.round(r.lpg),Math.round(r.c3),Math.round(r.c4),''].join('\t')));
     _exportTSV=lines.join('\n');
   }
+
+  function toggleExportRow(i){
+    if(!_exportRows[i]) return;
+    _exportRows[i].sel=!_exportRows[i].sel;
+    _renderExportBody();
+    _recalcExport();
+  }
+  function toggleExportAll(on){
+    _exportRows.forEach(r=>{ r.sel=!!on; });
+    _renderExportBody();
+    _recalcExport();
+  }
+
   function copyExport(){
     try{ navigator.clipboard.writeText(_exportTSV); toast('✓ TSV copied','ok'); }
     catch(_){ toast('Copy failed','er'); }
@@ -660,56 +709,6 @@ const INV = (function(){
            openCavern, pickCav, saveCavern,
            openXfer, pickXferFrom, saveXfer,
            openHistory, renderHist, delHist,
-           openExport, pickExport, copyExport, closeAll };
+           openExport, pickExport, copyExport, toggleExportRow, toggleExportAll, closeAll };
 })();
 window.INV = INV;
-
-/* ============================================================
-   STAGED INITIALIZATION SCHEDULER (v4.18.13)
-   ────────────────────────────────────────────────────────────
-   Spreads module init across multiple frames so the UI stays
-   responsive during cold start.
-
-   Previously every init() ran in the same JS task (parse
-   localStorage + attach Firebase listener × 12 modules) which
-   froze the page 5–7s before first paint.
-
-   Priority is tuned for the most common landing: Sales → Scale
-     P0 (sync, ~0ms)     : SC                  ← required by all (sets up FB app)
-     P0 (sync)           : navGo('sales')      ← paint UI shell immediately
-     P1 (next frame)     : SCALE, CT, PP       ← Scale subtab dependencies
-     P2 (idle ~80ms)     : SP, TL              ← supporting sales data
-     P3 (idle ~200ms)    : TP, TMR             ← plan tables (also lazy-built on demand)
-     P4 (idle ~400ms)    : WG, WS, ENG, MC,    ← other pages
-                           STAFF, Fleet subs
-
-   Notes
-     • SC.init() MUST be P0 because it calls firebase.initializeApp()
-       and every other module depends on firebase.database() being ready.
-     • PP.init() is scheduled after CT.init() in P1 because the Price
-       module references Customer data when rendering.
-     • Plan tables (TP/TMR) build their Tabulator instances lazily inside
-       navGo() the first time the user opens Sales → Plan; here we only
-       need to load their cache + attach FB listeners.
-     • Each step is wrapped in try/catch so one failing module never
-       breaks the chain.
-   ============================================================ */
-/* ============================================================
-   SCX2 — SCALE "OPERATIONS CONSOLE v2.1" (v4.36.1)
-   ------------------------------------------------------------
-   Layout module per the approved console mockup, revised after
-   on-site feedback (24" screenshots):
-   • NO pipe manifold (removed as visual noise).
-   • NO right rail — PLAN PROGRESS · QUEUE · EXPIRED CERTS sit in
-     one info row UNDER the 4 bays, so the yard has no dead space
-     and the layout stacks cleanly on 13" laptops.
-   • CERT CHECK card retired: its search input lives in the
-     EXPIRED CERTS header; results render as an overlay dropdown.
-   • XFER card retired from view: each tank card gains an
-     opening-stock mini-row + per-tank action buttons that drive
-     the SAME INV modals (INV.view(sloc) then open…). The hidden
-     legacy card keeps its DOM so INV internals are untouched.
-   All moves are appendChild relocations — every id / handler
-   survives. NO new Firebase reads or writes. Missing anchor →
-   init aborts and the legacy layout stays (fail-safe).
-   ============================================================ */

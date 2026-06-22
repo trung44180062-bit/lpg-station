@@ -314,6 +314,146 @@ const VLOG = (function(){
     toast('⬇ Exported '+filtered.length+' rows','ok');
   }
 
+  /* ============================================================
+     IMPORT — paste from Excel (Vessel Log .xlsx layout)
+     ------------------------------------------------------------
+     One pasted ROW  ->  one VLOG entry (allow duplicates by design).
+     Header auto-detected; if absent, falls back to the fixed Excel
+     column order (44 cols). All columns preserved into the entry so
+     future modules (export / edit / GC view) can use them.
+     Source file ref: VesselLog_2026-06-22.xlsx (44 columns).
+     ============================================================ */
+
+  /* canonical column order of the source .xlsx (used when no header row) */
+  const IMP_ORDER = [
+    'no','lot','tank','ship','customer','date','start','finish','qty',
+    'volc3','volc4','lpgmix','tgt','min','max','wtc3','wtc4','c3wt','c4wt','lpgwt',
+    't1ch4','t1c2h6','t1c3h8','t1ic4','t1nc4','t113bd','t1c5','t1ole','t1dens',
+    't2ch4','t2c2h6','t2c3h8','t2ic4','t2nc4','t213bd','t2c5','t2ole','t2dens',
+    'fqc3','fqc4','odot1','odot2','quality','remark'
+  ];
+
+  /* normalized-header-token  ->  entry field path.
+     'gc.<k>' = tank-1 chromatograph, 'gc2.<k>' = tank-2. */
+  const IMP_MAP = {
+    no:null, lot:'lot', tank:'tank', ship:'ship', customer:'customer',
+    date:'date', start:'tStart', finish:'tEnd', qty:'qty',
+    volc3:'volC3', volc4:'volC4', lpgmix:'lpgMixQty',
+    tgt:'targetC3', min:'minC3', max:'maxC3',
+    wtc3:'wtC3', wtc4:'wtC4', c3wt:'stC3', c4wt:'stC4', lpgwt:'lpgWt',
+    t1ch4:'gc.meth', t1c2h6:'gc.eth', t1c3h8:'gc.prop', t1ic4:'gc.ibut',
+    t1nc4:'gc.nbut', t113bd:'gc.buta', t1c5:'gc.c5', t1ole:'gc.ole', t1dens:'labdens',
+    t2ch4:'gc2.meth', t2c2h6:'gc2.eth', t2c3h8:'gc2.prop', t2ic4:'gc2.ibut',
+    t2nc4:'gc2.nbut', t213bd:'gc2.buta', t2c5:'gc2.c5', t2ole:'gc2.ole', t2dens:'labdens2',
+    fqc3:'c3fq', fqc4:'c4fq', odot1:'odoTk1', odot2:'odoTk2',
+    quality:'quality', remark:'remark'
+  };
+
+  function _normHdr(s){
+    return String(s||'').toLowerCase().replace(/[^a-z0-9]/g,''); // "%Vol C3"->"volc3"
+  }
+  function _impNum(v){
+    if(v == null) return undefined;
+    const s = String(v).replace(/,/g,'').trim();
+    if(s === '') return undefined;
+    const n = parseFloat(s);
+    return isNaN(n) ? undefined : n;
+  }
+  /* date: fix the YYYY-DD-MM source typo (middle>12) then normalizeDate -> DD/MM/YY */
+  function _impDate(v){
+    let s = String(v||'').trim();
+    if(!s) return '';
+    const m = s.match(/^(\d{4})[\-\/](\d{1,2})[\-\/](\d{1,2})$/);
+    if(m && +m[2] > 12 && +m[3] <= 12) s = m[1]+'-'+m[3]+'-'+m[2]; // 2026-17-06 -> 2026-06-17
+    const out = (typeof normalizeDate === 'function') ? normalizeDate(s) : s;
+    return out || s;
+  }
+  function _setPath(obj, path, val){
+    if(val === undefined || val === '') return;
+    const dot = path.indexOf('.');
+    if(dot < 0){ obj[path] = val; return; }
+    const head = path.slice(0,dot), tail = path.slice(dot+1);
+    (obj[head] || (obj[head] = {}))[tail] = val;
+  }
+
+  /* turn one array-of-cells row + field list into a VLOG entry */
+  function _rowToEntry(cells, fields){
+    const e = {};
+    for(let i = 0; i < fields.length; i++){
+      const f = fields[i];
+      if(!f) continue;                         // skip 'No' / unknown
+      let raw = cells[i] != null ? String(cells[i]).trim() : '';
+      if(raw === '') continue;
+      let val;
+      if(f === 'date'){ val = _impDate(raw); }
+      else if(f === 'quality' || f === 'remark' || f === 'lot' || f === 'tank'
+              || f === 'ship' || f === 'customer' || f === 'tStart' || f === 'tEnd'){
+        val = raw;
+      } else {
+        val = _impNum(raw);                    // numeric (incl. gc.*)
+      }
+      _setPath(e, f, val);
+    }
+    /* derive Spot/Domestic type from the lot code letter, e.g. LPG-2026-S-25 -> 'S' */
+    const lm = String(e.lot||'').match(/-([A-Za-z])-/);
+    if(lm) e.type = lm[1].toUpperCase();
+    /* keep both summary keys the renderer reads */
+    if(e.lpgWt == null && e.lpgMixQty != null) e.lpgWt = e.lpgMixQty;
+    if(e.cTotal == null && e.qty != null) e.cTotal = e.qty;
+    return e;
+  }
+
+  /* parse the pasted TSV in #vlogImpArea -> array of entries (no UI side-effects) */
+  function _parseRows(){
+    const ta = document.getElementById('vlogImpArea');
+    const txt = (ta && ta.value || '').replace(/\r/g,'');
+    const lines = txt.split('\n').filter(l => l.trim() !== '');
+    if(!lines.length) return [];
+    const grid = lines.map(l => l.split('\t'));
+    let fields, dataRows;
+    const first = grid[0].map(_normHdr);
+    if(first.includes('lot') && first.includes('tank')){      // header row present
+      fields = grid[0].map(h => IMP_MAP.hasOwnProperty(_normHdr(h)) ? IMP_MAP[_normHdr(h)] : null);
+      dataRows = grid.slice(1);
+    } else {                                                  // no header -> fixed Excel order
+      fields = IMP_ORDER.map(k => IMP_MAP[k]);
+      dataRows = grid;
+    }
+    return dataRows.map(c => _rowToEntry(c, fields)).filter(e => e.lot || e.tank || e.ship);
+  }
+
+  /* Tank-Log-style: parse + import in one click, then show a small summary. */
+  function doImport(){
+    const info = document.getElementById('vlogImpInfo');
+    const rows = _parseRows();
+    if(!rows.length){
+      if(info) info.textContent = '⚠ No data found';
+      else toast('No data found','er');
+      return;
+    }
+    rows.forEach(e => pushEntry(e));            // each: RAM + one Firebase child
+    try{ logAudit('eng:vessel_log:import','_bulk_','_import', rows.length+' rows','','create'); }catch(_){}
+    closeImport();
+    const body = document.getElementById('vlogImpDiffBody');
+    if(body){
+      body.innerHTML =
+        '<b style="color:#1a7f37">✅ Added '+rows.length+' row(s)</b> to Vessel Log.'
+        +'<br><span style="color:var(--ink-3);font-size:12px">Duplicates kept · dates normalized to DD/MM/YY</span>';
+    }
+    const dm = document.getElementById('vlogImpDiffModal'); if(dm) dm.classList.add('on');
+    toast('⬆ Imported '+rows.length+' row(s)','ok');
+  }
+
+  function openImport(){
+    const ta = document.getElementById('vlogImpArea'); if(ta) ta.value = '';
+    const info = document.getElementById('vlogImpInfo'); if(info) info.textContent = '';
+    const m = document.getElementById('vlogImpModal'); if(m) m.classList.add('on');
+    setTimeout(()=>{ if(ta) ta.focus(); }, 100);
+  }
+  function closeImport(){
+    const m = document.getElementById('vlogImpModal'); if(m) m.classList.remove('on');
+  }
+
   function init(){
     _attach();
     render();
@@ -321,19 +461,8 @@ const VLOG = (function(){
 
   return {
     init, render, pushEntry, deleteRow, rangeDelete, openEdit, exportCsv,
+    openImport, closeImport, doImport,
     get ROWS(){ return ROWS; }
   };
 })();
 window.VLOG = VLOG;
-
-
-/* ============================================================
-   CAV — Cavern Daily manual inputs (Reports ▸ Cavern Daily / SAP WMS)
-   Firebase: INPUT-ONLY, flat /cavern_in (child = one entry by rid,
-   same pattern as VLOG). Entry:
-     { _rid, date:'YYYY-MM-DD', kind:'vlgc'|'gr'|'heater'|'ol1',
-       prod:'c3'|'c4', batch:'P'|'X'|'D'|'E'|'PX'|null, qty(kg), note, _ts, by }
-   VLGC & GR & Heater capture BOTH C3 and C4. OL1 (C3 only) captures
-   3 figures: total X+P (batch 'PX'), X (batch 'X'), P (batch 'P').
-   ALL totals / mass-balance / SAP-WMS fill = RAM (recompute).
-   ============================================================ */

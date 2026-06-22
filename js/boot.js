@@ -2,8 +2,9 @@
  * boot.js — KHOI DONG (da doi chieu 1:1 voi boot goc V4-54 28751-28823)
  * ------------------------------------------------------------
  * Nguyen tac: GIU DUNG thu tu + lich (afterPaint/idle) cua ban goc da chay
- * that, chi THEM AUTH.init() ngay sau SC.init() (cong quyen — dev=admin tuc
- * thoi, P6=cho whitelist). Moi feature chay TRONG callback cua AUTH.
+ * that, chi THEM AUTH.init() ngay sau SC.init() (cong quyen — BAT BUOC dang
+ * nhap Firebase, khong co tai khoan mac dinh). Moi feature chay TRONG callback
+ * cua AUTH => chi boot sau khi dang nhap + whitelist hop le.
  *
  * KHONG goi init o day cho cac module TU init / lazy (tranh double-init):
  *   - FCHECK  -> tu init qua DOMContentLoaded (fcheck.js)
@@ -44,9 +45,10 @@ document.addEventListener('DOMContentLoaded', function () {
   /* P0 · synchronous · Sync Core (firebase.initializeApp) PHAI truoc tien */
   step('P0 · SC (Sync Core)', () => SC.init());
 
-  /* P0 · AUTH — cong quyen. Dev: applyRole(admin) + onReady() dong bo.
-   * P6: onReady() chay sau khi onAuthStateChanged + whitelist resolve.
-   * Moi feature nam TRONG onReady de canWrite() san sang truoc khi init. */
+  /* P0 · AUTH — cong quyen BAT BUOC. onReady() chi chay SAU khi
+   * onAuthStateChanged + whitelist resolve (dang nhap Firebase hop le).
+   * Moi feature nam TRONG onReady de canWrite() san sang truoc khi init.
+   * Chua dang nhap => overlay dang nhap, app KHONG boot. */
   AUTH.init(function () {
     step('P0 · navGo(sales)', () => navGo('sales'));
 
