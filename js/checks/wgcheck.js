@@ -400,7 +400,9 @@ function pfFillDNFromTL(r){
   pf('pf-dn-gw', _pfFmt(r.grossWt));
   pf('pf-dn-time2', r.timeOut||'');
   pf('pf-dn-seal', _pfSealLPG(r.seal));
-  pf('pf-dn-sign1', r.eng||'');
+  /* "Người lập phiếu" = nhân viên CHECK BOOTH (luu o r.weigher khi can),
+     KHONG phai engineer (r.eng). Fallback ve eng neu thieu de khong de trong. */
+  pf('pf-dn-sign1', r.weigher||r.eng||'');
   pf('pf-dn-sign2', r.driver||'');
   pf('pf-dn-sign3', r.driver||'');
   pf('pf-dn-addr', 'Lô 01CN - 08CN, KCN Cái Mép, P. Tân Phước, Tp. Hồ Chí Minh');
@@ -984,4 +986,6 @@ function pttOvPrint(){
    Print   : multi A5 page doc via _pfPrintViaIframe (no new tab).
    "Printed" mark : RAM-only (module-level _printedOids), never Firebase.
    Cert badges    : FCHECK.orderWarning(row, parseDate(_forDate)).
+   �
+   (Chi tiet trien khai nam trong js/integrations/ptt-early.js)
    ══════════════════════════════════════════════════════════ */
