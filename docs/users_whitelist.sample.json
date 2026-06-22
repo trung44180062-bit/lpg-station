@@ -1,0 +1,7 @@
+{
+  "users_whitelist": {
+    "hoangphuongg39@gmail,com": { "active": true,  "role": "admin",  "name": "Phương" },
+    "dongnghiep1@gmail,com":    { "active": true,  "role": "editor", "name": "Đồng nghiệp 1" },
+    "khachxem@gmail,com":       { "active": false, "role": "viewer", "name": "Tạm khoá (active=false)" }
+  }
+}
