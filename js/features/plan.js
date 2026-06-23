@@ -2416,6 +2416,9 @@ function _makePlanModule(opts){
     setPlanDate, toggleDateSel, clearDateSel,
     _clearDatesActual,
     findTempOrderByVehicle, findTempOrderStrict, renameOid,
+    /* v4 — exposed so WMS GI can reuse the SAME plate/driver matchers (handles
+       WMS reversed driver name + combined truck/rmooc plate). Logic unchanged. */
+    plateMatchAny: _plateMatchAny, driverMatch: _driverMatch,
     /* v4.35.0 — Customer Ledger view */
     toggleView, setLedgerFilter, toggleGroup, ledgerEdit, ledgerDel, renderLedger,
     ledgerCellEdit, ledgerToggleGL, ledgerPickStatus,

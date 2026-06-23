@@ -97,7 +97,7 @@ const TKV = (function(){
       const r = ROWS[rid];
       if(!r || r.disabled) return;
       if(!String(r.ltank||'').toUpperCase().includes(suffix)) return;
-      if(_filterDate && String(r.giDate||'').trim() !== _filterDate) return;
+      if(_filterDate && String(r.date||'').trim() !== _filterDate) return;
       if(_search){
         const hay = [r.doNo,r.cust,r.truck,r.rmooc,r.driver,r.lot,r.eng,r.custFull].join(' ').toLowerCase();
         if(!hay.includes(_search)) return;
@@ -105,10 +105,10 @@ const TKV = (function(){
       out.push(Object.assign({rid}, r));
     });
     out.sort((a,b)=>{
-      const ka = _ddmmyyKey(a.giDate||a.date||'')
+      const ka = _ddmmyyKey(a.date||a.giDate||'')
                  + '|' + String(a.scaleNo||'').padStart(2,'0')
                  + '|' + String(a.turn||'').padStart(3,'0');
-      const kb = _ddmmyyKey(b.giDate||b.date||'')
+      const kb = _ddmmyyKey(b.date||b.giDate||'')
                  + '|' + String(b.scaleNo||'').padStart(2,'0')
                  + '|' + String(b.turn||'').padStart(3,'0');
       return ka.localeCompare(kb);

@@ -806,6 +806,34 @@ function closeTlSyncModal(){
   document.getElementById('wgTlSyncModal').classList.remove('on');
   _tlSyncCands = [];
 }
+/* v4 — WMS GI ↔ TL Data weight discrepancy warning. Listed when a WMS row
+   matched a TL row (by DO, or by plate+driver for temp DOs) but Pick ≠ Net
+   weight. Pure information — nothing is written automatically. */
+function openWgMismatchModal(list){
+  list = (list||[]).filter(Boolean);
+  const tbody = document.getElementById('wgMismatchBody');
+  if(!tbody || !list.length) return;
+  tbody.innerHTML = list.map(m=>{
+    const d = m.diff;
+    const dCls = d > 0 ? 'color:#c5303a' : 'color:#1f6fd0';
+    return `<tr>
+      <td><b>${_esc(m.realDo)}</b></td>
+      <td>${_esc(m.tempDo||'—')}</td>
+      <td>${_esc(m.customer||'')}</td>
+      <td>${_esc(m.driver||'')}</td>
+      <td>${_esc(m.vehicle||'')}</td>
+      <td style="text-align:right">${(m.pick||0).toLocaleString('en-US')}</td>
+      <td style="text-align:right">${(m.netWt||0).toLocaleString('en-US')}</td>
+      <td style="text-align:right;font-weight:700;${dCls}">${d>0?'+':''}${(d||0).toLocaleString('en-US')}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('wgMismatchCount').textContent = list.length;
+  document.getElementById('wgMismatchModal').classList.add('on');
+}
+function closeWgMismatchModal(){
+  const m = document.getElementById('wgMismatchModal');
+  if(m) m.classList.remove('on');
+}
 function tlSyncToggleAll(on){
   document.querySelectorAll('#wgTlSyncBody .wg-tl-cb').forEach(cb=>{ cb.checked = on; });
 }
@@ -818,6 +846,11 @@ function applyTlSyncSelected(){
   let done = 0;
   picks.forEach(c=>{
     try{
+      /* v4 — a TL row matched via TEMP DO (plate+driver, net===pick) gets its
+         temp DO upgraded to the real WMS DO before the field stamp. */
+      if(c.upgradeDo && c.tempDo && c.realDo && typeof TL!=='undefined' && TL.renameDoNo){
+        TL.renameDoNo(c.tempDo, c.realDo);
+      }
       if(typeof TL!=='undefined' && TL.applyWmsSync && TL.applyWmsSync(c.rid, c.opts)) done++;
     }catch(_){}
   });

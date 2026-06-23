@@ -1031,6 +1031,16 @@ const SCALE = (function(){
   }
 
   /* ─── Cert detail modal ─── */
+  /* Build the status badge + row class for an expiry-date string.
+     Shared by initial render and the live oninput recompute. */
+  function _cmBadge(val){
+    const st=typeof dateState!=='undefined'?dateState(val):'none';
+    const dl=typeof daysLeft!=='undefined'?daysLeft(val):null;
+    if(st==='exp') return {html:`<span class="sc-cm-badge exp">Expired</span>`, tr:'row-exp'};
+    if(st==='due') return {html:`<span class="sc-cm-badge due">Due ${dl}d</span>`, tr:'row-due'};
+    if(st==='ok')  return {html:`<span class="sc-cm-badge ok">OK ${dl}d</span>`, tr:''};
+    return {html:`<span class="sc-cm-badge none">—</span>`, tr:''};
+  }
   function certModalOpen(tab, rid, idx){
     const hits=window._scCertHits||[];
     const h=hits[idx]||hits.find(h=>h.tab===tab&&(h.row._rid===rid||h.row._rid===rid));
@@ -1069,20 +1079,26 @@ const SCALE = (function(){
     const tbody=document.getElementById('scCmCertBody');
     tbody.innerHTML=certs.map(c=>{
       const val=row[c.k]||'';
-      const st=typeof dateState!=='undefined'?dateState(val):'none';
-      const dl=typeof daysLeft!=='undefined'?daysLeft(val):null;
-      let badge='';
-      if(st==='exp') badge=`<span class="sc-cm-badge exp">Expired</span>`;
-      else if(st==='due') badge=`<span class="sc-cm-badge due">Due ${dl}d</span>`;
-      else if(st==='ok') badge=`<span class="sc-cm-badge ok">OK ${dl}d</span>`;
-      else badge=`<span class="sc-cm-badge none">—</span>`;
-      const trClass=st==='exp'?'row-exp':st==='due'?'row-due':'';
-      return `<tr class="${trClass}">
+      const b=_cmBadge(val);
+      return `<tr class="${b.tr}">
         <td>${esc(c.name)}</td>
         <td><input class="sc-cm-date-inp" data-cert="${c.k}" value="${esc(val)}" placeholder="DD/MM/YY"></td>
-        <td>${badge}</td>
+        <td class="sc-cm-badge-cell">${b.html}</td>
       </tr>`;
     }).join('');
+    /* Live recompute the status badge as soon as a new date is typed —
+       no need to press SAVE to see OK/Due/Expired (v4 UX request). */
+    tbody.querySelectorAll('.sc-cm-date-inp').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const b=_cmBadge(inp.value.trim());
+        const tr=inp.closest('tr');
+        if(!tr) return;
+        const cell=tr.querySelector('.sc-cm-badge-cell');
+        if(cell) cell.innerHTML=b.html;
+        tr.classList.remove('row-exp','row-due');
+        if(b.tr) tr.classList.add(b.tr);
+      });
+    });
 
     /* remark */
     document.getElementById('scCmRemark').value=row.remark||'';

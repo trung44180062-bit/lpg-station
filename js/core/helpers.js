@@ -29,7 +29,7 @@
      • new     : ABC + YYMMDD + seq (3-letter customer prefix, e.g. KNH26060201)
    A real DO is 7+ pure digits, which never matches either branch. */
 function isTempOid(v){
-  v = String(v||'').trim();
+  v = String(v||'').trim().toUpperCase();        // case-insensitive: hand-typed temp DOs may be lower/mixed case
   if(!v) return false;
   if(/^TMP-\d{8}-\d{3}$/.test(v)) return true;   // legacy
   return /^[A-Z]{3}\d{7,}$/.test(v);             // new: 3 letters + yymmdd(6) + seq(1+)

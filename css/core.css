@@ -56,6 +56,8 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .nav-icobtn{width:32px;height:32px;border:none;border-radius:7px;cursor:pointer;background:rgba(255,255,255,.1);
   color:#fff;font-size:15px;display:flex;align-items:center;justify-content:center;transition:.15s}
 .nav-icobtn:hover{background:rgba(255,255,255,.2)}
+.nav-logout{font-size:16px}
+.nav-logout:hover{background:#b91c1c;color:#fff}
 .nav-user{display:flex;align-items:center;gap:8px;padding:0 8px 0 10px;color:#fff}
 .nav-user .avatar{width:26px;height:26px;border-radius:50%;background:var(--orange);
   display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px}
@@ -571,6 +573,10 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .tl-statusbar .right{margin-left:auto}
 .tl-statusbar .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle}
 .tl-statusbar b{font-family:'Oswald',sans-serif;font-weight:600}
+/* TL Data — top totals row (Net Weight / C3 / C4), aligned under their columns */
+.tl-grid .tabulator-calcs.tabulator-calcs-top{background:#eef4fb;border-bottom:2px solid #cfe0f2}
+.tl-grid .tabulator-calcs.tabulator-calcs-top .tabulator-cell{
+  font-family:'Oswald',sans-serif;font-size:15px;font-weight:800;letter-spacing:.02em;padding-top:4px;padding-bottom:4px}
 .tl-paste-modal{position:fixed;inset:0;z-index:200;background:rgba(11,31,66,.45);display:none;align-items:center;justify-content:center;backdrop-filter:blur(2px)}
 .tl-paste-modal.on{display:flex}
 .tl-paste-box{width:680px;max-width:96vw;background:var(--panel);border-radius:14px;box-shadow:var(--sh2);overflow:hidden;display:flex;flex-direction:column}
@@ -2521,10 +2527,14 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 #bulkDelModal .bd-card-wrap{background:#fff;border-radius:14px;box-shadow:0 18px 48px rgba(0,0,0,.28);width:min(720px,96vw);max-height:92vh;overflow:auto;padding:18px 18px 14px;}
 #bulkDelModal .bd-title{font-family:'Oswald',sans-serif;font-weight:700;letter-spacing:.5px;color:#243149;font-size:16px;margin:0 0 14px;display:flex;align-items:center;gap:8px;}
 #bulkDelModal .bd-cols{display:flex;gap:14px;flex-wrap:wrap;}
-#bulkDelModal .bd-col{flex:1 1 300px;border:2px solid #cfe8d6;border-radius:12px;padding:14px;background:#f3fbf5;}
-#bulkDelModal .bd-col.del{border-color:#f3c9cf;background:#fdf2f3;}
-#bulkDelModal .bd-col-hd{text-align:center;font-weight:700;font-size:13px;margin-bottom:10px;color:#1f9d55;display:flex;align-items:center;justify-content:center;gap:6px;}
-#bulkDelModal .bd-col.del .bd-col-hd{color:#c5303a;}
+#bulkDelModal .bd-col{flex:1 1 300px;border:2px solid #9ed9b1;border-radius:12px;padding:14px;background:#eefaf1;}
+/* DELETE ALL side — deliberately alarming + visually distinct from KEEP:
+   thick red border, hazard-stripe tint, larger danger header. */
+#bulkDelModal .bd-col.del{border:3px solid #d32f3a;background:repeating-linear-gradient(45deg,#fdeaec,#fdeaec 14px,#fbdfe2 14px,#fbdfe2 28px);box-shadow:0 0 0 3px rgba(211,47,58,.12) inset;}
+#bulkDelModal .bd-col-hd{text-align:center;font-weight:800;font-size:14px;margin-bottom:12px;color:#fff;background:#1f9d55;border-radius:8px;padding:9px;display:flex;align-items:center;justify-content:center;gap:6px;letter-spacing:.5px;}
+#bulkDelModal .bd-col.del .bd-col-hd{background:#d32f3a;font-size:16px;text-transform:uppercase;}
+#bulkDelModal .bd-allwarn{font-size:12.5px;line-height:1.5;text-align:center;color:#a01722;background:#fff;border:1px dashed #e0888f;border-radius:8px;padding:9px 10px;margin-bottom:10px;}
+#bulkDelModal .bd-allwarn b{color:#d32f3a;}
 #bulkDelModal .bd-dates{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:10px;font-size:12px;color:#3a475c;}
 #bulkDelModal .bd-dates input{border:1px solid #c7d2e0;border-radius:7px;padding:4px 7px;font-size:12px;font-family:inherit;}
 #bulkDelModal .bd-stat{font-size:12px;font-weight:600;color:#3a475c;margin-bottom:10px;min-height:17px;}
@@ -2534,7 +2544,9 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 #bulkDelModal .bd-conf label{display:block;font-size:11px;color:#3a475c;margin-bottom:4px;}
 #bulkDelModal .bd-conf input{width:100%;box-sizing:border-box;border:1px solid #c7d2e0;border-radius:7px;padding:6px 9px;font-size:13px;font-family:inherit;}
 #bulkDelModal .bd-go{width:100%;border:none;border-radius:9px;padding:9px;font-weight:700;font-size:12px;letter-spacing:.3px;cursor:pointer;background:#cfd8e3;color:#fff;}
-#bulkDelModal .bd-go.ready.keep{background:#1f9d55;} #bulkDelModal .bd-go.ready.del{background:#c5303a;}
+#bulkDelModal .bd-go.ready.keep{background:#1f9d55;}
+#bulkDelModal .bd-go.del{font-size:13px;}
+#bulkDelModal .bd-go.ready.del{background:#d32f3a;box-shadow:0 4px 12px rgba(211,47,58,.45);}
 #bulkDelModal .bd-foot{text-align:right;margin-top:12px;}
 #bulkDelModal .bd-cancel{border:1px solid #c7d2e0;background:#fff;border-radius:8px;padding:7px 14px;font-size:12px;cursor:pointer;color:#3a475c;}
 #bulkDelModal .bd-cancel:hover{background:#f2f5f9;}

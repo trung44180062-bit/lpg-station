@@ -35,6 +35,7 @@
       <button class="nav-icobtn" title="Settings">⚙</button>
       <div class="nav-user"><div class="avatar">–</div>
         <div><div class="uname">—</div><div class="urole">—</div></div></div>
+      <button class="nav-icobtn nav-logout" id="navLogout" title="Đăng xuất" onclick="if(confirm('Đăng xuất khỏi hệ thống?'))AUTH.logout()">⏻</button>
       <div class="nav-clock"><div class="t" id="clk">--:--:--</div><div class="d" id="dat">—</div></div>
     </div>
   </nav>
@@ -926,9 +927,8 @@
       <div class="tl-table-full">
         <div class="tl-grid" id="tlGrid"></div>
         <div class="tl-statusbar">
-          <span class="stat"><span class="dot" style="background:#2471a3"></span>Net Weight <b id="tlSumNet">0</b> kg</span>
-          <span class="stat"><span class="dot" style="background:#1a7f37"></span>C3 <b id="tlSumC3">0</b> kg</span>
-          <span class="stat"><span class="dot" style="background:#b45309"></span>C4 <b id="tlSumC4">0</b> kg</span>
+          <span class="stat">📅 Có Date: <b id="tlCntDate">0</b></span>
+          <span class="stat">📅 Có GI Date: <b id="tlCntGi">0</b></span>
           <span class="right"><b id="tlCntShown">0</b> shown / <b id="tlCntTotal">0</b> total</span>
         </div>
       </div>
@@ -2771,11 +2771,11 @@
         <button class="bd-go keep" id="bdKeepBtn">🗑 DELETE data OUTSIDE range</button>
       </div>
       <div class="bd-col del">
-        <div class="bd-col-hd">⛔ DELETE IN RANGE</div>
-        <div class="bd-dates">From <input type="date" id="bdInFrom"> To <input type="date" id="bdInTo"></div>
+        <div class="bd-col-hd">⛔ DELETE ALL</div>
+        <div class="bd-allwarn">⚠️ Xóa <b>TOÀN BỘ</b> dữ liệu của bảng này.<br>Hành động <b>KHÔNG THỂ HOÀN TÁC</b>.</div>
         <div class="bd-stat" id="bdInStat"></div>
         <div class="bd-conf"><label>Type <b>Delete</b> to confirm:</label><input id="bdInInput" placeholder="Delete" autocomplete="off"></div>
-        <button class="bd-go del" id="bdInBtn">🗑 DELETE data IN range</button>
+        <button class="bd-go del" id="bdInBtn">🗑 DELETE ALL DATA</button>
       </div>
     </div>
     <div class="bd-foot"><button class="bd-cancel" onclick="BULKOPS.closeRangeDelete()">✕ Cancel</button></div>
@@ -2836,7 +2836,7 @@
     <div class="tp-diff-hdr">
       <div>
         <h3>🔄 Match WMS GI → TL Data (pull Pick / C3 / C4 / %wt)</h3>
-        <div class="sub">Matched by real DO + same export day (TL.date = WMS GI paste date). GI date is stamped with <b>the current date</b> on confirm (aligned with the actual GI date on WMS). <b id="wgTlSyncCount">0</b> TL row(s) have changes. Untick any row you do not want overwritten.</div>
+        <div class="sub">Matched within the same loading day (TL.date = WMS loading date): official-DO rows by DO, temp-DO rows by plate + driver confirmed with Pick = Net Wt. Temp DOs are upgraded to the real DO on confirm. GI date is stamped with <b>the current date</b>. <b id="wgTlSyncCount">0</b> TL row(s) have changes. Untick any row you do not want overwritten.</div>
       </div>
       <button class="modal-close" onclick="closeTlSyncModal()">×</button>
     </div>
@@ -2863,6 +2863,37 @@
     <div class="tp-diff-foot">
       <button class="btn" onclick="closeTlSyncModal()">Cancel</button>
       <button class="btn btn-green" onclick="applyTlSyncSelected()">✓ Apply selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- WMS GI ↔ TL Data weight DISCREPANCY warning (v4) -->
+<div class="tp-diff-modal" id="wgMismatchModal">
+  <div class="tp-diff-box" style="max-width:900px">
+    <div class="tp-diff-hdr">
+      <div>
+        <h3>⚠️ Sai lệch khối lượng WMS GI ↔ TL Data</h3>
+        <div class="sub"><b id="wgMismatchCount">0</b> dòng có <b>Pick (WMS)</b> khác <b>Net Weight (TL)</b> — KHÔNG tự động ghi. Kiểm tra lại rồi sửa thủ công nếu cần.</div>
+      </div>
+      <button class="modal-close" onclick="closeWgMismatchModal()">×</button>
+    </div>
+    <div class="tp-diff-body">
+      <table class="sync-pm-table">
+        <thead><tr>
+          <th>DO (WMS)</th>
+          <th>DO tạm (TL)</th>
+          <th>Customer</th>
+          <th>Driver</th>
+          <th>Vehicle</th>
+          <th style="text-align:right">Pick WMS (kg)</th>
+          <th style="text-align:right">Net Wt TL (kg)</th>
+          <th style="text-align:right">Lệch (kg)</th>
+        </tr></thead>
+        <tbody id="wgMismatchBody"></tbody>
+      </table>
+    </div>
+    <div class="tp-diff-foot">
+      <button class="btn btn-green" onclick="closeWgMismatchModal()">Đã hiểu</button>
     </div>
   </div>
 </div>

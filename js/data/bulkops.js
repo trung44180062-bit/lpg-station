@@ -34,6 +34,8 @@ const BULKOPS = (function(){
      Returns {match:[rids], total, skipped} (skipped = rows with no date). */
   function _compute(mode, fromV, toV){
     const rows = _cfg.getRows() || [];
+    /* 'all' = every row (used by the DELETE ALL side — no date range). */
+    if(mode==='all'){ return { match: rows.slice(), total: rows.length, skipped: 0 }; }
     const from = _dayStart(fromV), to = _dayEnd(toV);
     const match = []; let skipped = 0;
     rows.forEach(r=>{
@@ -48,15 +50,14 @@ const BULKOPS = (function(){
   function _refresh(){
     if(!_cfg) return;
     const k = _compute('keep', val('bdKeepFrom'), val('bdKeepTo'));
-    const i = _compute('in', val('bdInFrom'), val('bdInTo'));
+    const a = _compute('all');
     document.getElementById('bdKeepStat').innerHTML =
       'Total '+k.total+' · <b class="keep">keep '+(k.total-k.match.length-k.skipped)+'</b> · delete '+k.match.length
       + (k.skipped? ' · <span class="bd-skip">'+k.skipped+' no-date skipped</span>':'');
     document.getElementById('bdInStat').innerHTML =
-      'Total '+i.total+' · keep '+(i.total-i.match.length)+' · <b class="del">delete '+i.match.length+'</b>'
-      + (i.skipped? ' · <span class="bd-skip">'+i.skipped+' no-date skipped</span>':'');
+      'Total '+a.total+' · keep 0 · <b class="del">delete ALL '+a.match.length+'</b>';
     _syncBtn('bdKeepInput','bdKeepBtn','keep', k.match.length);
-    _syncBtn('bdInInput','bdInBtn','del', i.match.length);
+    _syncBtn('bdInInput','bdInBtn','del', a.match.length);
   }
   function _syncBtn(inputId, btnId, cls, n){
     const ok = document.getElementById(inputId).value.trim().toLowerCase()==='delete' && n>0;
@@ -66,16 +67,27 @@ const BULKOPS = (function(){
   function val(id){ return document.getElementById(id).value; }
 
   function _run(mode){
-    const fromV = mode==='keep'? val('bdKeepFrom'):val('bdInFrom');
-    const toV   = mode==='keep'? val('bdKeepTo'):val('bdInTo');
     const inputId = mode==='keep'?'bdKeepInput':'bdInInput';
     if(document.getElementById(inputId).value.trim().toLowerCase()!=='delete'){ toast('Type "Delete" to confirm','er'); return; }
-    const res = _compute(mode==='keep'?'keep':'in', fromV, toV);
-    if(!res.match.length){ toast('Nothing in range to delete','er'); return; }
+
+    let res, fileSuffix;
+    if(mode==='all'){
+      res = _compute('all');
+      if(!res.match.length){ toast('No data to delete','er'); return; }
+      /* SECOND confirmation — deliberate extra step so DELETE ALL can't be
+         triggered by a single accidental click. */
+      if(!confirm('⚠️ CẢNH BÁO CUỐI CÙNG\n\nBạn sắp XÓA TOÀN BỘ '+res.match.length+' dòng dữ liệu của bảng này.\nHành động KHÔNG THỂ HOÀN TÁC.\n\nNhấn OK để xác nhận xóa tất cả, hoặc Cancel để hủy.')) return;
+      fileSuffix = '_deleted_ALL';
+    } else {
+      res = _compute('keep', val('bdKeepFrom'), val('bdKeepTo'));
+      if(!res.match.length){ toast('Nothing in range to delete','er'); return; }
+      fileSuffix = '_deleted';
+    }
+
     /* capture before closeRangeDelete() nulls _cfg */
     const skipCsv = !!_cfg.skipCsvBackup;
     /* 1) export the rows that will be deleted (CSV backup) — skipped for modules that opt out */
-    if(!skipCsv) exportRowsCsv(_cfg.fileBase+'_deleted', _cfg.columns, res.match);
+    if(!skipCsv) exportRowsCsv(_cfg.fileBase+fileSuffix, _cfg.columns, res.match);
     /* 2) delete via the caller's delta path */
     const rids = res.match.map(r=>_cfg.getRid(r));
     _cfg.deleteRids(rids);
@@ -98,11 +110,8 @@ const BULKOPS = (function(){
        Both are only defaults; the operator can edit either date. */
     const _shift=n=>{ const d=new Date(today); d.setDate(d.getDate()+n); return _iso(d); };
     const keepFromIso=_shift(-6), keepToIso=tIso;
-    const inFromIso=minIso, inToIso=_shift(-7);
     document.getElementById('bdKeepFrom').value = keepFromIso;
     document.getElementById('bdKeepTo').value   = keepToIso;
-    document.getElementById('bdInFrom').value   = inFromIso;
-    document.getElementById('bdInTo').value     = inToIso;
     document.getElementById('bdKeepInput').value = '';
     document.getElementById('bdInInput').value   = '';
     _refresh();
@@ -127,12 +136,12 @@ const BULKOPS = (function(){
 
   /* wire modal events once */
   function _init(){
-    ['bdKeepFrom','bdKeepTo','bdInFrom','bdInTo','bdKeepInput','bdInInput'].forEach(id=>{
+    ['bdKeepFrom','bdKeepTo','bdKeepInput','bdInInput'].forEach(id=>{
       document.getElementById(id).addEventListener('input', _refresh);
       document.getElementById(id).addEventListener('change', _refresh);
     });
     document.getElementById('bdKeepBtn').addEventListener('click', ()=>_run('keep'));
-    document.getElementById('bdInBtn').addEventListener('click', ()=>_run('in'));
+    document.getElementById('bdInBtn').addEventListener('click', ()=>_run('all'));
     document.getElementById('bulkDelModal').addEventListener('click', e=>{ if(e.target.id==='bulkDelModal') closeRangeDelete(); });
   }
   if(document.getElementById('bulkDelModal')) _init();

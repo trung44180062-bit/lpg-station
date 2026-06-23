@@ -244,6 +244,11 @@ function buildTable(){
     const rid   = cell.getRow().getData()._rid;
     const value = cell.getValue();
     SC.edit(curTab, rid, field, value, 'edit');
+    /* v4 FIX — "Safe Fill T" is a derived formatter computed from Cap m³.
+       Editing Cap didn't redraw that cell, so the new safe-fill only showed
+       after switching tabs and back. Reformat the edited row so the computed
+       value appears immediately. */
+    if(field==='cap'){ try{ cell.getRow().reformat(); }catch(_){} }
     setTimeout(()=>{ table.getRows().forEach(r=>rowFormatter(r)); refreshCounts(); }, 30);
     try{ if(typeof FCHECK!=='undefined') FCHECK.recompute(); }catch(_){}
   });

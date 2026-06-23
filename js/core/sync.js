@@ -196,89 +196,75 @@ const SC = (function(){
   }
 
   function attachListeners(){
-    /* v4.x — chụp version local TRƯỚC khi listener fleet_version kịp sửa nó,
-       để version-gate khi mở (chỉ tải full khi local ≠ firebase). */
-    const _openLocalVer = _versions.fleet || 0;
-
     FB.ref('.info/connected').on('value', s=>{
       fbConnected = !!s.val();
       setLed(fbConnected, fbConnected?'FIREBASE':'OFFLINE');
       if(fbConnected){
-        /* v4.x — on reconnect we only need to:
-           1) reset any LEAKED echo-suppression so inbound events flow again;
-           2) flush writes buffered while offline.
-           We deliberately do NOT full-reconcile here: the Firebase SDK already
-           re-syncs DELTAS automatically on reconnect (it fires child_* only for
-           rows that actually changed while we were offline — no full download).
-           A flaky link would otherwise trigger a full fleet read on every
-           reconnect and burn Spark quota. The fleet_version listener below is
-           the cheap safety net: if the node was wiped/reset (version went
-           backward) it does ONE reconcile; a normal forward bump costs nothing
-           beyond the deltas the SDK is already delivering. */
+        /* reconnect: reset leaked echo-suppression + flush offline writes.
+           KHÔNG full-reconcile ở đây (SDK tự đồng bộ delta khi reconnect). */
         _suppressLocalEcho = 0;
         flushPending();
       }
     });
 
+    /* ── v4.x — ROW LISTENERS gắn LAZY (chỉ khi thật sự cần tải) ──────────
+       Trước đây child_added gắn VÔ ĐIỀU KIỆN ⇒ MỖI LẦN MỞ replay toàn bộ dòng
+       = tải full dù dữ liệu không đổi (tốn quota). Giờ chỉ gắn qua _loadFleet
+       khi version local ≠ firebase. Idempotent: gắn đúng 1 lần. */
+    let _rowListenersOn = false;
+    function _attachRowListeners(){
+      if(_rowListenersOn) return;
+      _rowListenersOn = true;
+      FLEET_TABS.forEach(tab=>{
+        const ref = FB.ref('fleet_/'+tab);
+        ref.on('child_added', snap=>{
+          if(_suppressLocalEcho && Date.now() < _suppressUntil) return;
+          const rid = snap.key, row = snap.val();
+          if(!row) return;
+          row._rid = rid;
+          if(!DATA[tab]) DATA[tab] = {};
+          DATA[tab][rid] = row;
+          _scheduleFleetSync();
+        });
+        ref.on('child_changed', snap=>{
+          if(_suppressLocalEcho && Date.now() < _suppressUntil) return;
+          const rid = snap.key, row = snap.val();
+          if(!row) return;
+          row._rid = rid;
+          if(!DATA[tab]) DATA[tab] = {};
+          DATA[tab][rid] = row;
+          _scheduleFleetSync();
+        });
+        ref.on('child_removed', snap=>{
+          if(_suppressLocalEcho && Date.now() < _suppressUntil) return;
+          const rid = snap.key;
+          if(DATA[tab]) delete DATA[tab][rid];
+          _scheduleFleetSync();
+        });
+      });
+    }
+    /* Tải fleet từ Firebase: gắn row listeners (realtime) + reconcile (merge + prune). */
+    function _loadFleet(reason){ _attachRowListeners(); _reconcileAll(reason); }
+
+    /* ── v4.x — VERSION-GATE (mở app + realtime dùng CHUNG 1 listener) ──
+       on('value') bắn NGAY lúc attach (so version khi MỞ) và mỗi lần đổi:
+         fb <  local → node bị wipe/reset tay → tải lại + prune.
+         fb >  local → máy khác vừa sửa (hoặc vừa bị FORCESYNC nên local=0) → TẢI về.
+         fb == local → dữ liệu KHỚP → KHÔNG tải (dùng cache/RAM) → đỡ quota.
+       Vì row listeners gắn LAZY trong _loadFleet, khi version khớp sẽ KHÔNG
+       replay ⇒ KHÔNG tải full mỗi lần mở (đúng yêu cầu: chỉ tải khi local < firebase). */
     FB.ref('fleet_version').on('value', s=>{
-      const v = s.val()||0;
-      if(v < _versions.fleet){
-        /* v4.x — server counter went BACKWARD → the fleet node was wiped /
-           reset by hand (exactly the "I cleared all data yesterday" case).
-           Adopt the lower counter and do a FULL reconcile so this machine
-           drops the wiped rows and re-pulls the authoritative state. Without
-           this the machine kept its stale-high version and never re-synced —
-           the cause of "fleet edits don't reach my machine". Mirrors TL. */
-        _versions.fleet = v;
-        _reconcileAll('version-reset');
-      } else if(v > _versions.fleet){
-        _versions.fleet = v;          /* forward bump — child events deliver rows */
-      }
-    });
-
-    FLEET_TABS.forEach(tab=>{
-      const ref = FB.ref('fleet_/'+tab);
-
-      ref.on('child_added', snap=>{
-        if(_suppressLocalEcho && Date.now() < _suppressUntil) return;
-        const rid = snap.key, row = snap.val();
-        if(!row) return;
-        row._rid = rid;
-        DATA[tab][rid] = row;
-        _scheduleFleetSync();
-      });
-
-      ref.on('child_changed', snap=>{
-        if(_suppressLocalEcho && Date.now() < _suppressUntil) return;
-        const rid = snap.key, row = snap.val();
-        if(!row) return;
-        row._rid = rid;
-        DATA[tab][rid] = row;
-        _scheduleFleetSync();
-      });
-
-      ref.on('child_removed', snap=>{
-        if(_suppressLocalEcho && Date.now() < _suppressUntil) return;
-        const rid = snap.key;
-        delete DATA[tab][rid];
-        _scheduleFleetSync();
-      });
-    });
-
-    /* ── v4.x — VERSION-GATE KHI MỞ ──────────────────────────────────────
-       Chỉ TẢI FULL (reconcile: merge + prune) khi version local KHÁC version
-       Firebase. Sau khi FORCESYNC xoá cache thì local=0 ≠ firebase → tải về.
-       Mở bình thường mà version KHỚP → tin cache, BỎ QUA full read (đỡ quota).
-       child_added/changed/removed ở trên vẫn chạy để nhận realtime + nạp dòng. */
-    FB.ref('fleet_version').once('value').then(s=>{
-      const fbVer = s.val() || 0;
-      if(fbVer !== _openLocalVer){
-        console.warn('[fleet] version local '+_openLocalVer+' ≠ firebase '+fbVer+' → TẢI FULL về');
-        _reconcileAll('attach v'+_openLocalVer+'→'+fbVer);
+      const fb = s.val()||0;
+      if(fb < _versions.fleet){
+        console.warn('[fleet] version firebase '+fb+' < local '+_versions.fleet+' → wipe/reset tay → tải lại + prune');
+        _versions.fleet = fb; _loadFleet('version-reset');
+      } else if(fb > _versions.fleet){
+        console.warn('[fleet] version firebase '+fb+' > local '+_versions.fleet+' → TẢI về');
+        _versions.fleet = fb; _loadFleet('version-up');
       } else {
-        console.log('[fleet] version khớp ('+fbVer+') → dùng cache, bỏ qua tải full');
+        console.log('[fleet] version khớp ('+fb+') → dùng cache, KHÔNG tải full (đỡ quota)');
       }
-    }).catch(()=>{ _reconcileAll('attach (đọc version lỗi → tải full an toàn)'); });
+    }, err=>{ console.warn('[fleet] đọc fleet_version lỗi → tải full an toàn', err); _loadFleet('version-err'); });
   }
 
   /* ---- auto-seed REMOVED (v4.x) ----

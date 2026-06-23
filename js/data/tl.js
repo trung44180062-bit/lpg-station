@@ -229,13 +229,12 @@ const TL = (function(){
     const cols = [
       { title:'#', field:'_rownum', width:38, frozen:true, headerSort:false,
         formatter:'rownum', hozAlign:'center', cssClass:'tl-rn' },
-      { title:'', field:'_act', width:86, frozen:true, headerSort:false,
+      { title:'', field:'_act', width:60, frozen:true, headerSort:false,
         cssClass:'tl-act',
         formatter: function(cell){
           const rid = cell.getRow().getData()._rid;
           const id = rid.replace(/'/g,'');
           return ''
-            + '<button class="act-btn act-gi"  title="Set GI Date = today"      onclick="TL.setGiNow(\''+id+'\')">📅</button>'
             + '<button class="act-btn act-dn"  title="Reprint Delivery Note"    onclick="dnReprintFromTL(\''+id+'\')">🖨</button>'
             + '<button class="act-btn act-del" title="Delete row"               onclick="TL.askDel(\''+id+'\')">✕</button>';
         }
@@ -247,6 +246,16 @@ const TL = (function(){
         headerSort: true,
         hozAlign: c.num ? 'right' : 'left',
         cssClass: c.num ? 'tl-num' : '',
+        /* v4 — column totals shown at the TOP of the grid, aligned under the
+           Net Weight / C3 / C4 columns (replaces the old bottom status bar).
+           Sums the rows currently in view (respects the date/search filter). */
+        topCalc: (c.k==='lpgQty'||c.k==='c3Kg'||c.k==='c4Kg') ? 'sum' : undefined,
+        topCalcFormatter: (c.k==='lpgQty'||c.k==='c3Kg'||c.k==='c4Kg')
+          ? function(cell){
+              const col = c.k==='lpgQty' ? '#2471a3' : c.k==='c3Kg' ? '#1a7f37' : '#b45309';
+              return '<span style="color:'+col+'">'+fmtNum(cell.getValue()||0)+'</span>';
+            }
+          : undefined,
         editor: c.ed ? (c.num ? 'number' : 'input') : false,
         editorParams: c.num ? { verticalNavigation:'table' } : {},
         cellEdited: c.ed ? function(cell){ onCellEdited(cell); } : undefined,
@@ -281,6 +290,17 @@ const TL = (function(){
     if(table) return;
     const el = document.getElementById('tlGrid');
     if(!el) return;
+    /* v4 — default the date filter to TODAY on first open. The operator can
+       pick another day or press ✕ to clear and see every date. Only runs on
+       the first build (buildTable is guarded by `if(table) return`), so a
+       manual clear stays cleared for the rest of the session. */
+    if(!dateFilter){
+      const dt=new Date(), p=n=>String(n).padStart(2,'0');
+      const today = p(dt.getDate())+'/'+p(dt.getMonth()+1)+'/'+String(dt.getFullYear()).slice(-2);
+      dateFilter = today;
+      const inp=document.getElementById('tlDateFilter'); if(inp) inp.value = today;
+      const clr=document.getElementById('tlDateClear'); if(clr) clr.style.display='inline-block';
+    }
     table = new Tabulator(el, {
       data: buildTableData(),
       layout: 'fitDataFill',
@@ -363,18 +383,19 @@ const TL = (function(){
   function updateStatus(){
     const all = Object.keys(ROWS).length;
     const shown = table ? table.getDataCount() : 0;
-    let sumNet=0, sumC3=0, sumC4=0;
+    /* Net Weight / C3 / C4 totals now live in the top calc row (see
+       tabulatorColumns → topCalc), so they recompute automatically with the
+       filter. Here we keep the shown/total counters, tab badge, and the
+       per-field "has data" counts (rows with a Date / with a GI Date). */
+    let nDate=0, nGi=0;
     Object.values(ROWS).forEach(r=>{
-      if(r && !r.disabled){
-        sumNet += parseNum(r.lpgQty)||0;
-        sumC3  += parseNum(r.c3Kg)||0;
-        sumC4  += parseNum(r.c4Kg)||0;
-      }
+      if(!r) return;
+      if(String(r.date||'').trim())   nDate++;
+      if(String(r.giDate||'').trim()) nGi++;
     });
     const el = (id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=v; };
-    el('tlSumNet', fmtNum(sumNet));
-    el('tlSumC3',  fmtNum(sumC3));
-    el('tlSumC4',  fmtNum(sumC4));
+    el('tlCntDate', nDate);
+    el('tlCntGi',   nGi);
     el('tlCntShown', shown);
     el('tlCntTotal', all);
     el('tlBadgeCount', all);
@@ -939,14 +960,17 @@ const TL = (function(){
       rebuildTableData();
       return true;
     },
-    /* Rename every TL row's doNo old→new (used by SYNC when a TMP order gets its real DO). */
+    /* Rename every TL row's doNo old→new (used by SYNC when a TMP order gets its real DO).
+       Match is CASE-INSENSITIVE so a hand-typed temp DO (e.g. "Dau26062301")
+       still matches regardless of how it was capitalised. */
     renameDoNo: function(oldDo, newDo){
-      oldDo = String(oldDo||''); newDo = String(newDo||'').trim();
-      if(!oldDo || !newDo || oldDo === newDo) return 0;
+      oldDo = String(oldDo||'').trim(); newDo = String(newDo||'').trim();
+      if(!oldDo || !newDo || oldDo.toUpperCase() === newDo.toUpperCase()) return 0;
+      const oldU = oldDo.toUpperCase();
       let n = 0;
       const payload = {};
       Object.keys(ROWS).forEach(rid=>{
-        if(String(ROWS[rid].doNo||'') === oldDo){
+        if(String(ROWS[rid].doNo||'').trim().toUpperCase() === oldU){
           ROWS[rid].doNo = newDo;
           payload['raw_data/'+rid+'/doNo'] = newDo;
           n++;

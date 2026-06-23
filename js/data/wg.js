@@ -313,7 +313,7 @@ const WG = (function(){
          matching against Today Plan _forDate and TL Data date. Stored as ISO
          YYYY-MM-DD. Displayed as DD/MM/YY. NOT editable by hand — set by
          re-pasting with a different picker date. */
-      { title:'WMS Date',    field:'_wmsDate', width:90, headerSort:true, editor:false,
+      { title:'Loaded Date', field:'_wmsDate', width:90, headerSort:true, editor:false,
         formatter:cell=>{
           const v = String(cell.getValue()||'').trim();
           if(!v) return '<span style="color:#dc2626;font-style:italic">—</span>';
@@ -534,8 +534,12 @@ const WG = (function(){
     changes.forEach(c=>{
       c.diffs.forEach(d=> batch.push({ rid:c.rid, field:d.field, value:d.new }));
     });
-    if(!batch.length){ toast('No changes to apply','er'); closeDiff(); return; }
-    applyAndPush(batch, 'paste '+adds.length+' new / '+changes.length+' updated');
+    /* Apply field changes if there are any. A re-paste of identical data has no
+       diff (batch empty) — we DON'T return here: the match still runs below, so
+       every paste re-checks WMS GI ↔ TL Data per spec. */
+    if(batch.length){
+      applyAndPush(batch, 'paste '+adds.length+' new / '+changes.length+' updated');
+    }
     /* v4.22.11 — corrected modal chain.
        Old order: _autoFillTlGiDate ran FIRST, then SYNC.reviewPromotions.
        That meant TL.doNo still held TMP-xxx ids when candidates were
@@ -567,7 +571,8 @@ const WG = (function(){
     closeDiff();
     rebuildTableData();
     document.getElementById('wgPasteArea').value = '';
-    toast(`WMS GI: ${adds.length} added, ${changes.length} updated`,'ok');
+    toast(batch.length ? `WMS GI: ${adds.length} added, ${changes.length} updated`
+                       : 'WMS GI: match re-checked (no data change)','ok');
     /* WMS GI just changed — re-run WGCHECK on TP + TMR plans so any
        Plan ↔ WMS GI mismatches refresh. RAM-only, no Firebase writes. */
     try{ if(typeof WGCHECK !== 'undefined') WGCHECK.recheckAllPlans({toast:false}); }catch(_){}
@@ -616,7 +621,7 @@ const WG = (function(){
     if(!wmsDate) return;
     if(typeof TL === 'undefined' || !TL.ROWS || !TL.applyWmsSync || !TL.previewWmsSync) return;
 
-    /* Today's date — what gets stamped on TL.giDate when match confirmed. */
+    /* GI Date stamp = TODAY (when the operator GI's on WMS), not the loading date. */
     const dNow = new Date();
     const todayIso = dNow.getFullYear()+'-'+String(dNow.getMonth()+1).padStart(2,'0')+'-'+String(dNow.getDate()).padStart(2,'0');
 
@@ -627,57 +632,142 @@ const WG = (function(){
       let yy = m[3]; if(yy.length === 2) yy = '20'+yy;
       return yy+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
     };
-
-    /* Build the WMS search pool: every WG row whose _wmsDate === picker
-       date, has a real DO (numeric OR alnum like KNH26061101 — v4.36.3),
-       and reports a non-zero pick. Keys uppercased for alnum stability. */
     const _isDoTok = x => /^\d{6,}$/.test(x) || /^[A-Za-z]{2,4}\d{6,}$/.test(x);
-    const wmsByDo = {};
-    Object.values(ROWS).forEach(w => {
-      const wDO = String(w.delivId||'').trim();
-      if(!_isDoTok(wDO)) return;
-      const pick = parseFloat(w.pickKg||0) || 0;
-      if(!pick) return;
-      if(String(w._wmsDate||'') !== wmsDate) return;
-      wmsByDo[wDO.toUpperCase()] = w;
-    });
-    if(!Object.keys(wmsByDo).length) return;       /* no WMS rows in date window */
+    const _normDO  = x => String(x||'').trim().toUpperCase();
+    /* Plate match — handles BOTH ways the plate differs between systems:
+         (1) same plate written with a space vs a dash
+             ("51D 05867"  ↔  "51D-05867"),
+         (2) WMS combining truck+rmooc into one field
+             ("51D-05867 51R-22736").
+       Strategy: strip ALL separators and compare the whole string; also compare
+       each whitespace-split token; finally fall back to TP's token matcher. */
+    const _plateNorm = s => String(s||'').replace(/[-.\s]/g,'').toUpperCase();
+    const _plateOk = (wmsVeh, tlPlate) => {
+      const tp = _plateNorm(tlPlate);
+      if(!tp) return false;
+      const wv = String(wmsVeh||'');
+      if(_plateNorm(wv) === tp) return true;                            /* whole joined */
+      if(wv.split(/\s+/).some(p => _plateNorm(p) === tp)) return true;  /* per token   */
+      if(typeof TP!=='undefined' && TP.plateMatchAny) return TP.plateMatchAny(wmsVeh, tlPlate);
+      return false;
+    };
+    /* Driver match — reuse Today Plan's VN-aware matcher (survives reversed name
+       order, diacritics, casing). Fall back to a plain compare if unavailable. */
+    const _drvOk = (a,b) => {
+      if(typeof TP!=='undefined' && TP.driverMatch) return TP.driverMatch(a,b);
+      return !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+    };
 
-    /* Scan every TL row that fits the candidate criteria. */
+    /* Per spec (v4): consider EVERY WMS row in this loading-date window with
+       pick != 0 and a real DO — NOT only the rows changed by this paste. A
+       re-paste of data that is already in WMS GI produces no diff, so scoping
+       to adds/changes skipped exactly those rows. Scanning the whole window
+       makes the match run on every paste and also catches rows pasted earlier
+       that were never matched. */
+    const wmsRows = [];
+    Object.values(ROWS).forEach(w=>{
+      if(!w) return;
+      if((parseFloat(w.pickKg||0)||0) === 0) return;          /* skip pick = 0 */
+      if(String(w._wmsDate||'') !== wmsDate) return;          /* this loading date */
+      if(!_isDoTok(_normDO(w.delivId))) return;               /* must carry a real DO */
+      wmsRows.push(w);
+    });
+    if(!wmsRows.length) return;
+
+    /* TL rows in the SAME date window (TL.date column === loading date) that are
+       not yet fully reconciled with WMS. This is the search region per spec. */
     const tlRows = TL.ROWS;
-    const cands = [];
+    const tlPool = [];
     for(const rid in tlRows){
       const r = tlRows[rid];
       if(!r || r.disabled) continue;
-      if(String(r.giDate||'').trim()) continue;                /* already GI'd */
-      const tlIso = _isoFromDDMMYY(r.date);
-      if(!tlIso || tlIso !== wmsDate) continue;                /* outside date window */
-      const dos = String(r.doNo||'').trim().split(/[\s\/,]+/)
-        .filter(_isDoTok).map(x => x.toUpperCase());
-      if(!dos.length) continue;                                /* still TMP-only */
-      let matched = null;
-      for(const x of dos){ if(wmsByDo[x]){ matched = wmsByDo[x]; break; } }
-      if(!matched) continue;
-      const c3   = parseFloat(matched.propane||0) || 0;
-      const c4   = parseFloat(matched.butane ||0) || 0;
-      const pick = parseFloat(matched.pickKg ||0) || 0;
-      /* giDate stamped with TODAY, not the picker date. */
-      const opts = { isoDate: todayIso, pickKg: pick, c3Kg: c3, c4Kg: c4 };
-      try{
-        const preview = TL.previewWmsSync(rid, opts);
-        if(preview && preview.hasChanges){
-          cands.push({
-            rid,
-            realDo: String(matched.delivId||'').trim(),
-            opts, preview,
-            wmsRow: matched, tlRow: r
-          });
-        }
-      }catch(_){}
+      if(_isoFromDDMMYY(r.date) !== wmsDate) continue;         /* limit by TL Date column */
+      const toks    = String(r.doNo||'').trim().split(/[\s\/,]+/).filter(_isDoTok).map(_normDO);
+      const realDos = toks.filter(d => !isTempOid(d));
+      const tempDos = toks.filter(d =>  isTempOid(d));
+      /* A row is "done" (and skipped) only when it already has a real DO AND its
+         C3/C4 are filled. giDate is intentionally NOT a gate: the scale auto-GI
+         stamps giDate at load time — long before WMS pick/C3/C4 arrive — so
+         gating on giDate skipped exactly the rows that still need matching. */
+      const c3set = String(r.c3Kg||'').trim() !== '';
+      const c4set = String(r.c4Kg||'').trim() !== '';
+      if(realDos.length && c3set && c4set) continue;
+      tlPool.push({ rid, r, realDos, tempDos });
     }
+    if(!tlPool.length) return;
 
-    if(!cands.length) return;
-    try{ openTlSyncModal(cands); }catch(e){ console.warn('[WG] openTlSyncModal', e); }
+    const TOL = 1;                 /* kg rounding slack (same as promotion) */
+    const usedTl = new Set();
+    const cands = [];              /* confirmed → TL sync confirm modal */
+    const mismatches = [];         /* pick != net → warning modal */
+
+    wmsRows.forEach(w=>{
+      const wDO  = _normDO(w.delivId);
+      const pick = Math.round(parseFloat(w.pickKg||0)||0);
+      const c3   = parseFloat(w.propane||0)||0;
+      const c4   = parseFloat(w.butane ||0)||0;
+
+      /* (a) TL row with the OFFICIAL DO → exact DO match. */
+      let hit = tlPool.find(t => !usedTl.has(t.rid) && t.realDos.includes(wDO));
+      let viaTemp = false;
+
+      /* (b) else TL row with a TEMP DO → match by plate + driver. Prefer the
+            candidate whose net weight already equals the pick. */
+      if(!hit){
+        const pd = tlPool.filter(t => !usedTl.has(t.rid)
+          && t.tempDos.length && !t.realDos.length
+          && (_plateOk(w.vehicle, t.r.truck) || _plateOk(w.vehicle, t.r.rmooc))
+          && _drvOk(w.driver, t.r.driver));
+        if(pd.length){
+          hit = pd.find(t => Math.abs(pick - Math.round(parseFloat(t.r.lpgQty||0)||0)) <= TOL) || pd[0];
+          viaTemp = true;
+        }
+      }
+
+      if(!hit) return;                                        /* no TL row for this WMS row */
+      const netWt = Math.round(parseFloat(hit.r.lpgQty||0)||0);
+      const diff  = pick - netWt;
+
+      /* Discrepancy rule:
+         • temp DO    : weight IS the confirmation → warn if no net or net ≠ pick.
+         • official DO: identity already certain via DO → warn only when TL has a
+                        net weight that disagrees with WMS pick. */
+      const isMismatch = viaTemp ? (netWt <= 0 || Math.abs(diff) > TOL)
+                                 : (netWt  > 0 && Math.abs(diff) > TOL);
+      if(isMismatch){
+        usedTl.add(hit.rid);
+        mismatches.push({
+          rid: hit.rid, realDo: String(w.delivId||'').trim(),
+          tempDo: viaTemp ? String(hit.r.doNo||'').trim() : '',
+          customer: hit.r.cust || hit.r.custFull || w.customer || '',
+          driver:   hit.r.driver || w.driver || '',
+          vehicle:  hit.r.truck || hit.r.plate || w.vehicle || '',
+          pick, netWt, diff, viaTemp
+        });
+        return;
+      }
+
+      /* Confirmed → stamp pick/C3/C4/giDate (temp rows also upgrade DO on apply). */
+      const opts = { isoDate: todayIso, pickKg: pick, c3Kg: c3, c4Kg: c4 };
+      let preview = null;
+      try{ preview = TL.previewWmsSync(hit.rid, opts); }catch(_){}
+      if(preview && preview.hasChanges){
+        usedTl.add(hit.rid);
+        cands.push({
+          rid: hit.rid,
+          realDo: String(w.delivId||'').trim(),
+          upgradeDo: viaTemp,
+          /* pass the row's ORIGINAL doNo (not the uppercased token) — TL.renameDoNo
+             matches the doNo string exactly, so case must be preserved. */
+          tempDo: viaTemp ? String(hit.r.doNo||'').trim() : '',
+          opts, preview,
+          wmsRow: w, tlRow: hit.r
+        });
+      }
+    });
+
+    if(mismatches.length){ try{ openWgMismatchModal(mismatches); }catch(e){ console.warn('[WG] mismatch modal', e); } }
+    if(cands.length){ try{ openTlSyncModal(cands); }catch(e){ console.warn('[WG] openTlSyncModal', e); } }
   }
 
   /* -------- Clear all -------- */
@@ -695,7 +785,7 @@ const WG = (function(){
         {title:'Delivery ID', field:'delivId'},{title:'Trans Date', field:'transDate'},
         {title:'Customer', field:'customer'},{title:'Vehicle', field:'vehicle'},
         {title:'Driver', field:'driver'},{title:'Arrival', field:'arrival'},
-        {title:'WMS Date', field:'_wmsDate'},{title:'Order (MT)', field:'orderMt'},
+        {title:'Loaded Date', field:'_wmsDate'},{title:'Order (MT)', field:'orderMt'},
         {title:'UOM', field:'uom'},{title:'Pick (KG)', field:'pickKg'},
         {title:'Propane (KG)', field:'propane'},{title:'Butane (KG)', field:'butane'},
         {title:'G-To-InternalCode', field:'shipToId'}
