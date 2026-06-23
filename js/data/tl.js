@@ -336,15 +336,28 @@ const TL = (function(){
   }
 
   function rebuildTableData(){
-    if(!table) return;
-    table.replaceData(buildTableData());
-    updateStatus();
+    /* The TL Tabulator only exists while the TL tab has been opened, but the
+       dependent refreshes below must run on EVERY TL change (incl. a delete
+       received from another machine) — otherwise Today Plan stayed stale until
+       an F5. So the table redraw is guarded, the dependents are not. */
+    if(table){
+      table.replaceData(buildTableData());
+      updateStatus();
+    }
     /* v4.22.4 — TL data changed: REMAINING stock depends on per-day TL net
        weights via INV.giFromTL, so refresh the stock card + scale row-1.
        RAM-only. SCALE.refreshRow1 also re-runs the PLAN MT calc, which is
        cheap and idempotent. */
     try{ if(typeof INV !== 'undefined' && INV.renderRow1) INV.renderRow1(); }catch(_){}
     try{ if(typeof SCALE !== 'undefined' && SCALE.refreshRow1) SCALE.refreshRow1(); }catch(_){}
+    /* v4.x FIX — Today/Tomorrow Plan STATUS + ACTUAL columns are derived from
+       TL rows (via TL.getIndex()). A TL delete/edit/paste invalidated that
+       index but never told the plan tables to re-render, so they showed stale
+       status/actual until the operator pressed F5. refreshStatus() is the
+       RAM-only re-render hook the SCALE module already uses (no Firebase
+       reads/writes, no loop back into TL). */
+    try{ if(typeof TP  !== 'undefined' && TP.refreshStatus)  TP.refreshStatus();  }catch(_){}
+    try{ if(typeof TMR !== 'undefined' && TMR.refreshStatus) TMR.refreshStatus(); }catch(_){}
   }
 
   function updateStatus(){
@@ -572,7 +585,17 @@ const TL = (function(){
     const first = raw[0][0]||'';
     if(first && isNaN(parseInt(first.replace(/\//g,''))) && first.length>3) startIdx = 1;
 
-    const added=[]; const updated=[]; const unchanged=[];
+    const added=[]; const updated=[]; const unchanged=[]; const rejected=[];
+    /* v4.x — ANTI-MISPLACED-PASTE guard. The TL paste maps columns purely by
+       POSITION, so dropping a foreign sheet (SAP ZMMFR022 / WMS GI) into this
+       box used to create garbage rows (the "phantom rows 1–3": date="L0",
+       doNo="20260622"=a YYYYMMDD date, giDate=a SAP doc no). A real TL row
+       ALWAYS has a valid export date in the date column and a DO or plate, so
+       we validate each row and skip the ones that don't look like TL data. */
+    const _validDate = s => /^\d{2}\/\d{2}\/\d{2}$/.test(String(s||''));   /* parseDate output */
+    const _looksYMD  = s => /^20\d{6}$/.test(String(s||'').replace(/[^\d]/g,''));  /* YYYYMMDD */
+    const _doLike    = s => /^(\d{5,}|[A-Za-z]{2,4}\d{4,}|TMP)/i.test(String(s||'').trim());
+    const _plateLike = s => /\d{2}\s*[A-Za-z]/.test(String(s||''));        /* 51D-05867, 29K-13833 */
     /* v4.34.0 — ONE multi-path payload for the whole paste (incl. the
        version bump via _pushBatch) instead of one write per row + a
        separate version set. Nothing changed → nothing written. */
@@ -587,6 +610,22 @@ const TL = (function(){
         if(v !== '' && v !== null) obj[k] = v;
       });
       if(!obj.doNo && !obj.truck) continue; /* skip empty rows */
+
+      /* anti-misplaced-paste: reject anything that doesn't look like a TL row */
+      const _badDate  = obj.date != null && obj.date !== '' && !_validDate(obj.date);
+      /* only an ALL-DIGIT doNo can be mistaken for a YYYYMMDD date; alnum DOs
+         like KNH26062301 carry a letter prefix that disambiguates them. */
+      const _doIsDate = obj.doNo != null && /^\d+$/.test(String(obj.doNo).trim()) && _looksYMD(obj.doNo);
+      const _noKey    = !_doLike(obj.doNo) && !_plateLike(obj.truck);
+      if(_badDate || _doIsDate || _noKey){
+        rejected.push({
+          id: obj.doNo || obj.truck || '?',
+          why: _badDate ? ('ngày "'+obj.date+'" không hợp lệ')
+             : _doIsDate ? ('DO "'+obj.doNo+'" là ngày, không phải số DO')
+             : 'thiếu số DO / biển số hợp lệ'
+        });
+        continue;
+      }
       obj._ts = Date.now()+i;
 
       /* merge key */
@@ -626,9 +665,22 @@ const TL = (function(){
     /* show diff summary */
     const body = document.getElementById('tlDiffBody');
     const parts = [];
+    /* v4.x — if NOTHING valid came through but rows were rejected, the operator
+       almost certainly pasted the wrong sheet (SAP/WMS) into TL Data. */
+    if(!added.length && !updated.length && !unchanged.length && rejected.length){
+      parts.push('<b style="color:#c1121f">⚠ Không có dòng hợp lệ — có thể bạn đã dán nhầm bảng '
+        + '(SAP / WMS GI) vào TL Data. Không có dữ liệu nào được lưu.</b>');
+    }
     if(added.length)     parts.push('<b style="color:#1a7f37">✅ Added '+added.length+' rows</b>');
     if(updated.length)   parts.push('<b style="color:#0077b6">🔄 Updated '+updated.length+' rows</b>');
     if(unchanged.length) parts.push('<span style="color:var(--ink-3)">⏭ Unchanged '+unchanged.length+' rows</span>');
+    if(rejected.length){
+      const _e = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const sample = rejected.slice(0,5).map(x=>'• '+_e(x.id)+' — '+_e(x.why)).join('<br>');
+      parts.push('<b style="color:#c1121f">⛔ Bỏ qua '+rejected.length+' dòng sai định dạng</b>'
+        + '<div style="font-size:11px;color:#7a1f1f;margin-top:4px;line-height:1.5">'+sample
+        + (rejected.length>5 ? '<br>…và '+(rejected.length-5)+' dòng nữa' : '')+'</div>');
+    }
     if(!parts.length)    parts.push('No valid rows found');
     body.innerHTML = parts.join('<br>');
     document.getElementById('tlDiffModal').classList.add('on');

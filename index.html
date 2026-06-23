@@ -648,7 +648,7 @@
             <div class="sc-fld">
               <span class="sc-lbl">Truck Weight (kg)</span>
               <input id="tc-truck-wt" type="text" inputmode="decimal" placeholder="0" tabindex="1"
-                oninput="SCALE._fmtWtLive(this);SCALE.scCalcNet()" onkeydown="SCALE.scTabNext(event,'tc-gross-wt')" autocomplete="off">
+                oninput="SCALE._fmtWtLive(this,event);SCALE.scCalcNet()" onkeydown="SCALE.scTabNext(event,'tc-gross-wt')" autocomplete="off">
             </div>
             <div class="sc-fld">
               <span class="sc-lbl">Time In (HH:MM)</span>
@@ -658,7 +658,7 @@
             <div class="sc-fld">
               <span class="sc-lbl">Gross Weight (kg)</span>
               <input id="tc-gross-wt" type="text" inputmode="decimal" placeholder="0" tabindex="2"
-                oninput="SCALE._fmtWtLive(this);SCALE.scCalcNet()" onkeydown="SCALE.scTabNext(event,'tc-seal')" autocomplete="off">
+                oninput="SCALE._fmtWtLive(this,event);SCALE.scCalcNet()" onkeydown="SCALE.scTabNext(event,'tc-seal')" autocomplete="off">
             </div>
             <div class="sc-fld">
               <span class="sc-lbl">Time Out (HH:MM)</span>
@@ -2789,14 +2789,18 @@
       <button class="modal-close" onclick="wgClosePaste()">×</button></div>
     <div class="modal-body">
       <div class="wg-paste-date">
-        <span class="wg-paste-date-lbl">📅 PASTE FOR DATE:</span>
+        <span class="wg-paste-date-lbl">📅 SELECT ACTUAL LOADING DATE:</span>
         <input type="date" id="wgPasteDate" class="wg-paste-date-inp">
         <button class="wg-paste-date-btn" onclick="WG.pasteDateToday()">Today</button>
-        <span class="wg-paste-date-hint">Every row in this paste is stamped with this date — used to match Today Plan + TL Data. Default = today.</span>
+        <span class="wg-paste-date-hint">Chọn ĐÚNG ngày xe lên hàng thực tế (Actual loading date), KHÔNG phải ngày đi GI. Cả lô dán này sẽ được đóng dấu ngày này.</span>
       </div>
-      <p>Copy the WMS GI export from Excel (13 columns A–M, header row optional) and paste below.
-         Columns: Transaction-Type · Delivery-ID · Trans-Date · Ship-To-Name · Vehicle-No · Driver-Name ·
-         Arrival-Date · Order-Weight(MT) · UOM · Pick-Weight(KG) · Propane(KG) · Butane(KG) · G-To-InternalCode.</p>
+      <p style="background:#fff7ed;border:1px solid #fdba74;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.5;color:#7a3e07">
+         <b>⚙ Nguyên tắc match WMS GI ↔ TL Data:</b> hệ thống ghép 1 dòng WMS với 1 dòng TL khi
+         <b>(1)</b> số <b>DO trùng khít</b> (Delivery-ID = DO No.) <b>VÀ</b>
+         <b>(2)</b> <b>ngày lên hàng bằng nhau</b> ở cả 3 nơi: ngày chọn ở trên = ngày dán WMS = ngày (Date) của dòng TL.<br>
+         → Vì vậy <b>luôn chọn đúng ngày lên hàng thực tế</b> của lô đang dán. Nếu các DO thuộc <b>nhiều ngày khác nhau</b>,
+         hãy <b>tách ra dán theo từng ngày</b>. Dán sai ngày → DO sẽ <b>không match</b> dù số DO đúng.<br>
+         <span style="color:#9a5a1a">Định dạng nguồn: WMS GI export 13 cột A–M (Transaction-Type · Delivery-ID · Trans-Date · Ship-To-Name · Vehicle-No · Driver-Name · Arrival-Date · Order-Weight(MT) · UOM · Pick-Weight(KG) · Propane(KG) · Butane(KG) · G-To-InternalCode), có/không có dòng tiêu đề đều được.</span></p>
       <textarea id="wgPasteArea" placeholder="Paste here (Ctrl+V)…"></textarea>
     </div>
     <div class="modal-foot">

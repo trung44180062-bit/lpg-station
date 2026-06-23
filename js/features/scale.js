@@ -1178,8 +1178,17 @@ const SCALE = (function(){
       return (typeof r === 'number' && isFinite(r)) ? r : parseFloat(s);
     }catch(_){ return parseFloat(s); }
   }
-  function _fmtWtLive(inp){
+  function _fmtWtLive(inp, ev){
     if(!inp) return;
+    /* v4.x FIX — digit-duplication on some PCs ("11200" → "111200").
+       Root cause: when a Vietnamese IME (Unikey/Telex/VNI) is active, the very
+       first keystroke fires an `input` event MID-COMPOSITION (isComposing=true).
+       Rewriting inp.value + setSelectionRange while a composition is open makes
+       Windows re-commit the first character, doubling it. Machines with the IME
+       off never composed, so they never saw the bug. Fix: never touch the value
+       while composing — let the IME finish, then the trailing isComposing=false
+       `input` event reformats cleanly. Works on every machine, IME on or off. */
+    if(ev && ev.isComposing) return;
     const raw = inp.value;
     /* Save digit-count-before-caret so we can restore the caret precisely
        even after commas are inserted/removed. */
@@ -1293,8 +1302,13 @@ const SCALE = (function(){
     const all = _destGetUnique();
     const esc1 = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     const buildItem = d =>
+      /* v4.x FIX — the JS-string arg sits inside a DOUBLE-quoted onmousedown
+         attribute, so JSON.stringify()'s double quotes used to TERMINATE the
+         attribute early ( ...scDestPick(" → broken JS ) and clicking an item
+         did nothing. esc1() encodes the quotes as &quot;, which the browser
+         decodes back to a valid scDestPick("Name") before running it. */
       '<div class="sc-dest-item" onmousedown="event.preventDefault();SCALE.scDestPick('
-      + JSON.stringify(d.name).replace(/</g,'\\u003c')
+      + esc1(JSON.stringify(d.name))
       + ')">' + esc1(d.name) + '<span class="sc-dest-count">×' + d.count + '</span></div>';
     if(!q || !q.trim()){
       const top = all.slice(0, 8);

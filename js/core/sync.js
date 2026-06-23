@@ -26,6 +26,15 @@
 const SC = (function(){
   let FB=null, fbConnected=false;
   let _suppressLocalEcho = 0;   // we get our own writes echoed back; skip them
+  /* v4.x — SELF-HEALING echo suppression. The counter alone could get STUCK
+     positive if an FB write promise never settled (its .finally never ran) —
+     e.g. a flaky connection during the big "wipe all" multi-row write. A stuck
+     counter makes this machine ignore EVERY inbound child event until an F5,
+     which is exactly the "fleet edits don't reach my machine" symptom. We pair
+     the counter with a time ceiling: suppression holds only while the counter
+     is up AND we're inside the window, so a stuck counter auto-heals. */
+  let _suppressUntil = 0;
+  let _lastReconcile = 0;       // throttle full re-reads (attach + reconnect can both fire)
   const _pendingQueue = [];     // edits buffered while offline
   let _versions = { fleet:0 };  // local idea of each area's version
   const LS_KEY = 'lpg_v4_cache_v1';
@@ -105,7 +114,7 @@ const SC = (function(){
     saveCache();
 
     if(FB && fbConnected){
-      _suppressLocalEcho++;
+      _suppressLocalEcho++; _suppressUntil = Date.now() + 1500;
       FB.ref().update(payload)
         .then(()=>{
           toast('Synced '+[...touched].map(t=>CERT_DEFS[t].label).join(', ')+' ('+reason+')','ok');
@@ -128,7 +137,7 @@ const SC = (function(){
     if(!FB || !fbConnected || !_pendingQueue.length) return;
     const q = _pendingQueue.splice(0, _pendingQueue.length);
     q.forEach(({payload,reason})=>{
-      _suppressLocalEcho++;
+      _suppressLocalEcho++; _suppressUntil = Date.now() + 1500;
       FB.ref().update(payload)
         .then(()=>toast('Flushed offline change ('+reason+')','ok'))
         .catch(e=>{ console.error(e); _pendingQueue.push({payload,reason}); })
@@ -139,55 +148,95 @@ const SC = (function(){
   /* ---- inbound: child_added / child_changed / child_removed
      at fleet_/{tab} level. We listen to grandchildren too so a
      single-field write from another machine doesn't replace the whole row. */
+  /* ── v4.34.0 — one shared debounced refresh for ALL fleet tabs.
+     The initial replay fires child_added per row per tab; the old handlers
+     serialized the whole fleet cache and rebuilt the table per row (O(N²)
+     startup). RAM is mutated immediately; cache/table/subs/FCHECK refresh
+     once per burst. Hoisted to module scope so _reconcileAll can reuse it. */
+  let _fleetSyncT = null;
+  function _scheduleFleetSync(){
+    if(_fleetSyncT) return;
+    _fleetSyncT = setTimeout(()=>{
+      _fleetSyncT = null;
+      saveCache();
+      rebuildTableData();          /* current tab only — same as before */
+      refreshCounts();
+      buildFleetSubs();
+      try{ if(typeof FCHECK!=='undefined') FCHECK.recompute(); }catch(_){}
+    }, 100);
+  }
+
+  /* ── v4.x — FULL authoritative re-sync of every fleet tab.
+     Firebase wins: pull every remote row into RAM (so a machine that missed
+     child events still gets them), THEN prune local rows that no longer exist
+     remotely (deleted/wiped elsewhere). We never re-upload local-only rows —
+     that is the stale-cache-overwrites-Firebase bug the other modules guard
+     against. Throttled because attach + reconnect + version-reset can all ask
+     for a reconcile within the same moment. */
+  function _reconcileAll(reason){
+    if(!FB) return;
+    const now = Date.now();
+    if(now - _lastReconcile < 800) return;
+    _lastReconcile = now;
+    if(reason) console.warn('[fleet] full reconcile ('+reason+')');
+    FLEET_TABS.forEach(tab=>{
+      FB.ref('fleet_/'+tab).once('value').then(snap=>{
+        const fbData = snap.val() || {};
+        if(!DATA[tab]) DATA[tab] = {};
+        Object.keys(fbData).forEach(rid=>{
+          const row = fbData[rid];
+          if(row && typeof row === 'object'){ row._rid = rid; DATA[tab][rid] = row; }
+        });
+        Object.keys(DATA[tab]).forEach(rid=>{
+          if(!Object.prototype.hasOwnProperty.call(fbData, rid)) delete DATA[tab][rid];
+        });
+        _scheduleFleetSync();
+      }).catch(()=>{});
+    });
+  }
+
   function attachListeners(){
     FB.ref('.info/connected').on('value', s=>{
       fbConnected = !!s.val();
       setLed(fbConnected, fbConnected?'FIREBASE':'OFFLINE');
-      if(fbConnected) flushPending();
+      if(fbConnected){
+        /* v4.x — on reconnect we only need to:
+           1) reset any LEAKED echo-suppression so inbound events flow again;
+           2) flush writes buffered while offline.
+           We deliberately do NOT full-reconcile here: the Firebase SDK already
+           re-syncs DELTAS automatically on reconnect (it fires child_* only for
+           rows that actually changed while we were offline — no full download).
+           A flaky link would otherwise trigger a full fleet read on every
+           reconnect and burn Spark quota. The fleet_version listener below is
+           the cheap safety net: if the node was wiped/reset (version went
+           backward) it does ONE reconcile; a normal forward bump costs nothing
+           beyond the deltas the SDK is already delivering. */
+        _suppressLocalEcho = 0;
+        flushPending();
+      }
     });
 
     FB.ref('fleet_version').on('value', s=>{
       const v = s.val()||0;
-      if(v > _versions.fleet) _versions.fleet = v;
+      if(v < _versions.fleet){
+        /* v4.x — server counter went BACKWARD → the fleet node was wiped /
+           reset by hand (exactly the "I cleared all data yesterday" case).
+           Adopt the lower counter and do a FULL reconcile so this machine
+           drops the wiped rows and re-pulls the authoritative state. Without
+           this the machine kept its stale-high version and never re-synced —
+           the cause of "fleet edits don't reach my machine". Mirrors TL. */
+        _versions.fleet = v;
+        _reconcileAll('version-reset');
+      } else if(v > _versions.fleet){
+        _versions.fleet = v;          /* forward bump — child events deliver rows */
+      }
     });
-
-    /* ── v4.34.0 — one shared debounced refresh for ALL fleet tabs.
-       The initial replay fires child_added per row per tab; the old
-       handlers serialized the whole fleet cache and rebuilt the table per
-       row (O(N²) startup). RAM is mutated immediately; cache/table/subs/
-       FCHECK refresh once per burst. */
-    let _fleetSyncT = null;
-    const _scheduleFleetSync = ()=>{
-      if(_fleetSyncT) return;
-      _fleetSyncT = setTimeout(()=>{
-        _fleetSyncT = null;
-        saveCache();
-        rebuildTableData();          /* current tab only — same as before */
-        refreshCounts();
-        buildFleetSubs();
-        try{ if(typeof FCHECK!=='undefined') FCHECK.recompute(); }catch(_){}
-      }, 100);
-    };
 
     FLEET_TABS.forEach(tab=>{
       const ref = FB.ref('fleet_/'+tab);
 
-      /* Reconcile local DATA[tab] against Firebase to prune stale rows
-         deleted by another machine while this one was offline.
-         See plan module for full rationale. */
-      ref.once('value').then(snap=>{
-        const fbData = snap.val() || {};
-        const local = DATA[tab] || {};
-        const orphans = Object.keys(local).filter(rid => !Object.prototype.hasOwnProperty.call(fbData, rid));
-        if(orphans.length){
-          console.warn(`[fleet/${tab}] Reconcile: pruning ${orphans.length} stale local row(s):`, orphans);
-          orphans.forEach(rid => delete DATA[tab][rid]);
-          _scheduleFleetSync();
-        }
-      }).catch(()=>{});
-
       ref.on('child_added', snap=>{
-        if(_suppressLocalEcho) return;
+        if(_suppressLocalEcho && Date.now() < _suppressUntil) return;
         const rid = snap.key, row = snap.val();
         if(!row) return;
         row._rid = rid;
@@ -196,7 +245,7 @@ const SC = (function(){
       });
 
       ref.on('child_changed', snap=>{
-        if(_suppressLocalEcho) return;
+        if(_suppressLocalEcho && Date.now() < _suppressUntil) return;
         const rid = snap.key, row = snap.val();
         if(!row) return;
         row._rid = rid;
@@ -205,12 +254,18 @@ const SC = (function(){
       });
 
       ref.on('child_removed', snap=>{
-        if(_suppressLocalEcho) return;
+        if(_suppressLocalEcho && Date.now() < _suppressUntil) return;
         const rid = snap.key;
         delete DATA[tab][rid];
         _scheduleFleetSync();
       });
     });
+
+    /* Initial authoritative load (merge + prune). child_added above ALSO
+       replays existing rows, but going through _reconcileAll guarantees a
+       machine with stale localStorage converges to Firebase even if a child
+       event is ever missed. Throttle dedupes the overlap. */
+    _reconcileAll('attach');
   }
 
   /* ---- auto-seed REMOVED (v4.x) ----
