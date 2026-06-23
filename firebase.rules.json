@@ -10,6 +10,8 @@
 
     "users_whitelist": { ".write": false },
 
+    "settings": { ".write": false },
+
     "$rest": {
       ".write": "auth != null && root.child('users_whitelist').child(auth.token.email.toLowerCase().replace('.', ',')).child('active').val() === true"
     }

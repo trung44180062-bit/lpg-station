@@ -50,6 +50,12 @@ document.addEventListener('DOMContentLoaded', function () {
    * Moi feature nam TRONG onReady de canWrite() san sang truoc khi init.
    * Chua dang nhap => overlay dang nhap, app KHONG boot. */
   AUTH.init(function () {
+    /* P0 · FORCESYNC — "nut do" ep dong bo. PHAI chay SAU dang nhap (rules can
+     * auth de doc) va TRUOC khi cac module nap cache: neu settings/force_sync_version
+     * tren Firebase > epoch local thi xoa cache + reload sach ngay (khong phi init).
+     * Khi epoch khop thi khong lam gi -> cac module chay logic version binh thuong. */
+    step('P0 · FORCESYNC', () => FORCESYNC.init());
+
     step('P0 · navGo(sales)', () => navGo('sales'));
 
     /* P1 · next frame · Sales->Scale subtab dependencies */
