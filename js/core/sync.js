@@ -196,6 +196,10 @@ const SC = (function(){
   }
 
   function attachListeners(){
+    /* v4.x — chụp version local TRƯỚC khi listener fleet_version kịp sửa nó,
+       để version-gate khi mở (chỉ tải full khi local ≠ firebase). */
+    const _openLocalVer = _versions.fleet || 0;
+
     FB.ref('.info/connected').on('value', s=>{
       fbConnected = !!s.val();
       setLed(fbConnected, fbConnected?'FIREBASE':'OFFLINE');
@@ -261,11 +265,20 @@ const SC = (function(){
       });
     });
 
-    /* Initial authoritative load (merge + prune). child_added above ALSO
-       replays existing rows, but going through _reconcileAll guarantees a
-       machine with stale localStorage converges to Firebase even if a child
-       event is ever missed. Throttle dedupes the overlap. */
-    _reconcileAll('attach');
+    /* ── v4.x — VERSION-GATE KHI MỞ ──────────────────────────────────────
+       Chỉ TẢI FULL (reconcile: merge + prune) khi version local KHÁC version
+       Firebase. Sau khi FORCESYNC xoá cache thì local=0 ≠ firebase → tải về.
+       Mở bình thường mà version KHỚP → tin cache, BỎ QUA full read (đỡ quota).
+       child_added/changed/removed ở trên vẫn chạy để nhận realtime + nạp dòng. */
+    FB.ref('fleet_version').once('value').then(s=>{
+      const fbVer = s.val() || 0;
+      if(fbVer !== _openLocalVer){
+        console.warn('[fleet] version local '+_openLocalVer+' ≠ firebase '+fbVer+' → TẢI FULL về');
+        _reconcileAll('attach v'+_openLocalVer+'→'+fbVer);
+      } else {
+        console.log('[fleet] version khớp ('+fbVer+') → dùng cache, bỏ qua tải full');
+      }
+    }).catch(()=>{ _reconcileAll('attach (đọc version lỗi → tải full an toàn)'); });
   }
 
   /* ---- auto-seed REMOVED (v4.x) ----
@@ -370,10 +383,20 @@ const SC = (function(){
           console.warn('[FBA] Could not install instrumentation:', instrErr);
         }
 
-        attachListeners();
-        attachAuditListener();
-        /* NOTE: auto-seed intentionally NOT called — Firebase is authoritative. */
+        /* v4.x — KHÔNG attachListeners() ở đây! SC.init() chạy ở P0 TRƯỚC khi
+           đăng nhập; rules cần auth để đọc fleet_/* → đọc lúc này bị
+           PERMISSION_DENIED, listener bị huỷ, fleet rỗng (đúng lỗi "force xong
+           fleet mất trắng"; cache cũ từng che lỗi này). Gắn listener + reconcile
+           chuyển sang SC.attach(), gọi SAU đăng nhập trong AUTH onReady (boot.js).
+           NOTE: auto-seed intentionally NOT called — Firebase is authoritative. */
       }catch(e){ console.error('FB init',e); setLed(false,'FB ERROR'); }
+    },
+    /* v4.x — gắn listener + tải dữ liệu fleet. PHẢI gọi SAU đăng nhập (rules
+       cần auth để đọc fleet_/*). Gọi trong AUTH onReady ở boot.js. */
+    attach(){
+      if(!FB){ console.warn('[fleet] SC.attach: chưa có FB (firebase init lỗi?)'); return; }
+      attachListeners();
+      attachAuditListener();
     },
     getAuditFor,
     /* single-field edit */

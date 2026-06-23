@@ -56,6 +56,12 @@ document.addEventListener('DOMContentLoaded', function () {
      * Khi epoch khop thi khong lam gi -> cac module chay logic version binh thuong. */
     step('P0 · FORCESYNC', () => FORCESYNC.init());
 
+    /* P0 · SC.attach — gan listener + tai fleet SAU dang nhap. Fleet la module
+     * DUY NHAT init o P0 (vi SC.init phai initializeApp truoc AUTH); doc fleet_/*
+     * luc chua dang nhap bi rules chan -> fleet rong. Cac module khac init trong
+     * onReady nen khong dinh. Day la fix loi "force xong fleet mat trang". */
+    step('P0 · SC.attach (fleet, post-auth)', () => SC.attach());
+
     step('P0 · navGo(sales)', () => navGo('sales'));
 
     /* P1 · next frame · Sales->Scale subtab dependencies */
