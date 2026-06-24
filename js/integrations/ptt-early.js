@@ -78,7 +78,19 @@ var PTT_EARLY = (function(){
 
   function _gather(){
     var rows = _planRows().filter(function(r){ return _isEarly8(r.note); });
-    rows.sort(function(a,b){ return (parseInt(a.no,10)||0) - (parseInt(b.no,10)||0); });
+    /* v4.55.4 — print/selection order MUST match Plan TABLE VIEW = paste/Excel
+       source order. Sort by _forDate then _seq (global paste index stamped in
+       PLAN.parsePlanSheet), tie-break by per-customer "no". Rows without _seq
+       (legacy data pre-v4.55.4) sink to the bottom and regain real order after
+       the next paste — same fallback as PLAN.tableRows(). */
+    rows.sort(function(a,b){
+      var da = String(a._forDate||''), db = String(b._forDate||'');
+      if(da !== db) return da < db ? -1 : 1;
+      var sa = (typeof a._seq === 'number') ? a._seq : Number.MAX_SAFE_INTEGER;
+      var sb = (typeof b._seq === 'number') ? b._seq : Number.MAX_SAFE_INTEGER;
+      if(sa !== sb) return sa - sb;
+      return (parseInt(a.no,10)||0) - (parseInt(b.no,10)||0);
+    });
     return rows;
   }
 

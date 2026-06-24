@@ -9,7 +9,7 @@
    v4.55.4 (plan-table-paste-order) — current
      TABLE VIEW (Today Plan & Tomorrow Plan) giữ NGUYÊN thứ tự đơn hàng đúng
      như lúc paste từ Excel, để vận hành đối chiếu 1:1 phần mềm ↔ file Excel.
-     File: js/features/plan.js (+ bump nav.js).
+     Files: js/features/plan.js, js/integrations/ptt-early.js (+ bump nav.js).
 
      VẤN ĐỀ: tableRows() trước đây sort theo cột "#" (no). Nhưng `no` là số
      thứ tự THEO TỪNG KHÁCH (1..99, reset về 1 mỗi khách/sub-group) ⇒ sort
@@ -26,6 +26,10 @@
          để khi CHỈ thứ tự đổi (field giữ nguyên) thì _seq vẫn được cập nhật
          lên Firebase. _seq KHÔNG nằm trong COMPARE_FIELDS nên không hiện như
          field "đã đổi" trong diff modal — chỉ là metadata vị trí.
+     (4) ptt-early._gather() (Bulk Print PTT — Early-Morning Orders) sort theo
+         CÙNG khoá _forDate→_seq→no, nên DANH SÁCH chọn in VÀ THỨ TỰ IN khớp
+         đúng table view / Excel. _buildUnits() gom theo xe (Combined/Separate)
+         theo first-appearance nên vẫn giữ vị trí paste của row đầu mỗi nhóm.
      GHI CHÚ DỮ LIỆU: plan row có thêm field số `_seq` (paste/Excel order).
      sanitizeForStorage giữ field `_` (chỉ bỏ `__`) nên _seq lưu xuống Firebase.
 
