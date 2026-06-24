@@ -6,6 +6,59 @@
 /* ============================================================
    VERSION HISTORY (read this to resume work in later sessions)
    ------------------------------------------------------------
+   v4.55.3 (cert-check-rmooc-refresh-print) — current
+     SỬA 4 lỗi đối soát chứng chỉ (cert-check) theo phản hồi vận hành.
+     Files: js/checks/fcheck.js, js/core/sync.js, js/integrations/ptt-early.js.
+
+     (1) BỎ SÓT RMOOC trong popup paste & panel Scale.
+         fcheck.runPasteCheck() và buildPanelIssues() trước đây đọc r.rmooc
+         (không có fallback) ⇒ nếu hàng lưu trailer ở field `romooc` thì cert
+         rmooc hết hạn KHÔNG hiện (chỉ thấy tractor). Các nơi khác (cellWarn,
+         orderWarning, stationWarning) đã dùng r.rmooc||r.romooc; nay đồng bộ
+         luôn 2 chỗ này ⇒ tractor và rmooc hiện THÀNH 2 SUBJECT RIÊNG.
+         GHI CHÚ DỮ LIỆU: plan rows dùng field `rmooc`; `romooc` là field
+         tương thích ngược. Quy ước CHUẨN khi đọc rmooc ở mọi module:
+         `r.rmooc || r.romooc || ''`.
+
+     (2) CẬP NHẬT HẠN CERT KHÔNG REFRESH (phải đổi tab mới thấy).
+         Nguyên nhân: sync.applyAndPush() (đường ghi DUY NHẤT qua SC.editBatch)
+         set _suppressLocalEcho để bỏ qua echo Firebase của chính mình ⇒
+         _scheduleFleetSync() (vốn rebuild grid + FCHECK.recompute) KHÔNG chạy
+         cho sửa cục bộ. RAM đã đổi sẵn nên nay gọi _scheduleFleetSync() ngay
+         sau saveCache(). Đồng thời FCHECK.recompute() nay rebuild luôn bảng
+         TP/TMR (chỉ tab đang mở) để badge cert ở ô plate/rmooc/driver cập
+         nhật tức thì.
+
+     (3) PTT IN SỚM KHÔNG IN CẢNH BÁO CERT lên phiếu.
+         ptt-early chỉ hiện badge trong modal chọn, không in ra phiếu. Thêm
+         _certWarnLine()/_certWarnLineMulti()/_certWarnHTML() và chèn 1 DÒNG
+         ĐỎ "⚠ Cert:" dưới "Check booth" trong _buildPage và _buildCombinedPage
+         (gộp nhiều DO, khử trùng lặp). Dùng FCHECK.orderWarning theo _forDate
+         nên khớp với badge đã thấy.
+
+     (4) TÁCH CẢNH BÁO RIÊNG theo loại (tractor / rmooc / tài xế / tank lorry).
+         Mỗi ô plate/rmooc/driver đã dùng cellWarn riêng; popup/panel gom theo
+         subject riêng. Sau fix (1) rmooc không còn bị nuốt ⇒ 4 sub-tab hiện
+         cảnh báo độc lập, không gom chung.
+
+     CHƯA TEST: không chạy được app Firebase trong môi trường này; node --check
+     không chạy được vì mount sandbox trả bản cắt cụt. Đã rà soát thủ công cân
+     bằng ngoặc/nháy từng đoạn sửa. CẦN smoke test trên trình duyệt.
+   ------------------------------------------------------------
+   v4.55.2 (today-plan-order-count-line) — current
+     Thẻ TODAY PLAN (nửa trái cụm PLAN, scale.js / index.html / core.css)
+     thêm 1 DÒNG NGANG dưới legend MT thể hiện SỐ ĐƠN (không phải MT):
+       "P: X  L: Y  R: Z"
+         P = tổng số đơn theo kế hoạch hôm nay (qty>0, không cancel)
+         L = số đơn đã complete (effectiveStatus === 'done')
+         R = còn lại = P − L (>=0).
+     Triển khai trong SCALE._updateRow1(): thêm biến planDoneCount đếm
+     trong nhánh st==='done' (cùng vòng lặp tính planRowCount/planTotalMt),
+     ghi vào #scPlanOrderCount qua setTxt. HTML: <div class="sc-pp-orders"
+     id="scPlanOrderCount"> đặt sau .sc-pp-row trong .sc-r1-plan-half đầu.
+     CSS .sc-pp-orders: dòng căn giữa, font Oswald, viền trên dashed.
+     RAM-only, không đổi schema/Firebase.
+   ------------------------------------------------------------
    v4.55.1 (bulk-delete-no-csv-for-wms-sap) — current
      BỎ chức năng tự tải file CSV khi XÓA dữ liệu cho 3 module:
      WMS GI (wg.js), WMS ST (ws.js), SAP (sp.js). Cách làm: thêm cờ

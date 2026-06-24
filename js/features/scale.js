@@ -376,6 +376,7 @@ const SCALE = (function(){
     const getAct = (hasTP && typeof TP.getEffectiveActual === 'function')
       ? TP.getEffectiveActual : null;
     let planRowCount = 0;
+    let planDoneCount = 0;   /* v4.5x — số ĐƠN đã complete (status done) */
     if(hasTP){
       const d = new Date(), p = n => String(n).padStart(2,'0');
       const today = d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
@@ -389,6 +390,7 @@ const SCALE = (function(){
         planRowCount++;
         planTotalMt += qty;
         if(st === 'done'){
+          planDoneCount++;                                   /* đếm số đơn complete */
           const akg = getAct ? parseFloat(getAct(r)) : NaN;  /* khối lượng cân thực (kg) */
           planDoneLoadMt += (isFinite(akg) && akg > 0) ? akg/1000 : qty;
           const oid = String(r._oid||'').trim();
@@ -412,6 +414,10 @@ const SCALE = (function(){
           const q = parseFloat(s.qty) || 0;
           if(q <= 0) return;
           planDoneLoadMt += q;
+          /* v4.5x — đếm đơn LOADED tạm tính: xe đang nạp ở trạm cũng tính là
+             "loaded", khớp đúng cách LOADED qty cộng qty trạm đang nạp (live).
+             Mirror qty 1:1 — không dedup riêng để count & qty luôn đồng bộ. */
+          planDoneCount++;
         });
       }
     }catch(_){}
@@ -423,6 +429,17 @@ const SCALE = (function(){
     setTxt('scPlanTotal',    fmtMt(planTotalMt));
     setTxt('scPlanDoneLoad', fmtMt(planDoneLoadMt));
     setTxt('scPlanRemain',   fmtMt(planRemainMt));
+    /* v4.5x — dòng đếm SỐ ĐƠN: PLAN(tổng) · LOADED(đã complete) · REMAIN(còn lại).
+       Ghi đầy đủ chữ + tô màu khớp với legend PLAN (đồng bộ màu). */
+    (function(){
+      const oc=document.getElementById('scPlanOrderCount');
+      if(!oc) return;
+      const rem=Math.max(0, planRowCount - planDoneCount);
+      oc.innerHTML =
+        '<span class="oc-plan">PLAN: '+planRowCount+'</span>'+
+        '<span class="oc-load">LOADED: '+planDoneCount+'</span>'+
+        '<span class="oc-remain">REMAIN: '+rem+'</span>';
+    })();
     /* v4.33.0 — PLAN donut: arc = LOADED ÷ PLAN, center = % loaded.
        No plan rows today → dashed empty ring + "—". RAM-only. */
     (function(){
@@ -962,7 +979,21 @@ const SCALE = (function(){
       note:stNote,tech:{},_oid:row._oid||'',
       tolerance:String(row.tolerance||row.maxTol||''),
       _multiDO:row._multiDO||false,_linkedRows:row._linkedRows||null});
-    toast(row.plate+' → Station '+stId,'ok');
+    /* v4.5x — Staff-on-duty reminder folded into the assign toast (so it isn't
+       overwritten by a separate toast). Engineer / Check Booth feed the PTT & DN
+       signatures that auto-print right after assign, so nudge if either is empty
+       at commit time. Non-blocking — the truck is still assigned. */
+    (function(){
+      const _engOn = (document.getElementById('scEngineer')?.value||'').trim();
+      const _chkOn = (document.getElementById('scCheckBooth')?.value||'').trim();
+      const _missStaff = [];
+      if(!_engOn) _missStaff.push('Engineer');
+      if(!_chkOn) _missStaff.push('Check Booth');
+      if(_missStaff.length)
+        toast(row.plate+' → Station '+stId+' · ⚠ Chưa điền Staff on duty: '+_missStaff.join(' & '), 'warn');
+      else
+        toast(row.plate+' → Station '+stId, 'ok');
+    })();
     scClear(stId);
     /* v4.21.3 — Clean the wait-queue of any items matching this assigned
        row. Centralizing the cleanup here covers ALL assign paths (per-
@@ -1563,6 +1594,17 @@ const SCALE = (function(){
     const isPure    = /pure|thuần|thuan/i.test(contract);
     const trade     = (isExport ? 'Export' : 'Domestic') + (isPure ? ' (Pure)' : '');
     const prodType  = (typeof _pfDeriveType==='function') ? _pfDeriveType(contract) : contract;
+    /* Price ($/ton): same lookup the Today Plan price preview uses
+       (customer short + contract type → PP price table). The price is shown
+       on Today Plan but was never carried into TL Data when the truck was
+       sold — fill it here so the sold row keeps its price. Blank when no match. */
+    let priceVal = '';
+    try{
+      if(typeof PP!=='undefined' && PP.planLookupPrice){
+        const pr = PP.planLookupPrice(shortCust, contract, '');
+        if(typeof pr==='number' && isFinite(pr) && pr>0) priceVal = String(pr);
+      }
+    }catch(_){}
 
     const payload = {
       doNo:    doNo,
@@ -1598,6 +1640,7 @@ const SCALE = (function(){
     if(tech.eng)            payload.eng      = tech.eng;
     const chk = document.getElementById('scCheckBooth')?.value||'';
     if(chk) payload.weigher = chk;
+    if(priceVal) payload.price = priceVal;
     return payload;
   }
   /* Push to TL Data and return the rid on success, null on failure.
@@ -1673,6 +1716,14 @@ const SCALE = (function(){
     const isPure    = /pure|thuần|thuan/i.test(contract);
     const trade     = (isExport ? 'Export' : 'Domestic') + (isPure ? ' (Pure)' : '');
     const prodType  = (typeof _pfDeriveType==='function') ? _pfDeriveType(contract) : contract;
+    /* Price ($/ton) per linked DO — same PP lookup as Today Plan. */
+    let priceVal = '';
+    try{
+      if(typeof PP!=='undefined' && PP.planLookupPrice){
+        const pr = PP.planLookupPrice(shortCust, contract, '');
+        if(typeof pr==='number' && isFinite(pr) && pr>0) priceVal = String(pr);
+      }
+    }catch(_){}
     const payload = {
       doNo: doNo, scaleNo: String(stId), turn: String(turn), date: today,
       cust: shortCust, custFull: wmsCust, trade: trade, type: prodType,
@@ -1696,6 +1747,7 @@ const SCALE = (function(){
     if(tech.eng)            payload.eng      = tech.eng;
     const chk = document.getElementById('scCheckBooth')?.value||'';
     if(chk) payload.weigher = chk;
+    if(priceVal) payload.price = priceVal;
     return payload;
   }
   /* Render the allocation popup (global overlay element). */

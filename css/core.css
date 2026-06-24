@@ -199,7 +199,7 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
   color:#fff;padding:10px 18px;border-radius:9px;font-size:12.5px;font-weight:600;box-shadow:var(--sh2);
   opacity:0;pointer-events:none;transition:.25s;z-index:300}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-#toast.ok{background:#157a40}#toast.er{background:var(--red)}
+#toast.ok{background:#157a40}#toast.er{background:var(--red)}#toast.warn{background:#e76f00}
 
 /* paste modal */
 .modal-bg{position:fixed;inset:0;z-index:200;background:rgba(11,31,66,.45);display:none;
@@ -346,7 +346,11 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .tp-actual{font-weight:700;color:#157a40;font-variant-numeric:tabular-nums;text-align:right}
 .tp-actual.tp-actual-empty{color:var(--ink-3);font-style:italic;font-weight:500}
 .tp-qty{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
-.tp-plate{font-weight:700;color:var(--navy);letter-spacing:.3px}
+.tp-plate{font-weight:700;color:var(--navy);letter-spacing:.3px;font-size:13.5px}
+/* v4.5x — Rmooc shown as prominently as Plate (same size & weight) in both
+   Today Plan and Tomorrow Plan; kept a distinct blue so it stays readable
+   as the trailer vs the tractor plate. */
+.tp-rmooc{font-weight:700;color:#0a5c96;letter-spacing:.3px;font-size:13.5px}
 .tp-driver{font-weight:600}
 .tp-customer{color:var(--navy);font-weight:700;font-size:12px}
 .tp-no{text-align:center;color:var(--ink-3);font-variant-numeric:tabular-nums}
@@ -897,7 +901,10 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .sc-pp-dot.dot-stock{background:#0077b6;}
 .sc-pp-unit{margin-left:auto;font-size:8px;letter-spacing:1px;color:#9aa8b5;
   background:#f2f6fa;border:1px solid #e3eaf1;border-radius:8px;padding:2px 7px;text-transform:none;}
-.sc-pp-row{flex:1;display:flex;align-items:center;gap:14px;min-width:0;}
+/* v4.5x — donut row: top-align so the STOCK LEFT donut sits at the same
+   height as the TODAY PLAN donut (the plan column is taller due to the
+   P/L/R orders line at its bottom). Legend stays centered vs the donut. */
+.sc-pp-row{flex:1;display:flex;align-items:flex-start;gap:14px;min-width:0;}
 .sc-pd-wrap{position:relative;width:74px;height:74px;flex:0 0 74px;}
 .sc-pd{width:100%;height:100%;transform:rotate(-90deg);}
 .sc-pd-track{fill:none;stroke:#eceff3;stroke-width:8.5;}
@@ -916,13 +923,25 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .sc-pd-center .pd-v{font-size:15px;}
 .sc-pd-center .pd-k{font-size:7.5px;font-weight:700;letter-spacing:.8px;color:var(--muted);}
 .sc-r1-plan-legend{
-  flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;
+  flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;align-self:center;
 }
 .sc-r1-plan-piece{
   display:flex;align-items:baseline;justify-content:space-between;gap:10px;white-space:nowrap;
   padding:1px 0;
 }
 .sc-r1-plan-piece+.sc-r1-plan-piece{border-top:1px dashed #f0f3f7;}
+/* v4.5x — dòng đếm SỐ ĐƠN nằm ngang dưới thẻ TODAY PLAN (P/L/R) */
+.sc-pp-orders{
+  margin-top:auto;padding-top:6px;border-top:1px dashed #e3eaf1;
+  font-family:'Oswald',sans-serif;font-weight:700;font-variant-numeric:tabular-nums;
+  font-size:11px;letter-spacing:.6px;color:#5a6b7b;text-align:center;white-space:nowrap;
+  display:flex;justify-content:center;gap:14px;
+}
+/* v4.5x — order-count parts written in full, colour-matched to the PLAN
+   legend numbers (PLAN=ink, LOADED=green, REMAIN=navy) for consistency. */
+.sc-pp-orders .oc-plan  {color:var(--ink-2);}
+.sc-pp-orders .oc-load  {color:#2d8a4e;}
+.sc-pp-orders .oc-remain{color:var(--navy);}
 .sc-r1-plan-lbl{
   font-family:'Oswald',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:1.2px;
   color:#8a98a6;text-transform:uppercase;
@@ -2597,7 +2616,8 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 /* ── Cell typography (V406) ── */
 .pv-no{font-family:'Oswald',sans-serif;font-size:12px;color:#6b8299;text-align:center;}
 .pv-plate{font-family:'Oswald',sans-serif;font-size:13px;color:#1a5276;letter-spacing:2px;font-weight:700;}
-.pv-rmooc{font-family:'Oswald',sans-serif;font-size:11px;color:#6b8299;}
+/* v4.5x — Ledger view: Rmooc to bằng Plate (13px/700), giữ màu riêng để phân biệt. */
+.pv-rmooc{font-family:'Oswald',sans-serif;font-size:13px;font-weight:700;color:#6b8299;letter-spacing:2px;}
 .pv-drv{font-size:13px;font-weight:600;color:#1e3a5f;max-width:160px;overflow:hidden;text-overflow:ellipsis;}
 .pv-num{font-family:'Oswald',sans-serif;font-size:14px;color:#2d8a4e;font-weight:600;text-align:right;white-space:nowrap;}
 .pv-num.tol{font-family:'Barlow',sans-serif;font-size:11px;color:#6b8299;font-weight:500;}

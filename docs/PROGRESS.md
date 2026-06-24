@@ -203,3 +203,55 @@ CHƯA kiểm render bảng Tabulator thật, sync Firebase, hay layout. **Vẫn 
   chung TP/TMR), đổi `viewMode` khởi tạo thành `'ledger'` cố định (trước đó đọc localStorage
   `lpg_v4_planview_*` nên nếu người dùng từng bật Table thì lần sau vẫn mở Table). Nút toggle
   Table/Ledger vẫn hoạt động trong phiên; mỗi lần tải lại luôn về Ledger. node --check + smoke PASS.
+
+## 12. THAY ĐỔI UI + LOGIC (2026-06-24)
+
+Gom 7 chỉnh sửa nhỏ. Ghi lại field/đường đi dữ liệu liên quan để phục vụ tách module sau này.
+
+1. **Dashboard donut — STOCK LEFT căn cùng độ cao với TODAY PLAN.** `css/core.css`:
+   `.sc-pp-row` đổi `align-items:center → flex-start` (cột TODAY PLAN cao hơn vì có dòng
+   P/L/R ở đáy nên donut bị lệch xuống ở cột STOCK); `.sc-r1-plan-legend` thêm `align-self:center`
+   để legend vẫn căn giữa so với donut. Chỉ CSS, không đụng JS render (`SCALE.scRenderCtrl`,
+   `INV.renderRow1`).
+2. **Dòng đếm đơn (P/L/R) viết đầy đủ + tô màu đồng bộ legend PLAN.** `js/features/scale.js`
+   (`scRenderCtrl`, ô `#scPlanOrderCount`): đổi từ `textContent 'P: .. L: .. R: ..'` sang
+   `innerHTML` 3 span `.oc-plan/.oc-load/.oc-remain` = `PLAN/LOADED/REMAIN`. CSS màu khớp
+   `.plan-total`(ink)/`.plan-done`(#2d8a4e)/`.plan-remain`(navy). Placeholder trong `index.html`
+   cập nhật theo + tooltip.
+3. **Lưu Price vào TL Data khi bán xong xe.** `js/features/scale.js` — `_buildTLPayload` và
+   `_mdoBuildPayloadFor` (multi-DO): thêm `payload.price` lấy từ `PP.planLookupPrice(shortCust,
+   contract, '')` (cùng nguồn giá Today Plan hiển thị). Field `price` đã có sẵn trong TL
+   (`js/data/tl.js` cột `{k:'price'}` + danh sách paste). `TL.upsertFromScale` ghi field tổng quát
+   nên không cần sửa. → **DATA FLOW: PP price_ → SCALE payload.price → TL raw_data/{rid}/price.**
+4. **Cỡ chữ Rmooc = Plate ở cả Today & Tomorrow Plan.** Bảng plan dùng CHUNG 1 Tabulator
+   (lọc theo PLAN DATE). `js/features/plan.js` cột Rmooc thêm `cssClass:'tp-rmooc'`; `css/core.css`
+   thêm `.tp-rmooc{font-weight:700;font-size:13.5px;color:#0a5c96}` (đặt cả `.tp-plate` = 13.5px
+   để bằng nhau, vẫn khác màu để phân biệt tractor/trailer).
+5. **Paste sale plan không ghi product type → mặc định 50:50.** `js/checks/wgcheck.js`
+   `_pfDeriveType()`: nhánh fallback cuối đổi `'LPG' → 'LPG (C3:50/C4:50)'` (giống hệt khi hợp đồng
+   ghi rõ "50:50"). Đây là **nguồn duy nhất** suy ra product type cho PTT/DN/TL nên áp dụng đồng
+   bộ. Lưu ý: `type` rỗng hoàn toàn vẫn trả `''` (không bịa) — chỉ default khi có chuỗi hợp đồng
+   nhưng thiếu tỉ lệ.
+6. **PTT in sớm — Safe Fill Allow to bằng Loading Q'ty.** `js/integrations/ptt-early.js`
+   (`_buildPage` + bản combined): ô Safe Fill Allow đổi sang số `20pt/900` + "kg" `11pt` (khớp
+   số Loading Q'ty 20pt và nhãn "Ton" 11pt).
+7b. **Rmooc trong Ledger view** (`.pv-rmooc`) nâng 11px → 13px/700 + letter-spacing 2px bằng
+   `.pv-plate` (bổ sung sau khi mới chỉ sửa Table view ở mục 4). Ledger render ở `plan.js`
+   `renderLedger()` dùng class `pv-plate`/`pv-rmooc`.
+8. **Cảnh báo Staff on duty khi assign xe.** `js/features/scale.js` `scAssignToStation` (funnel
+   trung tâm của MỌI đường assign: search-click, queue 📍, multi-DO picker, waitPop). Gộp nhắc
+   vào chính toast assign cuối cùng (đặt riêng sẽ bị toast 'ok' ghi đè): nếu `#scEngineer` hoặc
+   `#scCheckBooth` rỗng → toast màu cam `'warn'` "⚠ Chưa điền Staff on duty: …". KHÔNG chặn (xe
+   vẫn được assign) vì staff có thể điền trước khi in PTT. Thêm style `#toast.warn{background:#e76f00}`
+   ở `css/core.css`. (Lưu ý latent: `globals.js` `toast(m,t)` chỉ nhận 2 tham số, hardcode 2600ms —
+   chỗ gọi `toast(..,'er',4500)` ở scale.js dòng ~981 bỏ qua tham số thứ 3.)
+8b. **Đếm đơn LOADED tạm tính cả xe đang nạp.** `js/features/scale.js` `scRenderCtrl` vòng-2
+   (station-level pass): chỗ cộng `planDoneLoadMt += q` cho trạm `status==='loading'` nay thêm
+   `planDoneCount++` → số đơn LOADED giờ = đơn 'done' + xe đang nạp ở trạm, **khớp 1:1 cách tính
+   LOADED qty (MT)**. REMAIN count = `max(0, planRowCount − planDoneCount)` nên tự giảm theo.
+   Tooltip `#scPlanOrderCount` cập nhật. (Đơn 'done' đã chống trùng qua `countedOids`; loading
+   không dedup riêng để count & qty đồng bộ tuyệt đối.)
+9. **Lưu ý kỹ thuật:** mount bash của workspace có thể là snapshot CŨ (thấy file bị cắt cụt) —
+   dùng file tools (Read/Edit) làm chân lý; node --check chạy trên bản bash cũ KHÔNG đáng tin.
+   File thật đầy đủ & comment đóng đúng. (Có 1 ký tự `�` cũ trong comment cuối wgcheck.js dòng ~991,
+   vô hại vì nằm trong comment.)

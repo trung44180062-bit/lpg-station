@@ -201,12 +201,18 @@ const FCHECK = (function(){
       if(r._status === 'done' || r._status === 'cancel') return;
       var checkDate = (typeof parseDate === 'function' && r._forDate)
         ? (parseDate(r._forDate) || new Date()) : new Date();
-      var c = checkOrder(r.plate||'', r.rmooc||'', r.driver||'', checkDate);
+      /* v4.55.x — read rmooc with the romooc fallback (some plan/paste rows
+         store the trailer under `romooc`). Reading only r.rmooc dropped the
+         trailer entirely, so an expired RMOOC cert never surfaced in this
+         popup even though the early-PTT badge (which already used the
+         fallback) showed it. Keep both reads identical everywhere. */
+      var _rmoocVal = r.rmooc||r.romooc||'';
+      var c = checkOrder(r.plate||'', _rmoocVal, r.driver||'', checkDate);
       if(c.missing.length || c.expired.length || c.dupDriver){
         /* v4.30.1 — surface dupDriver to the editor (was lost before).
            Editor needs it to render the duplicate-driver warning per
            order, even when the order has no expired certs at all. */
-        orders.push({ no:r.no||'', plate:r.plate||'', rmooc:r.rmooc||'', driver:r.driver||'',
+        orders.push({ no:r.no||'', plate:r.plate||'', rmooc:_rmoocVal, driver:r.driver||'',
                       customer:r.customer||'', _forDate:r._forDate||'',
                       _dupDriver: c.dupDriver||0,
                       _missing: c.missing.slice() });
@@ -771,7 +777,10 @@ const FCHECK = (function(){
       var r = plan[oid];
       if(!r) return;
       if(r._status === 'done' || r._status === 'cancel') return;
-      var c = checkOrder(r.plate||'', r.rmooc||'', r.driver||'', checkDate);
+      /* v4.55.x — rmooc/romooc fallback so the live Scale panel lists an
+         expired trailer cert as its own line (not merged into / dropped from
+         the tractor warning). */
+      var c = checkOrder(r.plate||'', r.rmooc||r.romooc||'', r.driver||'', checkDate);
       var probs = [];
       c.missing.forEach(function(m){ probs.push({ type:'miss', detail:'Missing in Fleet: '+m }); });
       if(c.dupDriver){ probs.push({ type:'warn', detail:'Duplicate driver name ('+c.dupDriver+' matches)' }); }
@@ -849,6 +858,26 @@ const FCHECK = (function(){
               && document.getElementById('sub-scale').classList.contains('on')){
         SCALE.scRenderCtrl();
       } }catch(_){}
+      /* v4.55.x — also refresh the plan tables so cert badges (plate / rmooc /
+         driver cells) update the moment a cert expiry is edited. Without this,
+         a local cert edit suppressed the Firebase echo (see sync.applyAndPush),
+         so the Today/Tomorrow grids kept stale red blinks until the user
+         switched tabs and back (which forced a Tabulator redraw). Only rebuild
+         the visible grid to stay Spark-frugal. */
+      try{
+        if(typeof TP !== 'undefined' && TP.table
+           && document.getElementById('sub-today')
+           && document.getElementById('sub-today').classList.contains('on')){
+          TP.rebuildTableData();
+        }
+      }catch(_){}
+      try{
+        if(typeof TMR !== 'undefined' && TMR.table
+           && document.getElementById('sub-tmr')
+           && document.getElementById('sub-tmr').classList.contains('on')){
+          TMR.rebuildTableData();
+        }
+      }catch(_){}
     }, 200);
   }
 

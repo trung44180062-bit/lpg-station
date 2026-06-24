@@ -97,6 +97,40 @@ var PTT_EARLY = (function(){
     }).join('');
   }
 
+  /* v4.55.x — cert warning line PRINTED on the slip (not just shown as a
+     badge in the selection modal). Returns a one-line "subject: certs"
+     summary for one plan row, or '' when clean. Uses the same FCHECK source
+     as the modal badges so the printed warning matches what the operator saw,
+     and reads rmooc with the romooc fallback so an expired trailer cert is
+     never dropped. Checked against the plan's own date (_forDate). */
+  function _certWarnLine(r){
+    try{
+      if(typeof FCHECK==='undefined' || !FCHECK.orderWarning) return '';
+      var cd = (typeof parseDate==='function' && r._forDate) ? parseDate(r._forDate) : null;
+      var w = FCHECK.orderWarning(r, cd || undefined);
+      if(!w || !w.badges || !w.badges.length) return '';
+      return w.badges.map(function(b){ return b.text; }).join('  |  ');
+    }catch(_){ return ''; }
+  }
+  /* Merge the cert warnings of every row in a combined (multi-DO) slip,
+     de-duplicating identical lines (same truck/driver ⇒ usually identical). */
+  function _certWarnLineMulti(rows){
+    var seen = {}, out = [];
+    (rows||[]).forEach(function(r){
+      var s = _certWarnLine(r);
+      if(s && !seen[s]){ seen[s] = 1; out.push(s); }
+    });
+    return out.join('  ||  ');
+  }
+  /* Red warning note block for the printed PTT, or '' when there is nothing
+     to flag. Mirrors the Check-booth note styling. */
+  function _certWarnHTML(text){
+    if(!text) return '';
+    return '<div class="pf-note" style="min-height:16px;background:#fff0f0;border:0.6pt solid #d98a8a;border-top:none">'
+         + '<span class="pf-nlbl" style="color:#b30000">⚠ Cert:</span>'
+         + '<span class="pf-nval" style="color:#b30000;font-weight:700">'+_esc(text)+'</span></div>';
+  }
+
   function _dateParts(forDate){
     var d = (typeof parseDate==='function') ? parseDate(forDate) : null;
     if(d) return { day:d.getDate(), mon:d.getMonth()+1, yr:d.getFullYear() };
@@ -177,7 +211,7 @@ var PTT_EARLY = (function(){
     h += '<div class="pf-il-qty">Loading Q\'ty</div>';
     h += '<div style="padding:3px 6px;border-right:1px solid #888;border-bottom:2px solid #333;display:flex;align-items:center"><span style="font-size:20pt;font-weight:900;font-family:\'Courier New\',monospace">'+_esc(dX>0?dX:'')+'</span><span style="font-size:11pt;color:#666;margin:0 4px">Ton /</span><span style="font-size:20pt;font-weight:900;font-family:\'Courier New\',monospace">'+_esc(dY>0?dY:'')+'</span><span style="font-size:11pt;color:#666;margin-left:4px">Ton</span></div>';
     h += '<div class="pf-il-qty" style="border-left:none;font-size:8pt">Product Type</div><div style="padding:3px 6px;border-bottom:2px solid #333;display:flex;align-items:center"><span style="font-size:12pt;font-weight:800;color:#1a5276;letter-spacing:0.5px">'+_esc(prodType)+'</span></div>';
-    h += '<div class="pf-il" style="font-size:8pt;padding:2px 4px">Safe Fill Allow</div><div class="pf-iv" style="font-family:\'Courier New\',monospace;padding:2px 5px;display:flex;align-items:center">'+_esc(sfStr?(sfStr+' kg'):'')+'</div>';
+    h += '<div class="pf-il" style="font-size:8pt;padding:2px 4px">Safe Fill Allow</div><div class="pf-iv" style="font-family:\'Courier New\',monospace;padding:2px 5px;display:flex;align-items:center">'+(sfStr?('<span style="font-size:20pt;font-weight:900">'+_esc(sfStr)+'</span><span style="font-size:11pt;color:#666;margin-left:4px">kg</span>'):'')+'</div>';
     h += '<div class="pf-il" style="border-left:none;font-size:8pt;padding:2px 4px">Lot / Tank</div><div class="pf-iv norb" style="font-family:\'Courier New\',monospace;font-size:12pt;font-weight:700;padding:2px 5px;line-height:1.15;white-space:pre-line">'+_esc(lotPlaceholder)+'</div>';
     h += '<div class="pf-il nobb" style="font-size:8pt;padding:2px 4px">DO Info</div><div class="pf-iv nobb" style="font-family:\'Courier New\',monospace;padding:2px 5px;line-height:1.2;display:block"><div style="font-size:12pt;font-weight:900;white-space:pre-line">'+_esc(r.doNum)+'</div><div style="font-size:12pt;font-weight:900;color:#000"><span>'+_esc(qty)+'</span><span style="font-size:9pt;color:#666;margin-left:3px;font-weight:600">Ton</span></div></div>';
     h += '<div class="pf-il nobb" style="border-left:none;font-size:8pt;padding:2px 4px">Bay</div><div class="pf-iv norb nobb" style="font-size:15pt;font-weight:900;padding:2px 5px"></div>';
@@ -193,6 +227,8 @@ var PTT_EARLY = (function(){
     /* Notes */
     h += '<div class="pf-note" style="min-height:20px"><span class="pf-nlbl">Sale Note:</span><span class="pf-nval">'+_esc(r.note)+'</span></div>';
     h += '<div class="pf-note" style="min-height:20px;background:#fff5f5"><span class="pf-nlbl" style="color:#c00">Check booth:</span><span class="pf-nval" style="color:#c00;font-weight:700">'+_esc(boothNote)+'</span></div>';
+    /* v4.55.x — printed cert warning (expired / missing / dup), if any. */
+    h += _certWarnHTML(_certWarnLine(r));
     /* Date — from plan _forDate */
     h += '<div class="pf-date" style="padding:2px 0 1px">Ng\u00E0y '+_esc(dp.day)+' th\u00E1ng '+_esc(dp.mon)+' n\u0103m '+_esc(dp.yr)+'</div>';
     /* Signatures */
@@ -303,7 +339,7 @@ var PTT_EARLY = (function(){
     h += '<div class="pf-il-qty">Loading Q\'ty</div>';
     h += '<div style="padding:3px 6px;border-right:1px solid #888;border-bottom:2px solid #333;display:flex;align-items:center"><span style="font-size:20pt;font-weight:900;font-family:\'Courier New\',monospace">'+_esc(totalStr)+'</span><span style="font-size:11pt;color:#666;margin:0 4px">Ton</span><span style="font-size:8pt;color:#888;font-weight:600">(total)</span></div>';
     h += '<div class="pf-il-qty" style="border-left:none;font-size:8pt">Product Type</div><div style="padding:3px 6px;border-bottom:2px solid #333;display:flex;align-items:center"><span style="font-size:12pt;font-weight:800;color:#1a5276;letter-spacing:0.5px">'+_esc(prodType)+'</span></div>';
-    h += '<div class="pf-il" style="font-size:8pt;padding:2px 4px">Safe Fill Allow</div><div class="pf-iv" style="font-family:\'Courier New\',monospace;padding:2px 5px;display:flex;align-items:center">'+_esc(sfStr?(sfStr+' kg'):'')+'</div>';
+    h += '<div class="pf-il" style="font-size:8pt;padding:2px 4px">Safe Fill Allow</div><div class="pf-iv" style="font-family:\'Courier New\',monospace;padding:2px 5px;display:flex;align-items:center">'+(sfStr?('<span style="font-size:20pt;font-weight:900">'+_esc(sfStr)+'</span><span style="font-size:11pt;color:#666;margin-left:4px">kg</span>'):'')+'</div>';
     h += '<div class="pf-il" style="border-left:none;font-size:8pt;padding:2px 4px">Lot / Tank</div><div class="pf-iv norb" style="font-family:\'Courier New\',monospace;font-size:12pt;font-weight:700;padding:2px 5px;line-height:1.15;white-space:pre-line">'+_esc(lotPlaceholder)+'</div>';
     h += '<div class="pf-il nobb" style="font-size:8pt;padding:2px 4px">DO Info</div><div class="pf-iv nobb" style="font-family:\'Courier New\',monospace;padding:2px 5px;line-height:1.25;display:block">'+doLines+'</div>';
     h += '<div class="pf-il nobb" style="border-left:none;font-size:8pt;padding:2px 4px">Bay</div><div class="pf-iv norb nobb" style="font-size:15pt;font-weight:900;padding:2px 5px"></div>';
@@ -319,6 +355,8 @@ var PTT_EARLY = (function(){
     /* Notes */
     h += '<div class="pf-note" style="min-height:20px"><span class="pf-nlbl">Sale Note:</span><span class="pf-nval">'+_esc(noteStr)+'</span></div>';
     h += '<div class="pf-note" style="min-height:20px;background:#fff5f5"><span class="pf-nlbl" style="color:#c00">Check booth:</span><span class="pf-nval" style="color:#c00;font-weight:700">'+_esc(boothNote)+'</span></div>';
+    /* v4.55.x — printed cert warning merged across all DOs in the combined slip. */
+    h += _certWarnHTML(_certWarnLineMulti(rows));
     /* Date — from plan _forDate */
     h += '<div class="pf-date" style="padding:2px 0 1px">Ng\u00E0y '+_esc(dp.day)+' th\u00E1ng '+_esc(dp.mon)+' n\u0103m '+_esc(dp.yr)+'</div>';
     /* Signatures */

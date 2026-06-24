@@ -344,8 +344,10 @@ function _pfDeriveType(type){
   var rm=t.match(/c3[^0-9]*(\d{1,2})[^0-9]*c4[^0-9]*(\d{1,2})/);
   if(!rm)rm=t.match(/(\d{1,2})\s*[:/]\s*(\d{1,2})/);
   if(rm){var a=parseInt(rm[1]),b=parseInt(rm[2]);if(a+b===100||a+b===10)return 'LPG (C3:'+a+'/C4:'+b+')';}
-  if(/50:50|domestic|export|dom|exp/i.test(type))return 'LPG';
-  return 'LPG';
+  /* v4.5x — Sale plan didn't specify a product ratio: default to 50:50
+     (treated identically to an explicit "50:50" contract). Trade-only
+     keywords (domestic/export/…) carry no ratio, so they default too. */
+  return 'LPG (C3:50/C4:50)';
 }
 
 /* ── Helper: format kg ── */

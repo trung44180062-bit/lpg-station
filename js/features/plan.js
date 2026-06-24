@@ -1335,7 +1335,7 @@ function _makePlanModule(opts){
         formatter:statusFormatter, editor:statusEditor},
       {title:'Customer', field:'customer', minWidth:170, editor:'input', cssClass:'tp-customer'},
       {title:'Plate', field:'plate', width:115, editor:'input', cssClass:'tp-plate', formatter:plateFormatter},
-      {title:'Rmooc', field:'rmooc', width:100, editor:'input', formatter:rmoocFormatter},
+      {title:'Rmooc', field:'rmooc', width:100, editor:'input', cssClass:'tp-rmooc', formatter:rmoocFormatter},
       {title:'Driver', field:'driver', minWidth:140, editor:'input', cssClass:'tp-driver', formatter:driverFormatter},
       {title:'Qty (MT)', field:'qty', width:80, editor:'input', cssClass:'tp-qty'},
       {title:'Tol.', field:'tolerance', width:60, editor:'input', cssClass:'tp-qty'},

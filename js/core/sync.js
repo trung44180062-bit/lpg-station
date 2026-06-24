@@ -113,6 +113,16 @@ const SC = (function(){
 
     saveCache();
 
+    /* v4.55.x — LOCAL writes refresh the UI here, not via the Firebase echo.
+       After a local edit we set _suppressLocalEcho so our own child_changed
+       event is ignored (avoids a redundant round-trip). The side effect was
+       that _scheduleFleetSync — which rebuilds the fleet grid, refreshes the
+       counts/sub-tabs and calls FCHECK.recompute() — never ran for local
+       edits, so an updated cert expiry only showed after switching tabs.
+       RAM is already mutated above, so schedule the same debounced refresh
+       now. (Remote echoes are suppressed, so this does not double-fire.) */
+    _scheduleFleetSync();
+
     if(FB && fbConnected){
       _suppressLocalEcho++; _suppressUntil = Date.now() + 1500;
       FB.ref().update(payload)
