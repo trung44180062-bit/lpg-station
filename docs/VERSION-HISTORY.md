@@ -6,7 +6,30 @@
 /* ============================================================
    VERSION HISTORY (read this to resume work in later sessions)
    ------------------------------------------------------------
-   v4.55.3 (cert-check-rmooc-refresh-print) — current
+   v4.55.4 (plan-table-paste-order) — current
+     TABLE VIEW (Today Plan & Tomorrow Plan) giữ NGUYÊN thứ tự đơn hàng đúng
+     như lúc paste từ Excel, để vận hành đối chiếu 1:1 phần mềm ↔ file Excel.
+     File: js/features/plan.js (+ bump nav.js).
+
+     VẤN ĐỀ: tableRows() trước đây sort theo cột "#" (no). Nhưng `no` là số
+     thứ tự THEO TỪNG KHÁCH (1..99, reset về 1 mỗi khách/sub-group) ⇒ sort
+     theo no làm xen kẽ các khách (A1,B1,A2,B2,...) ⇒ không khớp Excel.
+
+     SỬA:
+     (1) parsePlanSheet() stamp `_seq` = chỉ số toàn cục theo đúng thứ tự dòng
+         xuất hiện trong sheet paste (gseq++ mỗi row emit). Áp dụng cho cả
+         đường skipped-row (re-parse) nên mọi row đều có _seq nhất quán.
+     (2) tableRows() sort theo _forDate → _seq (numeric) → no (tie-break).
+         Row thiếu _seq (dữ liệu Firebase cũ trước v4.55.4) chìm xuống cuối,
+         tự có thứ tự thật lại sau lần paste kế tiếp.
+     (3) applyDiff() ghi _seq cho cả row `changed` (cùng oid) lẫn `unchanged`,
+         để khi CHỈ thứ tự đổi (field giữ nguyên) thì _seq vẫn được cập nhật
+         lên Firebase. _seq KHÔNG nằm trong COMPARE_FIELDS nên không hiện như
+         field "đã đổi" trong diff modal — chỉ là metadata vị trí.
+     GHI CHÚ DỮ LIỆU: plan row có thêm field số `_seq` (paste/Excel order).
+     sanitizeForStorage giữ field `_` (chỉ bỏ `__`) nên _seq lưu xuống Firebase.
+
+   v4.55.3 (cert-check-rmooc-refresh-print)
      SỬA 4 lỗi đối soát chứng chỉ (cert-check) theo phản hồi vận hành.
      Files: js/checks/fcheck.js, js/core/sync.js, js/integrations/ptt-early.js.
 

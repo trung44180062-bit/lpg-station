@@ -7,7 +7,7 @@
  *         rptSwitchTab, cavToggle (gọi từ markup onclick).
  * Nạp: CORE, sau auth, trước data. (Lịch sử phiên bản → docs/VERSION-HISTORY.md)
  * ============================================================ */
-const APP_VERSION='v4.55.0', APP_BUILD_ID='p31.5-cavern-sapwms-readiness';
+const APP_VERSION='v4.55.4', APP_BUILD_ID='p31.5-plan-table-paste-order';
 
 
 /* ---------- main nav (Fleet active; others stubs) ---------- */
@@ -64,7 +64,7 @@ function rptSwitchTab(sub){
   const cav   = document.getElementById('rpt-pg-cavern');
   if(shell) shell.style.display = (sub==='daily') ? '' : 'none';
   if(cav)   cav.style.display   = (sub==='cavern') ? 'flex' : 'none';
-  if(sub==='cavern'){ try{ CAV.render(); }catch(_){} }
+  if(sub==='cavern'){ try{ CAV.render(); }catch(_){} try{ CAV.showDefaults(); }catch(_){} }
 }
 window.rptSwitchTab = rptSwitchTab;
 

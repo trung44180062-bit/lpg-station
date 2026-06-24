@@ -213,6 +213,8 @@ const CT = (function(){
   function openPaste(){document.getElementById('ctPasteModal').classList.add('on');setTimeout(()=>document.getElementById('ctPasteArea').focus(),50);}
   function closePaste(){document.getElementById('ctPasteModal').classList.remove('on');}
   function submitPaste(){
+    /* v4.56 — extra confirm: Customer table is usually a first-time load only */
+    if(window.PASTEGUARD && !PASTEGUARD.confirmFirst('Cust (Customer)','cust',submitPaste)) return;
     const txt=document.getElementById('ctPasteArea').value; if(!txt.trim()){toast('Nothing to paste','er');return;}
     const parsed=parseCustSheet(parseTSV(txt)); if(!parsed.length){toast('No valid customer data','er');return;}
     closePaste();

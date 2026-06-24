@@ -205,6 +205,11 @@ function _makePlanModule(opts){
     let lastNote='';                                              /* v4.22.17 — merged-note fill-down */
     let subGroupIdx = 0, prevNo = 0, lastCustForSubgroup = '';
     let foundValidRow = false;
+    /* v4.55.4 — global paste-order index. Stamped on every emitted row in the
+       exact order it appears in the pasted/Excel sheet, so TABLE VIEW can keep
+       that order verbatim (NOT customer-grouped, NOT no-sorted) for 1:1 visual
+       cross-reference against the source file. */
+    let gseq = 0;
 
     for(let i=startRow; i<rows.length; i++){
       const r = rows[i].map(c => (c||'').trim());
@@ -276,6 +281,7 @@ function _makePlanModule(opts){
         doNum:       String(r[11]||'').trim(),
         note:        r[12] || lastNote,                            /* v4.22.17 — fill-down */
         _subGroup:   subGroupIdx,
+        _seq:        gseq++,                                       /* v4.55.4 — paste/Excel source order */
         _status:     '',
         _actualQty:  '',
         _forDate:    planDate
@@ -567,6 +573,23 @@ function _makePlanModule(opts){
         payload[`${FBN}${oldOid}/lastAt`] = Date.now();
       }
     });
+
+    /* v4.55.4 — keep paste/Excel order (_seq) in sync for EVERY current row,
+       even when only the order changed and no other field differs. _seq is not
+       in COMPARE_FIELDS (so it never shows up as a user-facing "changed" field
+       in the diff modal), but it must still be written so TABLE VIEW mirrors
+       the latest pasted order. Added rows already carry _seq via their full
+       write above; here we cover same-oid changed rows and unchanged rows. */
+    const _stampSeq = (oid, seq)=>{
+      if(seq === undefined || seq === null) return;
+      const row = PLAN[oid];
+      if(!row || row._seq === seq) return;
+      row._seq = seq;
+      payload[`${FBN}${oid}/_seq`] = seq;
+      writes++;
+    };
+    diff.changed.forEach(c=>{ if(c.old._oid === c.new._oid) _stampSeq(c.new._oid, c.new._seq); });
+    (diff.unchanged||[]).forEach(u=>{ _stampSeq(u.new._oid, u.new._seq); });
 
     if(!writes){ toast('No changes to write','ok'); return; }
 
@@ -1405,10 +1428,14 @@ function _makePlanModule(opts){
     return rows;
   }
 
-  /* v4.54.1 — TABLE VIEW order = paste/Excel-source order (NOT customer-grouped,
-     NOT user-sortable) so staff can cross-reference against the source sheet.
-     Same date + search filter as planRows(); ordered by the "#" (no) column,
-     then by _forDate as a tie-break for multi-date plans. */
+  /* v4.55.4 — TABLE VIEW order = paste/Excel-source order (NOT customer-grouped,
+     NOT user-sortable) so staff can cross-reference against the source sheet
+     row-for-row. Ordered by _forDate, then by _seq (the global paste index
+     stamped in parsePlanSheet). The old "#" (no) column is per-customer and
+     resets to 1 each customer/sub-group, so sorting by it scrambled the order
+     across customers — _seq keeps every row exactly where it was pasted.
+     Rows without _seq (legacy / pre-v4.55.4 Firebase data) sink to the bottom
+     and fall back to no-order; they regain real order on the next paste. */
   function tableRows(){
     const q = (document.getElementById(ID + 'Search')||{}).value || '';
     const ql = q.trim().toLowerCase();
@@ -1423,6 +1450,9 @@ function _makePlanModule(opts){
     rows.sort((a,b)=>{
       const da = String(a._forDate||''), db = String(b._forDate||'');
       if(da !== db) return da.localeCompare(db);
+      const sa = (typeof a._seq === 'number') ? a._seq : Number.MAX_SAFE_INTEGER;
+      const sb = (typeof b._seq === 'number') ? b._seq : Number.MAX_SAFE_INTEGER;
+      if(sa !== sb) return sa - sb;
       return (parseInt(a.no,10)||0) - (parseInt(b.no,10)||0);
     });
     return rows;

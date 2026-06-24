@@ -413,12 +413,15 @@ const WG = (function(){
   function submitPaste(){
     const txt = document.getElementById('wgPasteArea').value;
     if(!txt.trim()){ toast('Nothing to paste','er'); return; }
+    /* v4.56 — anti misplaced-paste: block if the data clearly belongs to SAP/WMS ST */
+    const _rows = parseTSV(txt);
+    if(window.PASTEGUARD && !PASTEGUARD.guard(_rows,'wg')) return;
     /* v4.22.0 — read the date picker. ISO YYYY-MM-DD. Required. */
     const wmsDate = String((document.getElementById('wgPasteDate')||{}).value||'').trim();
     if(!/^\d{4}-\d{2}-\d{2}$/.test(wmsDate)){
       toast('Pick a date for this paste (default = today)','er'); return;
     }
-    const parsed = parseWmsSheet(parseTSV(txt));
+    const parsed = parseWmsSheet(_rows);
     if(!parsed.length){ toast('No valid WMS GI rows detected','er'); return; }
     /* Stamp every parsed row with the picked date. This is the field used to
        match Today Plan _forDate and TL Data date during sync — arrival is

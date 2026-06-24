@@ -264,7 +264,10 @@ const SP = (function(){
   function submitPaste(){
     const txt=document.getElementById('spPasteArea').value;
     if(!txt.trim()){toast('Nothing to paste','er');return;}
-    const parsed=parseSapSheet(parseTSV(txt));
+    /* v4.56 — anti misplaced-paste: block if the data clearly belongs to WMS GI/ST */
+    const _rows=parseTSV(txt);
+    if(window.PASTEGUARD && !PASTEGUARD.guard(_rows,'sap')) return;
+    const parsed=parseSapSheet(_rows);
     if(!parsed.rows.length){toast('No valid SAP data found (SLoc 1100/2100/2101/B100, Mat C3/C4)','er');return;}
     closePaste();
     const byKey={}; Object.values(ROWS).forEach(r=>{byKey[compKey(r)]=r;});

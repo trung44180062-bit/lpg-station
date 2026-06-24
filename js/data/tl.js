@@ -598,6 +598,8 @@ const TL = (function(){
   ];
 
   function doPaste(){
+    /* v4.56 — extra confirm: TL Data is usually a first-time load only */
+    if(window.PASTEGUARD && !PASTEGUARD.confirmFirst('TL Data','tl',doPaste)) return;
     const text = (document.getElementById('tlPasteArea')||{}).value||'';
     const raw = parseTSV(text).filter(r=>r.some(c=>c.trim()));
     if(!raw.length){ document.getElementById('tlPasteInfo').textContent='⚠ No data found'; return; }

@@ -255,3 +255,56 @@ Gom 7 chỉnh sửa nhỏ. Ghi lại field/đường đi dữ liệu liên quan 
    dùng file tools (Read/Edit) làm chân lý; node --check chạy trên bản bash cũ KHÔNG đáng tin.
    File thật đầy đủ & comment đóng đúng. (Có 1 ký tự `�` cũ trong comment cuối wgcheck.js dòng ~991,
    vô hại vì nằm trong comment.)
+10. **OL1 EX-PETCHEM (X) — nhập bằng PASTE thay cho import cả file.** `js/features/cav.js` +
+   `index.html` (pane `cavPane-ol1`). BỎ nút "📥 Import X (Excel)" + input `#cavXlsx` + hàm
+   `cavImportX()` (đọc cả .xlsx bằng SheetJS). THAY bằng: dòng input X thu nhỏ (`flex:1`) + 2 nút
+   cùng hàng — **📋 Paste** (`cavTogglePasteX`) mở textarea `#cavOl1PasteData`, và **👁**
+   (`cavViewXTable`) mở modal `#cavXTableModal` xem bảng X đã lưu.
+   - **Nguồn dữ liệu** = sheet "일자별 C3사용량 (예상 및 실적)" của file "C3 usage for export
+     production": **B=tháng, C=ngày, H=관세유예 C3 _kế hoạch_ (MT), J=관세유예 C3 _thực tế_ (MT)**.
+     Quy tắc: dùng **J nếu có, không thì H**; **MT→kg (×1000)**; năm lấy từ `#cavDate`.
+   - **Parser** `cavParseXText(text,yr)` — **v4.56.1 ĐỔI sang map theo TIÊU ĐỀ tiếng Hàn** (bỏ cách
+     dò offset tương đối cũ). Lý do: sheet ẩn cột D và L–P; Excel khi copy CÓ THỂ bỏ cột ẩn ⇒ offset
+     vị trí lệch, lấy nhầm sang **cột K (6월 재고)** (bug: 01/06 lưu 1,206,137 thay vì 657,541).
+     Cách mới: `_cavTSV()` (parser nhận biết dấu nháy cho ô tiêu đề nhiều dòng) → tìm cột theo chữ:
+     `jCol` = ô chứa `관세유예`+`실적` (J, actual), `hCol` = `관세유예`+`계획/추정` (H, plan),
+     `moCol`=`월`, `dayCol`=`일자`. Map theo tiêu đề nên **miễn nhiễm cột ẩn**. Mỗi ngày: X = J nếu
+     có giá trị, không thì H. ⇒ **BẮT BUỘC copy kèm dòng tiêu đề** (có chữ 관세유예); nếu thiếu trả
+     `{error:'NO_HEADER'}` và báo người dùng copy lại kèm tiêu đề (không đoán mò để tránh sai cột).
+     Month/day ưu tiên cột `월/일자`, fallback dò cặp số (tháng 1..12, ngày 1..31) nếu thiếu header đó.
+   - Sau parse: `cavShowMonthPicker(list)` dựng checklist tháng (modal `#cavImportModal`, dùng lại),
+     bấm "Import selected" → `cavDoImportX` → **`CAV.importXUsage(list)`** (đã có sẵn, version-gated:
+     chỉ ghi ngày thay đổi, bump `_ver`; giá trị 0/blank ⇒ xoá X của ngày đó).
+   - **Lưu trữ** = entry trong `CAV.ROWS`: `{kind:'ol1', prod:'c3', batch:'X', date, qty(kg), note(src),
+     _ts, _ver, by}`. `note` chứa "actual (J)" / "plan (H)" để truy nguồn.
+   - **Bảng xem** `cavRenderXTable()`: lọc `kind=ol1 & prod=c3 & batch=X`, hiện **khoảng thời gian
+     (min→max), số ngày, các tháng, tổng X, và timestamp cập nhật mới nhất** (max `_ts`) + bảng
+     chi tiết từng ngày (kg, MT, nguồn J/H, _ver, giờ cập nhật). KHÔNG cần import file.
+   - **v4.56.2 — EDIT + DELETE trong bảng xem.** Ô X (kg) là `<input>` `onchange="cavEditX"` →
+     `CAV.editXQty(rid,val)` (bump `_ver`, set `_ts`/`by`, update Firebase, re-render); cột ✕ mỗi
+     dòng → `cavDeleteX` → `CAV.deleteX(rid)` (xác nhận, `_removeRow`+FB set null); nút **🗑 Xóa tất
+     cả** ở header → `cavDeleteAllX` → `CAV.deleteAllX()` (xác nhận, xóa mọi entry OL1·C3·X + FB).
+     Tất cả qua `_suppressEcho` để không dội echo Firebase; có `logAudit`. 3 method mới đã thêm vào
+     API của CAV IIFE.
+11. **Chống paste nhầm tab.** Module mới `js/checks/pasteguard.js` (global `window.PASTEGUARD`,
+    self-contained: tự tạo style + 1 overlay modal; nạp trong index.html ngay sau `globals.js`).
+   - **(A) CHẶN paste sai giữa WMS GI / WMS ST / SAP** — `PASTEGUARD.guard(tsvRows, expectedKind)`
+     gọi đầu `submitPaste` của WG('wg')/WS('ws')/SP('sap') (ngay sau khi `parseTSV`, đã dùng lại
+     biến `_rows` thay vì parse 2 lần). `detectKind()` bỏ phiếu từng dòng theo **đặc trưng cột**:
+     • **SAP**: cột C (idx2) = mã vật tư 8 số TRẦN `^2000851[12]$` (cột E idx4 = SLoc).
+     • **WMS ST**: có ô chứa 8 số + `kg` cùng ô (product `[20008511]{…kg}`); phụ: job-id cột A +
+       from/to là SLoc.
+     • **WMS GI**: cột B (idx1) = Delivery ID (`^\d{6,}$` hoặc `^[A-Za-z]{2,4}\d{6,}$`).
+     Ưu tiên + `continue` ⇒ mỗi dòng chỉ 1 phiếu. `check()` **chỉ chặn khi BẢO THỦ**: tab hiện tại
+     0 phiếu NHƯNG tab khác ≥2 phiếu và ≥60% ⇒ block + `showBlock` (modal đỏ, nêu rõ detected vs
+     expected). Còn lại để parser cũ tự lọc (tránh chặn nhầm paste thưa/lẫn).
+   - **(B) XÁC NHẬN thêm 1 lần cho TL / Cust / Price / Fleet** — `PASTEGUARD.confirmFirst(label,
+     key, cb)` chèn đầu: TL `doPaste` (tl.js), CT `submitPaste`, PP `submitPaste`, và **Fleet** =
+     global `doPaste` (globals.js, label kèm `CERT_DEFS[curTab].label`). Cơ chế cờ một-lần `_ok[key]`:
+     lần đầu hiện modal (cam) trả `false`; bấm "Đúng, tiếp tục" set cờ + gọi lại cb ⇒ lần 2 trả
+     `true` cho chạy tiếp. Lý do: các tab này hầu như chỉ nạp tay LẦN ĐẦU, dữ liệu hằng ngày do
+     phần mềm tạo. (TL còn có guard cũ lọc dòng theo vị trí — xem mục anti-misplaced trong tl.js.)
+   - **Verify:** test bộ phân loại trên dữ liệu mẫu 3 tab — đúng cả 9 chiều (paste đúng→ok, paste
+     chéo→BLOCK kèm tên tab nguồn); nạp file module thật bằng node (stub window/document) PASS.
+     (Lưu ý: `node --check` các file vừa Edit báo lỗi tại dòng comment hợp lệ = stale-mount, đã
+     đối chiếu Read xác nhận file nguyên vẹn — xem mục 9.)

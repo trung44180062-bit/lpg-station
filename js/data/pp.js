@@ -157,6 +157,8 @@ const PP = (function(){
   function openPaste(){document.getElementById('ppPasteModal').classList.add('on');setTimeout(()=>document.getElementById('ppPasteArea').focus(),50);}
   function closePaste(){document.getElementById('ppPasteModal').classList.remove('on');}
   function submitPaste(){
+    /* v4.56 — extra confirm: Price table is usually a first-time load only */
+    if(window.PASTEGUARD && !PASTEGUARD.confirmFirst('Price','price',submitPaste)) return;
     const txt=document.getElementById('ppPasteArea').value;if(!txt.trim()){toast('Nothing to paste','er');return;}
     const parsed=parsePriceSheet(parseTSV(txt));if(!parsed.length){toast('No valid price data','er');return;}
     closePaste();

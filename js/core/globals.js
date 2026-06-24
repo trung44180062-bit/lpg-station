@@ -400,6 +400,10 @@ function openPaste(){document.getElementById('pasteModal').classList.add('on');
   setTimeout(()=>document.getElementById('pasteArea').focus(),50);}
 function closePaste(){document.getElementById('pasteModal').classList.remove('on');}
 function doPaste(){
+  /* v4.56 — extra confirm: Fleet cert tabs are usually a first-time load only */
+  var _flLabel = 'Fleet';
+  try{ _flLabel = 'Fleet — ' + ((CERT_DEFS[curTab] && CERT_DEFS[curTab].label) || curTab); }catch(_){}
+  if(window.PASTEGUARD && !PASTEGUARD.confirmFirst(_flLabel,'fleet',doPaste)) return;
   const txt=document.getElementById('pasteArea').value.trim();
   if(!txt){toast('Nothing to paste','er');return;}
   const lines=txt.split(/\r?\n/).filter(l=>l.trim());

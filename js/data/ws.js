@@ -479,7 +479,10 @@ const WS = (function(){
   function submitPaste(){
     const txt = document.getElementById('wsPasteArea').value;
     if(!txt.trim()){ toast('Nothing to paste','er'); return; }
-    const parsed = parseWmsStSheet(parseTSV(txt));
+    /* v4.56 — anti misplaced-paste: block if the data clearly belongs to WMS GI/SAP */
+    const _rows = parseTSV(txt);
+    if(window.PASTEGUARD && !PASTEGUARD.guard(_rows,'ws')) return;
+    const parsed = parseWmsStSheet(_rows);
     if(!parsed.length){ toast('No valid WMS ST rows detected','er'); return; }
     closePaste();
     const byJob = {};
