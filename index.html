@@ -11,6 +11,8 @@
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
 <link rel="stylesheet" href="css/core.css">
+<link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
+<link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <!-- P1: toàn bộ app CSS đang tạm gom trong core.css (an toàn cascade).
      Tách mịn 8 file (plan/fleet/scale/cavern/report/engineer/inventory) là bước tuỳ chọn sau.
      Xem docs/PROGRESS.md. Khi tách xong thì bỏ comment các dòng dưới:
@@ -21,6 +23,7 @@
 <link rel="stylesheet" href="css/report.css">
 <link rel="stylesheet" href="css/engineer.css">
 <link rel="stylesheet" href="css/inventory.css">
+<link rel="stylesheet" href="css/monthly.css">
 -->
 </head>
 <body>
@@ -2098,6 +2101,7 @@
     <div class="subtabs" id="rptSubs">
       <button class="stab on" data-rpt-sub="daily" onclick="rptSwitchTab('daily')">📋 Daily Stock</button>
       <button class="stab" data-rpt-sub="cavern" onclick="rptSwitchTab('cavern')">📊 Cavern Daily / SAP WMS<span class="stab-badge" id="engBadgeCavern">0</span></button>
+      <button class="stab" data-rpt-sub="monthly" onclick="rptSwitchTab('monthly')">📅 Monthly Report<span class="stab-badge" id="mthr-badge">--</span></button>
     </div>
 
     <!-- ===== CAVERN DAILY pane (manual inputs + SAP-WMS fill) ===== -->
@@ -2478,6 +2482,187 @@
         </div>
         <div class="rpt-card-bd" style="padding:10px 12px">
           <div class="rpt-log" id="rpt-log"><div class="rpt-log-empty">Log will appear here when you run Check Data or Export Report…</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== MONTHLY REPORT pane (월별LPG) — nguồn: SAP (SP.ROWS) + monthly_inputs ===== -->
+    <div class="rpt-pg" id="rpt-pg-monthly" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
+      <div class="mthr-bar">
+        <div class="mthr-month">
+          <label>Month</label>
+          <input type="month" id="mthr-month" onchange="MTHR.onMonthChange()">
+        </div>
+        <div class="mthr-chip"><span class="n" id="mthr-info-rows">0</span><span class="l">SAP rows</span></div>
+        <span class="mthr-src fb" id="mthr-src-badge" title="Nguồn dữ liệu SAP">☁ SAP: tab SAP (SP)</span>
+        <span class="mthr-src ram" id="mthr-x-badge" style="display:none"></span>
+        <div class="spacer"></div>
+        <button class="mthr-btn primary" onclick="MTHR.openSapPaste()" title="Dán SAP ZMMFR022 cả tháng — RAM, mất khi tắt. Khi có dữ liệu, báo cáo dùng RIÊNG bản RAM này.">📥 Paste SAP</button>
+        <button class="mthr-btn primary" onclick="MTHR.openXPaste()" title="Dán WMS-SAP (C3사용량) cho batch X — RAM, mất khi tắt. Tự điền ô X.">📥 Paste WMS-X</button>
+        <button class="mthr-btn" onclick="MTHR.openTLPaste()" title="Dán TL data (sheet Raw Data) — RAM, mất khi tắt">📋 Paste TL</button>
+        <button class="mthr-btn" onclick="MTHR.fillPureFromTL()" title="Đổ Pure C3/C4 từ TL data đã dán">⚡ Pure←TL</button>
+        <button class="mthr-btn" onclick="MTHR.fillXFromWms()" title="Điền ô X từ WMS-SAP (RAM) đã dán">⚡ X←WMS</button>
+        <button class="mthr-btn" onclick="MTHR.fillFromSap()" title="Tự fill GI P, GI X từ SAP raw">⚡ Auto-fill P/X</button>
+        <button class="mthr-btn" onclick="MTHR.recalc()">🔄 Recalc</button>
+        <button class="mthr-btn" onclick="MTHR.saveInputs()">💾 Save</button>
+        <button class="mthr-btn success" onclick="MTHR.exportXlsx()" title="Xuất Excel format giống file 월별LPG">📥 Export</button>
+        <button class="mthr-btn accent" onclick="MTHR.toggleInputs()" id="mthr-inputs-toggle" title="Hiện/ẩn ô nhập tay">⚙ Inputs ▼</button>
+      </div>
+
+      <!-- ════ COLLAPSIBLE INPUTS ════ -->
+      <div class="mthr-inputs" id="mthr-inputs-panel">
+        <div class="mthr-igrp">
+          <div class="mthr-igrp-title">캐번 (Cavern 1100) — nhập tay</div>
+          <div class="mthr-igrid">
+            <div class="mthr-cell mthr-cell-req" title="GI Cavern 1100 C3 batch P (đi OL1 nội địa) — ô DUY NHẤT cần nhập tay">
+              <label>OL1 GI batch <b>P</b> (C3) <span class="mthr-reqtag">★ nhập tay</span></label>
+              <span class="mthr-ibox"><input class="mthr-num" type="text" id="mthr-gi-p" inputmode="decimal" oninput="MTHR.onInputChange('gi_P_C3')"><span class="mthr-unit">TON</span></span>
+            </div>
+            <div class="mthr-cell" title="GI Cavern 1100 C3 batch X (đi OL1 export)">
+              <label>OL1 GI batch <b>X</b> (C3)</label>
+              <span class="mthr-ibox"><input class="mthr-num" type="text" id="mthr-gi-x" inputmode="decimal" oninput="MTHR.onInputChange('gi_X_C3')"><span class="mthr-unit">TON</span></span>
+            </div>
+            <div class="mthr-cell" title="Pure C3 industrial (1100 → industrial customer)">
+              <label>Pure 산업체 (C3)</label>
+              <span class="mthr-ibox"><input class="mthr-num" type="text" id="mthr-pure-c3" inputmode="decimal" oninput="MTHR.onInputChange('pure_C3')"><span class="mthr-unit">TON</span></span>
+            </div>
+            <div class="mthr-cell" title="Pure C4 industrial (1100 → industrial customer)">
+              <label>Pure 산업체 (C4)</label>
+              <span class="mthr-ibox"><input class="mthr-num" type="text" id="mthr-pure-c4" inputmode="decimal" oninput="MTHR.onInputChange('pure_C4')"><span class="mthr-unit">TON</span></span>
+            </div>
+          </div>
+        </div>
+        <div class="mthr-igrp">
+          <div class="mthr-igrp-title">TK-3501 / TK-3502 — 내수판매(산업체)</div>
+          <div class="mthr-igrid">
+            <div class="mthr-cell" title="TK3501 C3 industrial sales (split from GI batch D)">
+              <label>TK-3501 산업체 (C3)</label>
+              <span class="mthr-ibox"><input class="mthr-num" type="text" id="mthr-ind-tk1-c3" inputmode="decimal" oninput="MTHR.onInputChange('ind_TK3501_C3')"><span class="mthr-unit">TON</span></span>
+            </div>
+            <div class="mthr-cell" title="TK3501 C4 industrial sales (split from GI batch D)">
+              <label>TK-3501 산업체 (C4)</label>
+              <span class="mthr-ibox"><input class="mthr-num" type="text" id="mthr-ind-tk1-c4" inputmode="decimal" oninput="MTHR.onInputChange('ind_TK3501_C4')"><span class="mthr-unit">TON</span></span>
+            </div>
+            <div class="mthr-cell" title="TK3502 C3 industrial sales (split from GI batch D)">
+              <label>TK-3502 산업체 (C3)</label>
+              <span class="mthr-ibox"><input class="mthr-num" type="text" id="mthr-ind-tk2-c3" inputmode="decimal" oninput="MTHR.onInputChange('ind_TK3502_C3')"><span class="mthr-unit">TON</span></span>
+            </div>
+            <div class="mthr-cell" title="TK3502 C4 industrial sales (split from GI batch D)">
+              <label>TK-3502 산업체 (C4)</label>
+              <span class="mthr-ibox"><input class="mthr-num" type="text" id="mthr-ind-tk2-c4" inputmode="decimal" oninput="MTHR.onInputChange('ind_TK3502_C4')"><span class="mthr-unit">TON</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mthr-tablewrap" id="table-wrap-mthr">
+        <div class="mthr-empty" id="mthr-empty" style="display:none;">
+          <div class="ic">📊</div>
+          <div class="ti">Chưa có dữ liệu cho tháng này</div>
+          <div>Bấm <b>📥 Paste SAP</b> để dán SAP ZMMFR022 cả tháng vào RAM (không cần qua tab SAP), hoặc chọn tháng có sẵn data ở <b>LPG SALES → 📊 SAP</b>.</div>
+        </div>
+
+        <table class="mthr-tbl" id="tbl-mthr" style="display:none;">
+          <thead>
+            <tr>
+              <th rowspan="3" class="mthr-th-row">DESCRIPTION</th>
+              <th colspan="3" class="mthr-th-init">기초재고 (SAP:장부)<br><span class="en">INIT STOCK</span></th>
+              <th rowspan="2" class="mthr-th-gr">입고량<br><span class="en">GR</span></th>
+              <th colspan="10" class="mthr-th-use">사용량<br><span class="en">USAGE / GI</span></th>
+              <th colspan="3" class="mthr-th-end">기말재고 (SAP:장부)<br><span class="en">END STOCK</span></th>
+            </tr>
+            <tr>
+              <th rowspan="2" class="mthr-th-init">합계<br><span class="en">TOTAL</span></th>
+              <th rowspan="2" class="mthr-th-init">Cavern<br>(+ETC)</th>
+              <th rowspan="2" class="mthr-th-init">Mixed LPG<br>TK-3501/02</th>
+              <th rowspan="2" class="mthr-th-use">합계<br><span class="en">TOTAL</span></th>
+              <th rowspan="2" class="mthr-th-use">OL-1<br>이체</th>
+              <th rowspan="2" class="mthr-th-use">C3<br>히터사용</th>
+              <th rowspan="2" class="mthr-th-use">SAP오류<br>조정</th>
+              <th rowspan="2" class="mthr-th-use">캐번<br>재입고</th>
+              <th rowspan="2" class="mthr-th-use">Loss</th>
+              <th rowspan="2" class="mthr-th-use">Mix조제<br>이송</th>
+              <th rowspan="2" class="mthr-th-use">내수판매<br>(도매사)</th>
+              <th rowspan="2" class="mthr-th-use">내수판매<br>(산업체)</th>
+              <th rowspan="2" class="mthr-th-use">수출</th>
+              <th rowspan="2" class="mthr-th-end">합계<br><span class="en">TOTAL</span></th>
+              <th rowspan="2" class="mthr-th-end">Cavern</th>
+              <th rowspan="2" class="mthr-th-end">Mixed LPG<br>TK-3501/02</th>
+            </tr>
+            <tr></tr>
+          </thead>
+          <tbody id="tbody-mthr"></tbody>
+        </table>
+
+        <div class="mthr-verify" id="mthr-verify" style="display:none;">
+          <div class="mthr-verify-hdr" onclick="MTHR.toggleVerify()">
+            <span>🔍 VERIFY &amp; CROSS-CHECK</span>
+            <span id="mthr-verify-caret">▼</span>
+          </div>
+          <div class="mthr-verify-body" id="mthr-verify-body"></div>
+        </div>
+
+        <!-- SAP ⇄ TL reconciliation (hiện khi đã paste TL) -->
+        <div class="mthr-cmp" id="mthr-compare" style="display:none;"></div>
+      </div>
+    </div>
+
+    <!-- ═══ TL DATA paste modal (RAM-only) ═══ -->
+    <div class="modal-bg" id="mthrTLModal">
+      <div class="modal mthr-tlmodal">
+        <div class="modal-hdr">
+          <h3>📋 Paste TL Data — sheet "Raw Data"</h3>
+          <button class="modal-close" onclick="MTHR.closeTLPaste()">×</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin:0 0 8px">Mở file report TL data → sheet <b>Raw Data</b>, bôi đen từ dòng tiêu đề <b>(No · Date · … · Trade Type · LPG Type · Tank · Net Weight · C3 · C4)</b> xuống hết, <b>Ctrl+C</b> rồi dán vào đây.<br>
+            <span style="font-size:11.5px;color:var(--ink-3)">Phần mềm tự nhận cột theo tiêu đề, tách <b>Domestic / Export / Vessel(Ship) / Pure</b> theo bồn. Dữ liệu chỉ giữ trên <b>RAM</b> — tắt app là mất. Dán cả tháng (~250–1000 dòng) không nặng.</span></p>
+          <textarea id="mthrTLArea" placeholder="Dán dữ liệu TL ở đây (Ctrl+V)…" style="width:100%;min-height:200px;box-sizing:border-box;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--line);border-radius:8px;resize:vertical"></textarea>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="MTHR.clearTL()" title="Xoá TL data khỏi RAM">🧹 Clear TL</button>
+          <button class="btn" onclick="MTHR.closeTLPaste()">Huỷ</button>
+          <button class="btn btn-green" onclick="MTHR.submitTLPaste()">Import TL</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SAP ZMMFR022 paste modal (RAM-only) ═══ -->
+    <div class="modal-bg" id="mthrSapModal">
+      <div class="modal mthr-tlmodal">
+        <div class="modal-hdr">
+          <h3>📥 Paste SAP ZMMFR022 — cả tháng (RAM-only)</h3>
+          <button class="modal-close" onclick="MTHR.closeSapPaste()">×</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin:0 0 8px">Mở SAP ZMMFR022 (hoặc file Excel đã xuất), bôi đen <b>toàn bộ dữ liệu 1 tháng</b> (có/không dòng tiêu đề đều được), <b>Ctrl+C</b> rồi dán vào đây.<br>
+            <span style="font-size:11.5px;color:var(--ink-3)">Chỉ giữ SLoc <b>1100/2100/2101/B100</b> · Mat <b>C3/C4</b>, gom theo Ngày×SLoc×Mat×Batch — y hệt tab SAP. Dữ liệu chỉ ở <b>RAM</b> (không local, không Firebase) — tắt app là mất. Khi đã dán, báo cáo dùng <b>RIÊNG bản RAM này</b>, bỏ qua tab SAP.</span></p>
+          <textarea id="mthrSapArea" placeholder="Dán dữ liệu SAP ZMMFR022 ở đây (Ctrl+V)…" style="width:100%;min-height:200px;box-sizing:border-box;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--line);border-radius:8px;resize:vertical"></textarea>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="MTHR.clearSap()" title="Xoá SAP RAM — quay lại dùng tab SAP">🧹 Clear SAP RAM</button>
+          <button class="btn" onclick="MTHR.closeSapPaste()">Huỷ</button>
+          <button class="btn btn-green" onclick="MTHR.submitSapPaste()">Import SAP</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ WMS-SAP batch X (C3사용량) paste modal (RAM-only) ═══ -->
+    <div class="modal-bg" id="mthrXModal">
+      <div class="modal mthr-tlmodal">
+        <div class="modal-hdr">
+          <h3>📥 Paste WMS-SAP — OL1 batch X (C3사용량)</h3>
+          <button class="modal-close" onclick="MTHR.closeXPaste()">×</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin:0 0 8px">Mở file C3사용량 (sheet <b>일자별 C3사용량</b>), bôi đen <b>KÈM dòng tiêu đề</b> (dòng có chữ <b>관세유예</b> — cột H &amp; J) xuống hết các ngày, <b>Ctrl+C</b> rồi dán vào đây.<br>
+            <span style="font-size:11.5px;color:var(--ink-3)">Mỗi ngày lấy <b>J (실적/actual)</b> nếu có, không thì <b>H (계획/plan)</b>; MT → kg, làm tròn <b>3 số lẻ</b>. Năm theo tháng báo cáo đang chọn. Ô <b>OL1 GI batch X</b> tự điền từ đây (không đọc CAV).<br><b>Mẹo chính xác:</b> bôi đen KÈM dòng <b>Total/합계</b> — phần mềm ưu tiên dùng tổng full-precision ở dòng Total để tránh sai số do ô ngày bị làm tròn khi copy. Dữ liệu chỉ ở <b>RAM</b> — tắt app là mất.</span></p>
+          <textarea id="mthrXArea" placeholder="Dán dữ liệu C3사용량 ở đây (Ctrl+V)…" style="width:100%;min-height:200px;box-sizing:border-box;font-family:monospace;font-size:11px;padding:8px;border:1px solid var(--line);border-radius:8px;resize:vertical"></textarea>
+        </div>
+        <div class="modal-foot">
+          <button class="btn" onclick="MTHR.clearX()" title="Xoá WMS-SAP X khỏi RAM">🧹 Clear X</button>
+          <button class="btn" onclick="MTHR.closeXPaste()">Huỷ</button>
+          <button class="btn btn-green" onclick="MTHR.submitXPaste()">Import X</button>
         </div>
       </div>
     </div>
@@ -3211,6 +3396,7 @@
 <script src="js/features/scale.js"></script>
 <script src="js/features/eng.js"></script>
 <script src="js/features/rpt.js"></script>
+<script src="js/features/mthr.js"></script>
 <script src="js/features/inv.js"></script>
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>

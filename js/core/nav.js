@@ -62,9 +62,12 @@ function rptSwitchTab(sub){
   });
   const shell = document.querySelector('#page-report .rpt-shell');
   const cav   = document.getElementById('rpt-pg-cavern');
+  const mthr  = document.getElementById('rpt-pg-monthly');
   if(shell) shell.style.display = (sub==='daily') ? '' : 'none';
   if(cav)   cav.style.display   = (sub==='cavern') ? 'flex' : 'none';
+  if(mthr)  mthr.style.display  = (sub==='monthly') ? 'flex' : 'none';
   if(sub==='cavern'){ try{ CAV.render(); }catch(_){} try{ CAV.showDefaults(); }catch(_){} }
+  if(sub==='monthly'){ try{ MTHR.onTabEnter(); }catch(_){} }
 }
 window.rptSwitchTab = rptSwitchTab;
 
