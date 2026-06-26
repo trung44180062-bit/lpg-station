@@ -2058,13 +2058,113 @@
       </div>
     </div>
 
-    <!-- PURE LOG placeholder -->
+    <!-- ═══ PURE LOG (Pure C3 / C4 — TANK LORRY) ═══ -->
     <div class="eng-pg" id="eng-pg-purelog">
-      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:13px;text-align:center;padding:40px">
-        <div>
-          <div style="font-size:48px;margin-bottom:14px">🧪</div>
-          <div style="font-family:'Oswald',sans-serif;font-size:18px;color:var(--ink-2);letter-spacing:1px;font-weight:600;margin-bottom:8px">PURE PRODUCT LOG</div>
-          <div>Coming in a later phase.</div>
+      <div class="vslog-shell">
+
+        <!-- Toolbar -->
+        <div class="vslog-tools">
+          <span class="vslog-ttl">🧪 PURE LOG</span>
+          <select id="search-pure-type" class="vsmix-inp vsmix-inp-xs" style="width:64px" onchange="PLOG.render()">
+            <option value="">All</option>
+            <option value="C3">C3</option>
+            <option value="C4">C4</option>
+          </select>
+          <input type="text" id="search-pure-lot"  class="vsmix-inp vslog-search-tight" placeholder="🔍 Lot…" style="width:130px" oninput="PLOG.render()">
+          <input type="text" id="search-pure-date" class="vsmix-inp vslog-search-tight" placeholder="DD/MM/YY" maxlength="8" oninput="PLOG.render()">
+          <span class="vslog-stats" id="plog-stats">—</span>
+          <button type="button" class="vsmix-act-btn vsmix-act-vessel"  onclick="PLOG.openImport()" title="Paste from Pure C3 / C4 sheet">📋 PASTE</button>
+          <button type="button" class="vsmix-act-btn vsmix-act-density" onclick="PLOG.openAdd()"    title="Add a single Pure Log entry">＋ ADD</button>
+          <button type="button" class="vsmix-act-btn vsmix-act-density" onclick="PLOG.exportXlsx()" title="Export to Excel / CSV">📥 EXPORT</button>
+        </div>
+
+        <!-- Table -->
+        <div class="vslog-table-wrap" id="plogTableWrap">
+          <div class="vslog-empty" id="plogEmpty">
+            <div class="vslog-empty-icon">🧪</div>
+            <div class="vslog-empty-ttl">No Pure Log entries yet</div>
+            <div class="vslog-empty-hint">Press 📋 PASTE to import from the Pure C3 / C4 sheet, or ＋ ADD a single entry.</div>
+          </div>
+          <table class="vslog-tbl" id="plogTbl" style="display:none;font-size:11px">
+            <thead id="plogThead"></thead>
+            <tbody id="plogTbody"></tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ═══ PURE LOG — ADD / EDIT form modal ═══ -->
+    <div class="tl-paste-modal" id="plog-add-modal">
+      <div class="tl-paste-box" style="width:600px;max-height:92vh;overflow-y:auto">
+        <div class="tl-paste-hdr"><h3 id="plog-add-title">🧪 ADD PURE LOG</h3>
+          <button class="tl-paste-x" onclick="PLOG.closeModal('plog-add-modal')">✕</button></div>
+        <div class="tl-paste-body" style="font-size:11px">
+          <!-- Row 1 -->
+          <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+            <div><div class="plog-fl">TYPE</div><select class="plog-fi" id="plog-f-type" style="font-weight:700" onchange="PLOG.autoLot()"><option value="C4">C4</option><option value="C3">C3</option></select></div>
+            <div><div class="plog-fl">LOT</div><input class="plog-fi" id="plog-f-lot" type="text" style="font-weight:700"></div>
+            <div><div class="plog-fl">TANK</div><input class="plog-fi" id="plog-f-tank" type="text" value="TANK LORRY"></div>
+            <div><div class="plog-fl">DATE</div><input class="plog-fi" id="plog-f-date" type="date"></div>
+          </div>
+          <!-- Row 2 -->
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px">
+            <div><div class="plog-fl">START</div><input class="plog-fi" id="plog-f-start" type="text" placeholder="HH:MM" maxlength="5"></div>
+            <div><div class="plog-fl">FINISH</div><input class="plog-fi" id="plog-f-finish" type="text" placeholder="HH:MM" maxlength="5"></div>
+            <div><div class="plog-fl">QTY (ton)</div><input class="plog-fi" id="plog-f-qty" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl" style="color:var(--blue)">%VOL C3</div><input class="plog-fi" id="plog-f-vc3" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl" style="color:var(--orange)">%VOL C4</div><input class="plog-fi" id="plog-f-vc4" type="text" inputmode="decimal"></div>
+          </div>
+          <!-- ST -->
+          <div class="plog-sec">STOCK TRANSFER FROM CAVERN</div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:10px">
+            <div><div class="plog-fl">MIX QTY</div><input class="plog-fi" id="plog-f-mqty" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">%VOL C3 ST</div><input class="plog-fi" id="plog-f-svc3" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">%VOL C4 ST</div><input class="plog-fi" id="plog-f-svc4" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">C3 WT</div><input class="plog-fi" id="plog-f-c3wt" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">C4 WT</div><input class="plog-fi" id="plog-f-c4wt" type="text" inputmode="decimal"></div>
+          </div>
+          <!-- GC -->
+          <div class="plog-sec" style="color:#7b2d8e">GC RESULT FROM LAB</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:6px">
+            <div><div class="plog-fl">Methane</div><input class="plog-fi" id="plog-f-meth" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">Ethane</div><input class="plog-fi" id="plog-f-eth" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl" style="color:var(--blue)">Propane</div><input class="plog-fi" id="plog-f-prop" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl" style="color:var(--orange)">iC4</div><input class="plog-fi" id="plog-f-ic4" type="text" inputmode="decimal"></div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px">
+            <div><div class="plog-fl" style="color:var(--orange)">nC4</div><input class="plog-fi" id="plog-f-nc4" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">1.3-BD</div><input class="plog-fi" id="plog-f-bd" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">C5+</div><input class="plog-fi" id="plog-f-c5" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">Olefins</div><input class="plog-fi" id="plog-f-ole" type="text" inputmode="decimal"></div>
+          </div>
+          <!-- Row 5 -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 2fr 1fr;gap:8px;margin-bottom:4px">
+            <div><div class="plog-fl">LPG WT</div><input class="plog-fi" id="plog-f-lpgwt" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">RATIO C3</div><input class="plog-fi" id="plog-f-rc3" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">RATIO C4</div><input class="plog-fi" id="plog-f-rc4" type="text" inputmode="decimal"></div>
+            <div><div class="plog-fl">REMARK</div><input class="plog-fi" id="plog-f-remark" type="text"></div>
+            <div><div class="plog-fl">ODORANT</div><input class="plog-fi" id="plog-f-odo" type="text" inputmode="decimal"></div>
+          </div>
+        </div>
+        <div class="tl-paste-foot">
+          <button class="btn" onclick="PLOG.closeModal('plog-add-modal')">Cancel</button>
+          <button class="btn btn-green" onclick="PLOG.saveForm()">💾 SAVE</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ PURE LOG — IMPORT (paste from Excel) ═══ -->
+    <div class="tl-paste-modal" id="plog-imp-modal">
+      <div class="tl-paste-box">
+        <div class="tl-paste-hdr"><h3>📋 Import Pure Log — Paste from Excel</h3>
+          <button class="tl-paste-x" onclick="PLOG.closeModal('plog-imp-modal')">✕</button></div>
+        <div class="tl-paste-body">
+          <textarea id="plogImpArea" placeholder="Paste rows from the Pure C3 2026 / Pure C4 2026 sheet here (Ctrl+V)…&#10;Columns: No · Lot · Tank · Date · Start · Finish · Qty(ton) · %Vol C3/C4 · Mix Qty · %Vol C3/C4 ST · C3/C4/LPG Wt · Methane · Ethane · Propane · iC4 · nC4 · 1.3BD · C5+ · Olefins · Ratio C3/C4 · Remark · Odorant&#10;Header row optional · matched & deduped by Lot · dates → YYYY-MM-DD"></textarea>
+        </div>
+        <div class="tl-paste-foot">
+          <button class="btn" onclick="PLOG.closeModal('plog-imp-modal')">Cancel</button>
+          <button class="btn btn-green" onclick="PLOG.doImport()">📋 Import</button>
         </div>
       </div>
     </div>
@@ -3400,6 +3500,7 @@
 <script src="js/features/inv.js"></script>
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
+<script src="js/features/plog.js"></script>
 <script src="js/features/staff.js"></script>
 <script src="js/features/mixctrl.js"></script>
 <script src="js/features/vmix.js"></script>

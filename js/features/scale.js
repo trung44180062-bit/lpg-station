@@ -80,6 +80,17 @@ const SCALE = (function(){
   }
   function shortLot(batch){ return (batch||'').replace(/^LPG-\d{4}-/,'') || '—'; }
 
+  /* Classify a plan-row type string as a Pure product. Returns 'C3', 'C4',
+     or '' (not pure). Mirrors WGCHECK's pure detection; a bare "pure" with no
+     C3/C4 token defaults to C3 (propane), matching the rest of the app. */
+  function _scPureType(type){
+    const t = String(type||'').toLowerCase();
+    if(!/pure|thuần|thuan|순수/.test(t)) return '';
+    if(/c4|butane|부탄/.test(t)) return 'C4';
+    if(/c3|propane|프로판/.test(t)) return 'C3';
+    return 'C3';
+  }
+
   /* ─── Turn from TL Data ─── */
   function getTurnFromTLData(stId){
     /* v4.34.0 — O(1) lookup via TL.getIndex() (today's per-scale counts,
@@ -938,8 +949,26 @@ const SCALE = (function(){
     }
     const qty=parseFloat(row.qty||row.contractQty||0)||0;
     if(!qty){ toast('Missing Loading Qty','er'); return; }
-    const active=tkGetActive();
-    if(!active||!active.lotNum){ toast('Select tank & enter lot first','er'); return; }
+    let active=tkGetActive();
+    /* ── Pure-product override ──────────────────────────────────────────────
+       A Pure C3 / C4 order does NOT load from TK-3501/3502. Instead it draws
+       from its dedicated pure tank and gets an auto Pure-Log lot:
+         • Pure C3 → TK-3301, lot = next C3 lot in Pure Log (+1)
+         • Pure C4 → TK-3401, lot = next C4 lot in Pure Log (+1)
+       Year is the current year (handled by PLOG.nextLot). C3/C4 lots are
+       tracked separately, e.g. LPG-2026-TL-C3-09 / LPG-2026-TL-C4-09. The
+       operator does NOT need to select a tank or type a lot for pure orders. */
+    const _pureType = _scPureType(row.type);
+    if(_pureType){
+      const pn = _pureType==='C3' ? '3301' : '3401';
+      let plot = '';
+      try{ if(typeof PLOG!=='undefined' && PLOG.nextLot) plot = PLOG.nextLot(_pureType); }catch(_){}
+      active = { name:'TK-'+pn, key:'pure', lotFull:plot, lotNum:plot, initWt:0 };
+    }
+    if(!active||!active.lotNum){
+      toast(_pureType ? 'Cannot compute Pure lot — check Pure Log' : 'Select tank & enter lot first','er');
+      return;
+    }
     /* ── Multi-DO detection (V406 parity). Runs once per operator action; the
        merge/single callbacks set row._mdResolved so re-entry skips this. The
        picked row is already validated (DO/plate/driver/date/qty/tank) at this
@@ -2492,7 +2521,15 @@ const SCALE = (function(){
      built from the queue snapshot (no station to read from) and turn is
      the queue's _turn (not getDisplayTurn). */
   function _scWaitPttPrint(item){
-    const tk = tkGetActive();
+    let tk = tkGetActive();
+    /* Pure order in the queue prints its dedicated pure tank + auto lot, same
+       rule as scAssignToStation (TK-3301 / TK-3401 + next Pure-Log lot). */
+    const _pt = _scPureType(item.type);
+    if(_pt){
+      const pn = _pt==='C3' ? '3301' : '3401';
+      let plot=''; try{ if(typeof PLOG!=='undefined' && PLOG.nextLot) plot = PLOG.nextLot(_pt); }catch(_){}
+      tk = { name:'TK-'+pn, key:'pure', lotFull:plot, lotNum:plot, initWt:0 };
+    }
     const custName = (typeof CT !== 'undefined' && CT.vnName) ? CT.vnName(item.customer || '') : (item.customer || '');
     /* TW AVG from Fleet twavg by plate */
     let twAvg = null;

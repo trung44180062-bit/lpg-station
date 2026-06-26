@@ -1135,6 +1135,7 @@ function engSwitchTab(sub){
   else if(sub === 'mixcal'){ try{ MC.refresh(); }catch(_){} }
   else if(sub === 'shipcal'){ try{ VMIX.refresh(); }catch(_){} }
   else if(sub === 'shiplog'){ try{ VLOG.render(); }catch(_){} }
+  else if(sub === 'purelog'){ try{ PLOG.render(); }catch(_){} }
 }
 
 /* Paste-anywhere shortcut: when Engineer/Tank Log is active and user pastes,
@@ -1151,6 +1152,21 @@ document.addEventListener('paste', e=>{
   if(!text.trim()) return;
   e.preventDefault();
   ENG.pasteText(text);
+});
+
+/* Paste-anywhere shortcut for Pure Log: Engineer page + Pure Log sub-pane on,
+   no input focused -> route clipboard straight into PLOG.pasteData. */
+document.addEventListener('paste', e=>{
+  const engPg = document.getElementById('page-engineer');
+  if(!engPg || !engPg.classList.contains('on')) return;
+  const plPg = document.getElementById('eng-pg-purelog');
+  if(!plPg || !plPg.classList.contains('on')) return;
+  const ae = document.activeElement;
+  if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+  const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+  if(!text.trim()) return;
+  e.preventDefault();
+  try{ PLOG.pasteData(text); }catch(_){}
 });
 
 

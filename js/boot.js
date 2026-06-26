@@ -90,6 +90,7 @@ document.addEventListener('DOMContentLoaded', function () {
             step('P4 · MIXNOTIFY',      () => MIXNOTIFY.init());
             step('P4 · VMIX (Vessel)',  () => VMIX.init());
             step('P4 · VLOG (V.Log)',   () => VLOG.init());
+            step('P4 · PLOG (Pure Log)',() => PLOG.init());
             step('P4 · CAV (Cavern)',   () => CAV.init());
             step('P4 · MTHR (Monthly)', () => MTHR.init());
             step('P4 · STAFF',          () => STAFF.init());

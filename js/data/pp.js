@@ -261,7 +261,12 @@ const PP = (function(){
     const rm=t.match(/(?<![a-z])(\d{2}):(\d{2})(?![a-z])/);
     if(rm)ratio=rm[1]+':'+rm[2];else if(/pure/i.test(type))ratio='Pure';else if(/vessel|ship/i.test(type))ratio='vessel';
     const trade=/vessel|ship/i.test(type)?'Domestic (Ship)':'Domestic';
-    const result=lookupPrice(custShort,ratio,cargoType||'term',trade);return result?result.price:null;
+    /* v4.56.x — detect SPOT/TERM from the type string when caller passes none.
+       Plan rows carry cargo type inside `type` (e.g. "50:50 Cargo July cargo SPOT pre 262").
+       Without this, cargoType defaulted to 'term' and customers with BOTH term+spot
+       prices filled (e.g. Gas South) always returned the term price. */
+    const ct=cargoType||(/\bspot\b/i.test(type)?'spot':(/\bterm\b/i.test(type)?'term':'term'));
+    const result=lookupPrice(custShort,ratio,ct,trade);return result?result.price:null;
   }
 
   return{
