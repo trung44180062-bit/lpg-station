@@ -418,7 +418,7 @@ function pfFillDNFromTL(r){
     pf('pf-dn-words-en', numToWordsEN(netKg)+' KG');
   } else { pf('pf-dn-words-vi',''); pf('pf-dn-words-en',''); }
   const parts=(r.date||'').split('/');
-  if(parts.length>=2){pf('pf-dn-day',parts[0]);pf('pf-dn-month',parts[1]);pf('pf-dn-year',parts[2]||yr);}
+  if(parts.length>=2){let y4=String(parts[2]||'').trim();if(/^\d{2}$/.test(y4))y4='20'+y4;if(!y4)y4=yr;pf('pf-dn-day',parts[0]);pf('pf-dn-month',parts[1]);pf('pf-dn-year',y4);}
   else{const now=new Date();pf('pf-dn-day',now.getDate());pf('pf-dn-month',now.getMonth()+1);pf('pf-dn-year',now.getFullYear());}
   pfUpdateRmooc();
 }

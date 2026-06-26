@@ -107,7 +107,7 @@
 .mthr-th-row{ background:#e7edf3;text-align:left;padding-left:12px;min-width:170px;left:0;z-index:6; }
 .mthr-th-init{ background:#fce6d2; }
 .mthr-th-gr  { background:#d8efe0; }
-.mthr-th-use { background:#fdf3cf; }
+.mthr-th-use { background:#faeca8; }
 .mthr-th-end { background:#fce6d2; }
 
 .mthr-tbl tbody td{
@@ -120,10 +120,12 @@
 .mthr-col-init-tot,.mthr-col-end-tot{ background:#fbe6d2;font-weight:700; }
 .mthr-col-gr{ background:#eaf6ee; }
 .mthr-col-gitot{ background:#fdeecb;color:#9a5a00;font-weight:700; }
-.mthr-col-use{ background:#fff9e6; }
+.mthr-col-use{ background:#fffac0; }
 .mthr-val-zero{ color:#b9c2cb;font-weight:400; }
 .mthr-val-neg{ color:var(--red); }
 .mthr-hi-red{ color:var(--red);font-weight:700;box-shadow:inset 0 0 0 1.5px var(--red);border-radius:3px; }
+/* checkpoint cell (giống ô khung đỏ trong báo cáo 월별): viền đỏ, chữ màu thường */
+.mthr-chk{ box-shadow:inset 0 0 0 1.6px #d12b2b;border-radius:3px;font-weight:700; }
 
 /* row labels */
 .mthr-row-label{
@@ -143,9 +145,15 @@ tr.mthr-row-sap td.mthr-col-init,tr.mthr-row-sap td.mthr-col-end{ background:#fb
 tr.mthr-row-sap td.mthr-col-init-tot,tr.mthr-row-sap td.mthr-col-end-tot{ background:#f6cb92; }
 tr.mthr-row-sap td.mthr-col-gr{ background:#cfe7d6; }
 tr.mthr-row-sap td.mthr-col-gitot{ background:#f6cb92;color:#7a3a00; }
+/* SAP마감 row: ô 사용량 màu vàng giống báo cáo 월별 (không phải peach) */
+tr.mthr-row-sap td.mthr-col-use{ background:#fff19f; }
+tr.mthr-row-sap td.mthr-col-use.mthr-chk{ background:#fff19f; }
 tr.mthr-row-cav-p  td.mthr-row-label{ border-left:3px solid var(--blue); }
+tr.mthr-row-cav-p  td.mthr-row-label .mthr-row-tag{ color:#0d6b3f; }
 tr.mthr-row-cav-x  td.mthr-row-label{ border-left:3px solid #7b3fb0; }
+tr.mthr-row-cav-x  td.mthr-row-label .mthr-row-tag{ color:#6a2da0; }
 tr.mthr-row-cav-c4 td.mthr-row-label{ border-left:3px solid var(--orange); }
+tr.mthr-row-cav-c4 td.mthr-row-label .mthr-row-tag{ color:#b85c00; }
 tr.mthr-row-tk-tot td{ background:#eef2fb; }
 tr.mthr-row-tk-tot td.mthr-row-label{ border-left:3px solid #3a4fb0;background:#e6ebf8; }
 tr.mthr-row-pure-tot td{ background:#edf6f0; }

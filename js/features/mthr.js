@@ -46,7 +46,7 @@ const MTHR = (function(){
 
   /* ── RAM-only SAP ZMMFR022 (paste vào tab Monthly, KHÔNG local/Firebase) ──
      Khi SAP_RAM có dữ liệu → báo cáo dùng RIÊNG SAP_RAM (bỏ qua SP.ROWS tab SAP).
-     Khi SAP_RAM rỗng → fallback về SP.ROWS như cũ. Tắt app là mất. */
+     Khi SAP_RAM rỗng → báo cáo TRỐNG (KHÔNG fallback SP.ROWS). Tắt app là mất. */
   const SAP_RAM = {};      // key date|sloc|mat|batch → {date,sloc,mat,batch,init,gr,gi,trs,end}
   let SAP_INFO = null;     // {n, months:[], pastedAt}
 
@@ -67,14 +67,13 @@ const MTHR = (function(){
     const n=parseFloat(s); return isFinite(n)?n:0;
   }
   function bat(r){ return String((r&&r.batch)||'').trim().toUpperCase(); }
-  /* Nguồn SAP cho báo cáo:
-       • SAP_RAM (paste tại tab Monthly) có dữ liệu → dùng RIÊNG SAP_RAM.
-       • SAP_RAM rỗng → fallback SP.ROWS (tab SAP, Firebase/local) như cũ. */
+  /* Nguồn SAP cho báo cáo: CHỈ lấy từ SAP_RAM (paste tại tab Monthly).
+       • SAP_RAM có dữ liệu → dùng SAP_RAM.
+       • SAP_RAM rỗng → báo cáo TRỐNG (phải bấm 📥 Paste SAP).
+     KHÔNG còn fallback SP.ROWS: tab SAP không lưu đủ 1 tháng nên fallback vô nghĩa.
+     RAM-only — tắt app là mất. */
   function sapUsingRam(){ return Object.keys(SAP_RAM).length>0; }
-  function sapRows(){
-    if(sapUsingRam()) return Object.values(SAP_RAM);
-    const src=(typeof SP!=='undefined'&&SP.ROWS)?SP.ROWS:{}; return Object.values(src);
-  }
+  function sapRows(){ return Object.values(SAP_RAM); }
   function ton(kg){ return (kg/1000).toLocaleString('en-US',{maximumFractionDigits:3}); }
 
   /* ============================================================
@@ -332,7 +331,7 @@ const MTHR = (function(){
   /* ============================================================ Render ============================================================ */
   function fmtTon(kg){ if(kg===undefined||kg===null) return ''; const t=kg/1000; if(Math.abs(t)<0.0005) return '-'; return t.toLocaleString('en-US',{minimumFractionDigits:3,maximumFractionDigits:3}); }
   function cellCls(kg,extra){ let c=extra||''; if(kg===0||kg===undefined||kg===null) c+=' mthr-val-zero'; else if(kg<0) c+=' mthr-val-neg'; return c.trim(); }
-  function cellHtml(val,extra,hi){ if(val===undefined||val===null) return '<td class="'+(extra||'').trim()+'"></td>'; let c=cellCls(val,extra); if(hi&&Math.abs((val||0)/1000)>=0.0005) c=(c+' mthr-hi-red').trim(); return '<td class="'+c+'">'+fmtTon(val)+'</td>'; }
+  function cellHtml(val,extra,hi,chk){ if(val===undefined||val===null) return '<td class="'+(extra||'').trim()+'"></td>'; let c=cellCls(val,extra); if(hi&&Math.abs((val||0)/1000)>=0.0005) c=(c+' mthr-hi-red').trim(); else if(chk&&Math.abs((val||0)/1000)>=0.0005) c=(c+' mthr-chk').trim(); return '<td class="'+c+'">'+fmtTon(val)+'</td>'; }
 
   function renderSrcBadge(){
     const b=document.getElementById('mthr-src-badge'); if(!b) return;
@@ -343,8 +342,8 @@ const MTHR = (function(){
       b.title='Báo cáo đang dùng SAP paste trong RAM (bỏ qua tab SAP). Tắt app là mất.';
     } else {
       b.className='mthr-src fb';
-      b.innerHTML='☁ SAP: tab SAP (SP)';
-      b.title='Chưa paste SAP vào RAM — đang dùng dữ liệu tab SAP (Firebase/local).';
+      b.innerHTML='📭 SAP: chưa có — bấm 📥 Paste SAP';
+      b.title='Chưa paste SAP vào RAM. Báo cáo để trống cho tới khi dán SAP (RAM-only, tắt app là mất).';
     }
     const xb=document.getElementById('mthr-x-badge');
     if(xb){
@@ -369,10 +368,10 @@ const MTHR = (function(){
                          :('<span class="mthr-row-tag" style="margin-left:0;font-weight:600">'+esc(r.b)+'</span>');
       return '<tr class="'+r.cls+'"><td class="'+labelPad+'">'+labelText+'</td>'+
         cellHtml(r.init_tot,'mthr-col-init-tot')+cellHtml(r.init_cav,'mthr-col-init')+cellHtml(r.init_tk,'mthr-col-init')+
-        cellHtml(r.gr,'mthr-col-gr')+cellHtml(r.gitot,'mthr-col-gitot')+
-        cellHtml(r.ol1,'mthr-col-use',true)+cellHtml(r.heater,'mthr-col-use')+cellHtml(r.sap_err,'mthr-col-use')+
-        cellHtml(r.cav_re,'mthr-col-use')+cellHtml(r.loss,'mthr-col-use')+cellHtml(r.mix,'mthr-col-use',true)+
-        cellHtml(r.dom,'mthr-col-use',true)+cellHtml(r.ind,'mthr-col-use')+cellHtml(r.exp,'mthr-col-use',true)+
+        cellHtml(r.gr,'mthr-col-gr',false,true)+cellHtml(r.gitot,'mthr-col-gitot')+
+        cellHtml(r.ol1,'mthr-col-use')+cellHtml(r.heater,'mthr-col-use')+cellHtml(r.sap_err,'mthr-col-use')+
+        cellHtml(r.cav_re,'mthr-col-use',false,true)+cellHtml(r.loss,'mthr-col-use')+cellHtml(r.mix,'mthr-col-use',false,true)+
+        cellHtml(r.dom,'mthr-col-use',false,true)+cellHtml(r.ind,'mthr-col-use')+cellHtml(r.exp,'mthr-col-use',false,true)+
         cellHtml(r.end_tot,'mthr-col-end-tot')+cellHtml(r.end_cav,'mthr-col-end')+cellHtml(r.end_tk,'mthr-col-end')+'</tr>';
     }).join('');
     renderVerify(monthRows,allRows);
@@ -481,11 +480,11 @@ const MTHR = (function(){
   function clearTL(){ TL_ROWS=[]; TL_INFO=null; toast('🧹 Đã xoá TL data (RAM)',''); renderTable(); }
 
   function tlAgg(month){
-    const z=()=>({c3:0,c4:0});
+    const z=()=>({c3:0,c4:0,net:0});
     const A={ dom:{'2100':z(),'2101':z(),'':z(),tot:z()}, exp:{'2100':z(),'2101':z(),'':z(),tot:z()}, vessel:z(), pure:z(), n:0 };
     TL_ROWS.forEach(r=>{
       if(r.month!==month) return; A.n++;
-      const add=(o)=>{o.c3+=r.c3;o.c4+=r.c4;};
+      const add=(o)=>{o.c3+=r.c3;o.c4+=r.c4;o.net+=(+r.net||0);};
       if(r.bucket==='DOMESTIC'){ if(A.dom[r.sloc])add(A.dom[r.sloc]); add(A.dom.tot); }
       else if(r.bucket==='EXPORT'){ if(A.exp[r.sloc])add(A.exp[r.sloc]); add(A.exp.tot); }
       else if(r.bucket==='VESSEL') add(A.vessel);
@@ -544,12 +543,16 @@ const MTHR = (function(){
     const pureC3=(INPUTS.pure_C3||0)*1000,    pureC4=(INPUTS.pure_C4||0)*1000;
     const vesDerivC3=lumpC3-pureC3,           vesDerivC4=lumpC4-pureC4;
 
+    /* TL Domestic/Export = NET WEIGHT (tổng LPG) — khớp cách user sum cột Net ở Excel
+       và khớp SAP-GI (도매사+산업체). Tránh thiếu khi vài dòng C3/C4 trống. */
+    const domNet=sl=>A.dom[sl].net||(A.dom[sl].c3+A.dom[sl].c4);
+    const expNet=sl=>A.exp[sl].net||(A.exp[sl].c3+A.exp[sl].c4);
     const items=[
       sec('Tank lorry — SAP tự tính từ GI (không cần nhập)'),
-      row('Domestic · TK-3501 (batch D)', A.dom['2100'].c3+A.dom['2100'].c4, sapGI('2100','D')),
-      row('Domestic · TK-3502 (batch D)', A.dom['2101'].c3+A.dom['2101'].c4, sapGI('2101','D')),
-      row('Export · TK-3501 (batch E)',   A.exp['2100'].c3+A.exp['2100'].c4, sapGI('2100','E')),
-      row('Export · TK-3502 (batch E)',   A.exp['2101'].c3+A.exp['2101'].c4, sapGI('2101','E')),
+      row('Domestic · TK-3501 (batch D)', domNet('2100'), sapGI('2100','D')),
+      row('Domestic · TK-3502 (batch D)', domNet('2101'), sapGI('2101','D')),
+      row('Export · TK-3501 (batch E)',   expNet('2100'), sapGI('2100','E')),
+      row('Export · TK-3502 (batch E)',   expNet('2101'), sapGI('2101','E')),
       sec('Cavern 1100 (batch D) — Pure + Vessel gộp chung, tách bằng khai báo Pure'),
       row('Pure C3 — TL vs khai báo',     A.pure.c3, pureC3),
       row('Pure C4 — TL vs khai báo',     A.pure.c4, pureC4),
@@ -643,7 +646,7 @@ const MTHR = (function(){
   }
   function clearSap(){
     Object.keys(SAP_RAM).forEach(k=>delete SAP_RAM[k]); SAP_INFO=null;
-    toast('🧹 Đã xoá SAP RAM — quay lại dùng tab SAP (SP.ROWS)','');
+    toast('🧹 Đã xoá SAP RAM — báo cáo trống, bấm 📥 Paste SAP để nạp lại','');
     renderTable();
   }
 
@@ -802,3 +805,4 @@ const MTHR = (function(){
   };
 })();
 window.MTHR = MTHR;
+/* V4: Monthly RAM-only — đã bỏ fallback SP.ROWS (xem sapRows()). SAP_RAM rỗng = báo cáo trống. Tắt app là mất. */

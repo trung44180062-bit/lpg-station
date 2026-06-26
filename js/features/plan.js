@@ -1419,10 +1419,18 @@ function _makePlanModule(opts){
         return hay.toLowerCase().includes(ql);
       });
     }
-    /* customer group → no order */
+    /* v4.55.5 — LEDGER VIEW order = paste/Excel-source order (giống TABLE VIEW):
+       _forDate → _seq. Ledger vẫn group theo customer (grouping dùng
+       first-appearance order trong renderLedger), nên customer hiện theo đúng
+       thứ tự được paste, và trong mỗi customer các dòng cũng giữ thứ tự paste.
+       Dòng thiếu _seq (legacy / pre-v4.55.4 Firebase) chìm xuống cuối, fallback
+       theo "no"; chúng lấy lại thứ tự thật ở lần paste kế tiếp. */
     rows.sort((a,b)=>{
-      const ca = (a.customer||''), cb = (b.customer||'');
-      if(ca !== cb) return ca.localeCompare(cb);
+      const da = String(a._forDate||''), db = String(b._forDate||'');
+      if(da !== db) return da.localeCompare(db);
+      const sa = (typeof a._seq === 'number') ? a._seq : Number.MAX_SAFE_INTEGER;
+      const sb = (typeof b._seq === 'number') ? b._seq : Number.MAX_SAFE_INTEGER;
+      if(sa !== sb) return sa - sb;
       return (parseInt(a.no,10)||0) - (parseInt(b.no,10)||0);
     });
     return rows;
@@ -2208,7 +2216,7 @@ function _makePlanModule(opts){
        handlers, same date logic). TMR is a pre-load plan → no STATUS / ACTUAL
        columns. Status is shown as a read-only badge (computed), not editable. */
     const isTmr = (opts.kind === 'tomorrow');
-    const rows = planRows();   // search + planDate filtered, sorted customer → no
+    const rows = planRows();   // search + date filtered, sorted by paste order (_forDate → _seq)
 
     const info = rows.map(r=>{
       const st = getEffectiveStatus(r) || '';
