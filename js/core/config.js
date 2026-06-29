@@ -26,21 +26,21 @@
 const CERT_DEFS={
   tanklorry:{ label:'TANK LORRY', icon:'🚚', kind:'vehicle', hasCap:true, safefill:'Rigid Truck',
     certs:[
-      {k:'tankInspect',name:'Tank Inspect'},{k:'periodical',name:'Periodical Inspect'},
-      {k:'chemTransport',name:'Chem. Transport'},{k:'insurance',name:'Insurance'},
-      {k:'safetyValve',name:'Safety Valve'},{k:'pressureGauge',name:'Pressure Gauge'},
-      {k:'tempGauge',name:'Temp. Gauge'}
+      {k:'tankInspect',name:'Kiểm định bồn'},{k:'periodical',name:'Đăng kiểm'},
+      {k:'chemTransport',name:'V/c nguy hiểm'},{k:'insurance',name:'Bảo hiểm'},
+      {k:'safetyValve',name:'Van an toàn'},{k:'pressureGauge',name:'Đồng hồ áp'},
+      {k:'tempGauge',name:'Đồng hồ nhiệt'}
     ]},
   tractor:{ label:'TRACTOR', icon:'🚛', kind:'vehicle', hasCap:false, safefill:null,
-    certs:[{k:'periodical',name:'Periodical Inspect'},{k:'chemTransport',name:'Chem. Transport'},
-      {k:'insurance',name:'Insurance'}]},
+    certs:[{k:'periodical',name:'Đăng kiểm'},{k:'chemTransport',name:'V/c nguy hiểm'},
+      {k:'insurance',name:'Bảo hiểm'}]},
   rmooc:{ label:'RMOOC', icon:'🔗', kind:'vehicle', hasCap:true, safefill:'Rmooc',
-    certs:[{k:'tankInspect',name:'Tank Inspect'},{k:'periodical',name:'Periodical Inspect'},
-      {k:'chemTransport',name:'Chem. Transport'},{k:'safetyValve',name:'Safety Valve'},
-      {k:'pressureGauge',name:'Pressure Gauge'},{k:'tempGauge',name:'Temp. Gauge'}]},
+    certs:[{k:'tankInspect',name:'Kiểm định bồn'},{k:'periodical',name:'Đăng kiểm'},
+      {k:'chemTransport',name:'V/c nguy hiểm'},{k:'safetyValve',name:'Van an toàn'},
+      {k:'pressureGauge',name:'Đồng hồ áp'},{k:'tempGauge',name:'Đồng hồ nhiệt'}]},
   driver:{ label:'DRIVER', icon:'👤', kind:'driver', hasCap:false, safefill:null,
-    certs:[{k:'license',name:'Driver License'},{k:'fireSafety',name:'Fire Safety Cert'},
-      {k:'hazmat',name:'Hazmat Transport'}]},
+    certs:[{k:'license',name:'Bằng lái'},{k:'fireSafety',name:'An toàn PCCC'},
+      {k:'hazmat',name:'Huấn luyện an toàn v/c hóa chất'}]},
   twavg:{ label:'TW AVG', icon:'⚖️', kind:'twavg', hasCap:false, safefill:null, certs:[] }
 };
 const FLEET_TABS=['tanklorry','tractor','rmooc','driver','twavg'];
@@ -102,4 +102,5 @@ const firebaseConfig={
      5. Audit log DISABLED in v4.5.0 to save Firebase Spark quota.
         logAudit() is a no-op — calls are left in place so re-enabling
         later requires zero code changes in applyAndPush().
+   ==================
    ============================================================ */
