@@ -2652,6 +2652,7 @@ function switchSalesTab(t){
   if(t==='sap' && SP.table){ setTimeout(()=>{ try{ SP.table.redraw(true); }catch(_){ } }, 50); }
   if(t==='cust' && CT.table){ setTimeout(()=>{ try{ CT.table.redraw(true); }catch(_){ } }, 50); }
   if(t==='price' && PP.table){ setTimeout(()=>{ try{ PP.table.redraw(true); }catch(_){ } }, 50); }
+  if(t==='vs'){ try{ if(typeof vsRender==='function') vsRender(); }catch(_){ } }
 }
 
 /* live search wiring */

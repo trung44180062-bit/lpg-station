@@ -92,6 +92,7 @@ document.addEventListener('DOMContentLoaded', function () {
             step('P4 · VLOG (V.Log)',   () => VLOG.init());
             step('P4 · PLOG (Pure Log)',() => PLOG.init());
             step('P4 · CAV (Cavern)',   () => CAV.init());
+            step('P4 · VS (Vessel data)', () => VS.init());
             step('P4 · MTHR (Monthly)', () => MTHR.init());
             step('P4 · STAFF',          () => STAFF.init());
             step('P4 · SCX2 (Console)', () => SCX2.init());

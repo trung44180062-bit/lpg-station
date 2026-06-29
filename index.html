@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="css/core.css">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
+<link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
 <!-- P1: toàn bộ app CSS đang tạm gom trong core.css (an toàn cascade).
      Tách mịn 8 file (plan/fleet/scale/cavern/report/engineer/inventory) là bước tuỳ chọn sau.
      Xem docs/PROGRESS.md. Khi tách xong thì bỏ comment các dòng dưới:
@@ -107,6 +108,7 @@
         <button class="stab" data-sub="sap" onclick="switchSalesTab('sap')">📊 SAP<span class="stab-badge" id="spBadgeCount">0</span></button>
         <button class="stab" data-sub="cust" onclick="switchSalesTab('cust')">👥 CUST<span class="stab-badge" id="ctBadgeCount">0</span></button>
         <button class="stab" data-sub="price" onclick="switchSalesTab('price')">💲 PRICE<span class="stab-badge" id="ppBadgeCount" style="background:#b45309">0</span></button>
+        <button class="stab" data-sub="vs" onclick="switchSalesTab('vs')">🚢 VESSEL<span class="stab-badge" id="badge-vessel" style="background:#0077b6">0</span></button>
       </div>
     </div>
 
@@ -1043,6 +1045,128 @@
         </div>
       </div>
     </div><!-- /sub-price -->
+
+    <!-- VESSEL DATA sub-pane (ported from V406) -->
+    <div class="sub-pane" id="sub-vs">
+      <!-- Toolbar -->
+      <div class="rd-toolbar">
+        <button class="rd-btn rd-btn-paste" onclick="vsPaste()">📋 PASTE</button>
+        <button class="rd-btn" onclick="vsShowForm()" style="border-color:#0077b6;color:#0077b6;background:#e3f2fd">➕ ADD</button>
+        <button class="rd-btn rd-btn-exp" onclick="vsExport()">💾 CSV</button>
+        <div class="rd-sep"></div>
+        <span class="rd-rcount" id="vs-rcount"></span>
+        <div class="rd-mf" id="vs-mf">
+          <div class="rd-mf-pickwrap">
+            <input class="rd-mf-in rd-mf-date" id="vs-mf-date" placeholder="📅 Date (dd/mm)" oninput="vsFilter()" onclick="try{vsOpenPicker('date')}catch(e){}" title="Filter by Date">
+            <input type="date" class="rd-mf-pick" id="vs-mf-date-pick" onchange="vsPickerChange('date',this.value)">
+          </div>
+          <div class="rd-mf-pickwrap">
+            <input class="rd-mf-in rd-mf-date" id="vs-mf-gidate" placeholder="📦 GI Date (dd/mm)" oninput="vsFilter()" onclick="try{vsOpenPicker('gidate')}catch(e){}" title="Filter by GI Date">
+            <input type="date" class="rd-mf-pick" id="vs-mf-gidate-pick" onchange="vsPickerChange('gidate',this.value)">
+          </div>
+          <input class="rd-mf-in" id="vs-mf-q" placeholder="🔍 DO · Customer · Vessel" oninput="vsFilter()" title="Search by DO / Customer / Vessel">
+          <button class="rd-mf-clr" id="vs-mf-clr" onclick="vsFilterClear()" title="Clear all filters" style="display:none">✕</button>
+        </div>
+        <div style="margin-left:auto"><span class="rd-sync" id="vs-sync"><span class="rd-sync-dot"></span>CONNECTING...</span></div>
+      </div>
+      <!-- Stats -->
+      <div class="rd-stats">
+        <div class="rd-sc"><span class="rd-sv" id="vs-st-rows">0</span><span class="rd-sl">ROWS</span></div>
+        <div class="rd-ssep"></div>
+        <div class="rd-sc"><span class="rd-sv" style="color:#00c853" id="vs-st-ships">0</span><span class="rd-sl">SHIPS</span></div>
+        <div class="rd-sc"><span class="rd-sv" style="color:var(--ce)" id="vs-st-trips">0</span><span class="rd-sl">TRIPS</span></div>
+        <div class="rd-ssep"></div>
+        <div class="rd-sc" style="border-color:rgba(0,200,80,.2)"><span class="rd-sv" style="color:#00c853" id="vs-st-lpg">0</span><span class="rd-sl">TOTAL LPG (KG)</span></div>
+      </div>
+      <!-- Table -->
+      <div class="rd-shell" style="flex:1;min-height:0">
+        <div class="rd-tbody-wrap" id="vs-tbody-wrap" style="overflow:auto;height:100%">
+          <div class="rd-pov" id="vs-pov" onclick="vsShowForm()">
+            <div class="rd-pov-ico">🚢</div>
+            <div class="rd-pov-ttl">VESSEL DATA</div>
+            <div class="rd-pov-hnt">Press <strong>➕ ADD</strong> to add a new shipment</div>
+          </div>
+          <table class="rdt" id="vs-tbl" style="display:none">
+            <thead id="vs-thead"></thead>
+            <tbody id="vs-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <!-- Add/Edit Form (modal overlay) -->
+      <div id="vs-form-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:600;overflow:auto;padding:40px 20px" onclick="if(event.target===this)vsCloseForm()">
+        <div style="max-width:650px;margin:0 auto;background:#fff;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.2);overflow:hidden">
+          <div style="padding:10px 16px;background:var(--ce);color:#fff;display:flex;align-items:center;gap:8px">
+            <span style="font-family:'Oswald',sans-serif;font-size:14px;font-weight:700;letter-spacing:1px" id="vs-form-title">🚢 ADD SHIPMENT</span>
+            <span style="margin-left:auto;cursor:pointer;font-size:18px;opacity:.8" onclick="vsCloseForm()">✕</span>
+          </div>
+          <div style="padding:16px">
+            <div style="display:flex;gap:8px;margin-bottom:14px">
+              <button class="pbtn" id="vs-type-1" onclick="vsSetType(1)" style="flex:1;justify-content:center;font-size:11px;padding:8px;border-radius:6px;font-weight:700">🚢 1-RATIO VESSEL</button>
+              <button class="pbtn" id="vs-type-2" onclick="vsSetType(2)" style="flex:1;justify-content:center;font-size:11px;padding:8px;border-radius:6px;font-weight:700">🚢🚢 2-RATIO VESSEL (Viet Gas)</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+              <div><label class="vs-lbl">Vessel Name</label><select class="fi" id="vs-f-vessel" onchange="vsOnVesselChange()"><option value="">-- Select vessel --</option><option>VIET GAS 01</option><option>VIET GAS</option><option>OCEAN STAR</option></select></div>
+              <div><label class="vs-lbl">Date</label><div class="vs-date-wrap" style="position:relative"><input class="fi" type="text" id="vs-f-date" placeholder="DD/MM/YYYY" maxlength="10" style="padding-right:32px"><input type="date" id="vs-f-date-pick" tabindex="-1" aria-hidden="true" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:1px;height:1px;opacity:0;pointer-events:none" onchange="_vsPickerSync('vs-f-date',this.value)"><span onclick="_vsOpenPicker('vs-f-date-pick','vs-f-date')" title="Pick from calendar" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:14px;color:#5a7080;padding:4px 6px;user-select:none">📅</span></div></div>
+              <div><label class="vs-lbl">GI Date</label><div class="vs-date-wrap" style="position:relative"><input class="fi" type="text" id="vs-f-gidate" placeholder="DD/MM/YYYY" maxlength="10" style="padding-right:32px"><input type="date" id="vs-f-gidate-pick" tabindex="-1" aria-hidden="true" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);width:1px;height:1px;opacity:0;pointer-events:none" onchange="_vsPickerSync('vs-f-gidate',this.value)"><span onclick="_vsOpenPicker('vs-f-gidate-pick','vs-f-gidate')" title="Pick from calendar" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:14px;color:#5a7080;padding:4px 6px;user-select:none">📅</span></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+              <div><label class="vs-lbl">Time</label><input class="fi" type="time" id="vs-f-time"></div>
+              <div><label class="vs-lbl">Lot</label><input class="fi" type="text" inputmode="numeric" id="vs-f-lot" placeholder="VD: 1"></div>
+              <div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+              <div><label class="vs-lbl">Trade</label><select class="fi" id="vs-f-item"><option>Domestic (Ship)</option><option>Export (Ship)</option></select></div>
+              <div><label class="vs-lbl">Type</label><input class="fi" list="vs-type-list" id="vs-f-type" placeholder="Select or enter..." autocomplete="off"><datalist id="vs-type-list"><option value="LPG"></option><option value="LPG (C3:50/C4:50)"></option><option value="LPG (C3:30/C4:70)"></option><option value="LPG (C3:35/C4:65)"></option><option value="LPG (C3:40/C4:60)"></option><option value="LPG (C3:60/C4:40)"></option><option value="LPG (Pure Propane)"></option><option value="LPG (Pure Butane)"></option></datalist></div>
+              <div style="position:relative"><label class="vs-lbl">Customer</label><input class="fi" type="text" id="vs-f-customer" placeholder="🔍 Type to search..." autocomplete="off" oninput="vsCustSearch(this.value)" onfocus="vsCustSearch(this.value)"><div class="vs-cust-dd" id="vs-cust-dd"></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+              <div><label class="vs-lbl">Destination</label><input class="fi" type="text" id="vs-f-dest" placeholder="VD: VT gas, Bien Hoa"></div>
+              <div><label class="vs-lbl">Loading Tank</label><select class="fi" id="vs-f-tank"><option>Cavern</option></select></div>
+              <div><label class="vs-lbl">Price (USD/MT)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-price" placeholder="VD: 550"></div>
+            </div>
+            <div style="border:1px solid var(--bd);border-radius:6px;padding:10px;margin-bottom:8px;background:#f7fbff">
+              <div style="font-family:'Oswald',sans-serif;font-size:11px;font-weight:600;color:var(--ce);letter-spacing:.5px;margin-bottom:6px">📦 RATIO LINE 1</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
+                <div><label class="vs-lbl">DO No.</label><input class="fi" type="text" id="vs-f-do1" placeholder="86431619"></div>
+                <div><label class="vs-lbl">C3 Wt (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-c3-1" oninput="vsCalcRatio(1)"></div>
+                <div><label class="vs-lbl">C4 Wt (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-c4-1" oninput="vsCalcRatio(1)"></div>
+                <div><label class="vs-lbl">LPG Total (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-lpg-1" oninput="vsCalcRatio(1)"></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+                <div><label class="vs-lbl">WMS Ratio C3</label><input class="fi" type="text" id="vs-f-r3-1" readonly style="background:#e8f5e9;font-weight:700;color:#2d8a4e"></div>
+                <div><label class="vs-lbl">WMS Ratio C4</label><input class="fi" type="text" id="vs-f-r4-1" readonly style="background:#fff3e0;font-weight:700;color:#e76f00"></div>
+              </div>
+            </div>
+            <div id="vs-line2" style="display:none;border:1px solid #ffcc80;border-radius:6px;padding:10px;margin-bottom:8px;background:#fffbf0">
+              <div style="font-family:'Oswald',sans-serif;font-size:11px;font-weight:600;color:#e76f00;letter-spacing:.5px;margin-bottom:6px">📦 RATIO LINE 2 (Tank 2)</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
+                <div><label class="vs-lbl">DO No.</label><input class="fi" type="text" id="vs-f-do2" placeholder="86431623"></div>
+                <div><label class="vs-lbl">C3 Wt (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-c3-2" oninput="vsCalcRatio(2)"></div>
+                <div><label class="vs-lbl">C4 Wt (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-c4-2" oninput="vsCalcRatio(2)"></div>
+                <div><label class="vs-lbl">LPG Total (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-lpg-2" oninput="vsCalcRatio(2)"></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+                <div><label class="vs-lbl">WMS Ratio C3</label><input class="fi" type="text" id="vs-f-r3-2" readonly style="background:#e8f5e9;font-weight:700;color:#2d8a4e"></div>
+                <div><label class="vs-lbl">WMS Ratio C4</label><input class="fi" type="text" id="vs-f-r4-2" readonly style="background:#fff3e0;font-weight:700;color:#e76f00"></div>
+              </div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+              <button class="pbtn" onclick="vsCloseForm()" style="color:var(--mt)">Cancel</button>
+              <button class="pbtn" onclick="vsSave()" style="border-color:var(--ce);color:#fff;background:var(--ce);font-weight:700">💾 SAVE</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Delete modal -->
+      <div class="rd-mbg h" id="vs-m-del">
+        <div class="rd-mdl" style="width:min(420px,96vw)">
+          <div id="vs-del-header"></div>
+          <div id="vs-del-info" style="font-size:11px;color:var(--mt);padding:4px 0"></div>
+          <div id="vs-del-status" style="font-size:11px;color:var(--mt);padding:2px 0"></div>
+          <div class="rd-mftr" id="vs-del-footer"></div>
+        </div>
+      </div>
+    </div><!-- /sub-vs -->
 
     <!-- SAP Paste Modal -->
     <div class="tl-paste-modal" id="spPasteModal">
@@ -3506,6 +3630,7 @@
 <script src="js/features/vmix.js"></script>
 <script src="js/features/mixnotify.js"></script>
 <script src="js/features/cav.js"></script>
+<script src="js/features/vs.js"></script>
 <script src="js/features/scx2.js"></script>
 <!-- integrations -->
 <script src="js/integrations/ptt-early.js"></script>

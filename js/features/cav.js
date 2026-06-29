@@ -333,6 +333,24 @@ const CAV = (function(){
     });
     return o;
   }
+  /* ---- Vessel DATA tab (VS_ROWS) by GI date -> export/domestic qty & C3/C4 ----
+     v4: Daily Stock report tham chiếu VS_ROWS (tab Vessel trong LPG Sales),
+     khoá theo giDate — giống V406 (_cvBizVessel). Cùng shape với _srcVLOG nên
+     thay trực tiếp được. Trade chứa 'Export' -> exp, còn lại -> dom. */
+  function _srcVS(date){
+    const rows=(typeof VS_ROWS!=='undefined'&&VS_ROWS)?VS_ROWS:{};
+    const o={ n:0, exp:{qty:0,c3:0,c4:0}, dom:{qty:0,c3:0,c4:0}, rows:[] };
+    Object.keys(rows).forEach(k=>{
+      const r=rows[k]; if(!r||typeof r!=='object') return;
+      if(_anyISO(r.giDate||r.date)!==date) return;
+      o.n++;
+      const isExp=/export/i.test(String(r.item||r.trade||''));
+      const c3=_n(r.c3), c4=_n(r.c4), qty=_n(r.lpg!=null&&r.lpg!==''?r.lpg:(c3+c4));
+      const t=isExp?o.exp:o.dom; t.qty+=qty; t.c3+=c3; t.c4+=c4;
+      o.rows.push({ship:r.vessel||'', type:r.type||'', dir:isExp?'E':'D', qty, c3});
+    });
+    return o;
+  }
 
   /* ====== SAP PRICES ($/ton) — one record per date, prev-day fallback ======
      User input (see fill-map comments). If a price is blank for the day, the
@@ -389,7 +407,7 @@ const CAV = (function(){
     const M = (prod==='c4') ? 'C4' : 'C3';   /* SAP material label */
     const PL = (prod==='c4') ? 'C4' : 'C3';  /* display label */
     const A=_agg(date), tl=_srcTL(date), wg=_srcWG(date), ws=_srcWS(date),
-          sp=_srcSAP(date), vl=_srcVLOG(date);
+          sp=_srcSAP(date), vl=_srcVS(date);   /* v4: vessel figures from Vessel DATA tab (VS_ROWS) by giDate — V406 parity */
     const T=_ton;
     const sapHas = !!(sp.slocs['1100']||sp.slocs['2100']||sp.slocs['2101']);
     const tlMiss = tl.n===0;
