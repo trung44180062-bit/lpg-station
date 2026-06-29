@@ -2588,7 +2588,7 @@ const SCALE = (function(){
       twAvg, sfKg,
       lotFull:  tk ? (tk.lotFull + '/' + tk.name) : '',
       saleNote: displayNote,
-      maxTol:   0
+      maxTol:   parseFloat(item.tolerance || 0) || 0   /* show plan max tole (e.g. 10.3), not fallback to qty */
     });
   }
 

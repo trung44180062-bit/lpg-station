@@ -278,7 +278,7 @@ function _makePlanModule(opts){
         tolerance:   r[8]  || lastTol,
         allowGate:   gateRaw === 'OK' ? 'OK' : 'NO',
         allowLoad:   loadRaw === 'OK' ? 'OK' : 'NO',
-        doNum:       String(r[11]||'').trim(),
+        doNum:       cleanDO(r[11]||''),                          /* strip WMS leading zeros (V406 parity) */
         note:        r[12] || lastNote,                            /* v4.22.17 — fill-down */
         _subGroup:   subGroupIdx,
         _seq:        gseq++,                                       /* v4.55.4 — paste/Excel source order */
