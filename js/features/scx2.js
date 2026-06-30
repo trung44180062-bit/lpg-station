@@ -51,7 +51,7 @@ const SCX2 = (function(){
       +   '<button onclick="'+stop+'INV.view(\''+sloc+'\');INV.openXfer()"    title="Inter-tank transfer">⇆</button>'
       +   '<button onclick="'+stop+'INV.view(\''+sloc+'\');INV.openHistory()" title="Stock history">📜</button>'
       +   '<button onclick="'+stop+'INV.view(\''+sloc+'\');INV.openExport()"  title="Export C3/C4 split">📤</button>'
-      +   '<button onclick="'+stop+'TKV.open(\''+tk+'\')"                     title="Outgoing orders (TL viewer)">🛢</button>'
+      +   '<button onclick="'+stop+'INV.view(\''+sloc+'\');INV.openSplit()"   title="Tách LPG → C3/C4 theo %wt C3">🧮</button>'
       + '</div>';
       main.appendChild(box);
     });

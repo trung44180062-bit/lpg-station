@@ -3169,6 +3169,41 @@
   </div>
 </div>
 
+<!-- LPG → C3/C4 split calculator (theo %wt C3 đã khai báo) -->
+<div class="modal-bg" id="invSplitModal">
+  <div class="modal" style="width:440px">
+    <div class="modal-hdr">
+      <h3>🧮 Tách LPG → C3 / C4</h3>
+      <button class="modal-close" onclick="INV.closeAll()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="inv-form">
+        <div class="inv-fld">
+          <label>Tank</label>
+          <div class="inv-tank-pick" id="invSplitPick">
+            <button type="button" onclick="INV.pickSplit('2100')">TK-3501</button>
+            <button type="button" onclick="INV.pickSplit('2101')">TK-3502</button>
+          </div>
+        </div>
+        <div class="inv-fld">
+          <label>%wt C3 (đã khai báo)</label>
+          <input type="text" id="invSplitWt" readonly>
+        </div>
+        <div class="inv-fld">
+          <label>Tổng LPG (kg)</label>
+          <input type="number" id="invSplitTotal" step="any" placeholder="0" autocomplete="off" oninput="INV.calcSplit()">
+        </div>
+        <div class="inv-export-sum" id="invSplitResult"></div>
+        <p class="inv-hint">Nhập tổng LPG, hệ thống tự chia theo <b>%wt C3</b> đã khai báo: <b>C3 = Tổng × %wt</b>, <b>C4 = Tổng − C3</b>.</p>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="INV.closeAll()">Đóng</button>
+      <button class="btn btn-green" onclick="INV.copySplit()">Copy kết quả</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- TODAY PLAN: PASTE MODAL -->

@@ -686,6 +686,49 @@ const INV = (function(){
     catch(_){ toast('Copy failed','er'); }
   }
 
+  /* ── LPG → C3/C4 split calculator ──
+     Operator enters a TOTAL LPG (kg); we split it into C3/C4 using the tank's
+     ALREADY-DECLARED %wt C3 (override → init.wtC3 → default). Pure RAM calc,
+     no Firebase write. C3 = total × %wt ; C4 = total − C3. */
+  let _splitPick = '2100';
+  let _splitTSV  = '';
+  function _splitWtFor(sloc){ return num(compute(sloc).wtC3) || DEFAULT_WT; }
+  function openSplit(){
+    _splitPick = sel;
+    _setPick('invSplitPick', _splitPick);
+    const wt = _splitWtFor(_splitPick);
+    document.getElementById('invSplitWt').value = (+wt.toFixed(1)) + ' %';
+    document.getElementById('invSplitTotal').value = '';
+    _splitTSV = '';
+    calcSplit();
+    open('invSplitModal');
+  }
+  function pickSplit(sloc){
+    _splitPick = sloc;
+    _setPick('invSplitPick', sloc);
+    const wt = _splitWtFor(sloc);
+    document.getElementById('invSplitWt').value = (+wt.toFixed(1)) + ' %';
+    calcSplit();
+  }
+  function calcSplit(){
+    const out = document.getElementById('invSplitResult');
+    if(!out) return;
+    const total = num(document.getElementById('invSplitTotal').value);
+    const pct   = _splitWtFor(_splitPick) / 100;
+    const c3 = total * pct, c4 = total - c3;
+    out.innerHTML =
+      '<div class="box"><span class="k">TỔNG LPG (kg)</span><span class="v lpg">'+fmtKg(total)+'</span></div>'+
+      '<div class="box"><span class="k">C3 (kg)</span><span class="v c3">'+fmtKg(c3)+'</span></div>'+
+      '<div class="box"><span class="k">C4 (kg)</span><span class="v c4">'+fmtKg(c4)+'</span></div>';
+    _splitTSV = ['Tank','%wtC3','Tong_LPG_kg','C3_kg','C4_kg'].join('\t')+'\n'+
+      [TKNAME[_splitPick], +(pct*100).toFixed(1), Math.round(total), Math.round(c3), Math.round(c4)].join('\t');
+  }
+  function copySplit(){
+    if(!num(document.getElementById('invSplitTotal').value)){ toast('Nhập tổng LPG trước','er'); return; }
+    try{ navigator.clipboard.writeText(_splitTSV); toast('✓ Đã copy kết quả','ok'); }
+    catch(_){ toast('Copy failed','er'); }
+  }
+
   /* ── init ── */
   function init(){
     const c=loadCache();
@@ -709,6 +752,7 @@ const INV = (function(){
            openCavern, pickCav, saveCavern,
            openXfer, pickXferFrom, saveXfer,
            openHistory, renderHist, delHist,
-           openExport, pickExport, copyExport, toggleExportRow, toggleExportAll, closeAll };
+           openExport, pickExport, copyExport, toggleExportRow, toggleExportAll,
+           openSplit, pickSplit, calcSplit, copySplit, closeAll };
 })();
 window.INV = INV;
