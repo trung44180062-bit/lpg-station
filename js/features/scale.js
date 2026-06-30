@@ -1466,6 +1466,13 @@ const SCALE = (function(){
     /* Engineer auto-fill from station-bar setting (kept for downstream consumers) */
     const engDefault = (document.getElementById('scEngineer')?.value||'').trim();
     if(engDefault) t.eng = engDefault;
+    /* Check Booth auto-fill — symmetric with engineer above. The check booth
+       staff (= "Người lập phiếu" on the DN) is captured into the station tech
+       at SAVE time so it persists with the weigh and is reliably carried into
+       TL Data, even if the scCheckBooth field is later cleared or the page is
+       reloaded before DONE. Stored as t.weigher (the TL Data column key). */
+    const chkDefault = (document.getElementById('scCheckBooth')?.value||'').trim();
+    if(chkDefault) t.weigher = chkDefault;
     /* GI auto preference snapshot */
     t._giAuto = !!document.getElementById('tc-gi-auto')?.checked;
     return t;
@@ -1667,7 +1674,10 @@ const SCALE = (function(){
     if(tech.note)           payload.note     = tech.note;
     if(tech.error)          payload.error    = tech.error;
     if(tech.eng)            payload.eng      = tech.eng;
-    const chk = document.getElementById('scCheckBooth')?.value||'';
+    /* Weigher (Check Booth) — prefer the value captured into tech at SAVE time
+       (_techRead), fall back to a live read of the field. This keeps the DN's
+       "Người lập phiếu" = check booth staff even if the field was cleared. */
+    const chk = (tech.weigher||'').trim() || (document.getElementById('scCheckBooth')?.value||'');
     if(chk) payload.weigher = chk;
     if(priceVal) payload.price = priceVal;
     return payload;
@@ -1774,7 +1784,8 @@ const SCALE = (function(){
     if(tech.note)           payload.note     = tech.note;
     if(tech.error)          payload.error    = tech.error;
     if(tech.eng)            payload.eng      = tech.eng;
-    const chk = document.getElementById('scCheckBooth')?.value||'';
+    /* Weigher (Check Booth) — prefer tech-captured value, fall back to live field. */
+    const chk = (tech.weigher||'').trim() || (document.getElementById('scCheckBooth')?.value||'');
     if(chk) payload.weigher = chk;
     if(priceVal) payload.price = priceVal;
     return payload;
