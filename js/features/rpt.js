@@ -303,6 +303,18 @@ const RPT = (function(){
     });
     return out;
   }
+
+  /* Vessel Data rows (VS_ROWS) for a GI date. STRICT giDate: vessel chưa GI
+     (không có giDate) KHÔNG vào báo cáo — giống V406 (v331). */
+  function collectVS(giDateISO){
+    const out=[];
+    if(typeof VS_ROWS==='undefined' || !VS_ROWS) return out;
+    Object.values(VS_ROWS).forEach(r=>{
+      if(!r || typeof r!=='object' || !r.giDate) return;
+      if(anyToISO(r.giDate) === giDateISO) out.push(r);
+    });
+    return out;
+  }
   function collectGIbyTank(giDateISO){
     const gi={'2100':{C3:0,C4:0},'2101':{C3:0,C4:0}};
     collectTL(giDateISO).forEach(r=>{
@@ -590,7 +602,8 @@ const RPT = (function(){
     log('── Raw Data ──','info');
 
     const tlRows = collectTL(giDateISO);
-    if(!tlRows.length){ log('ℹ Raw Data: 0 TL rows for '+giDateISO,'info'); return; }
+    const vsRows = collectVS(giDateISO);   /* v4: vessel rows for this giDate */
+    if(!tlRows.length && !vsRows.length){ log('ℹ Raw Data: 0 rows (TL+Vessel) for '+giDateISO,'info'); return; }
 
     // Sanity check: C3+C4 ≈ Net Weight
     const wtWarns=[];
@@ -746,6 +759,39 @@ const RPT = (function(){
       rn++;
     });
 
+    // Vessel Data rows — same column layout; scale/turn/weights blank, vessel name → AF (V406 parity)
+    vsRows.forEach(r=>{
+      const nw=parseFloat(String(r.lpg||'').replace(/,/g,''))||0;
+      const c3=parseFloat(String(r.c3||'').replace(/,/g,''))||0;
+      const c4=parseFloat(String(r.c4||'').replace(/,/g,''))||0;
+      const c3pct = nw>0 ? parseFloat((c3/nw).toFixed(2)) : 0;
+      const c4pct = parseFloat((1-c3pct).toFixed(2));
+      const dateISOr = anyToISO(r.date) || giDateISO;
+      const dateSerial2 = isoToSerial(dateISOr);
+      const vals=[
+        dateSerial2, dateSerial, String(r.doNo||''), r.customer||'', r.item||'', r.type||'LPG', // B-G
+        '', '',                            // H Scale, I Turn
+        r.tank||'', r.lot||'',             // J Tank, K Lot
+        c3pct, c4pct, nw, c3, c4,          // L %C3, M %C4, N Net, O C3, P C4
+        '', '', '',                        // Q FQ, R Diff, S TruckWt
+        r.time||'',                        // T 1stTime
+        '', '', '', '', '',                // U Gross, V 2ndTime, W PressIn, X PressOut, Y Eng
+        r.dest||'',                        // Z Dest
+        '', '', '', '', '',                // AA Note, AB Error, AC Seal, AD Weigher, AE CustWMS
+        r.vessel||'',                      // AF (vessel name)
+        '', '', '', ''                     // AG Rmooc, AH Driver, AI CW, AJ MaxTol
+      ];
+      let c='';
+      for(let ci=0;ci<vals.length;ci++){
+        const v=vals[ci];
+        if(v===''||v===null||v===undefined) continue;
+        const isStr=(typeof v==='string' && isNaN(parseFloat(v)));
+        c += buildCellXml(colMap[ci], rn, v, isStr);
+      }
+      newXml += '<row r="'+rn+'">'+c+'</row>';
+      rn++;
+    });
+
     // Remove any existing rows ≥ startRow (template placeholder cleanup)
     const cleanRe = new RegExp('<row[^>]*\\br="(\\d+)"[^>]*>[\\s\\S]*?</row>', 'g');
     const removeRanges=[];
@@ -763,6 +809,23 @@ const RPT = (function(){
     const insertPos = sXml.lastIndexOf('</sheetData>');
     if(insertPos<0){ log('❌ Raw Data: cannot find </sheetData>','er'); return; }
     sXml = sXml.substring(0, insertPos) + newXml + sXml.substring(insertPos);
+
+    /* Report date → B1 & V1 (giữ nguyên style/định dạng date sẵn có của ô,
+       chỉ thay value bằng Excel serial; bỏ t="s" nếu ô đang là string). */
+    function setHeaderDateCell(ref){
+      const re = new RegExp('<c\\s+r="'+ref+'"([^>]*?)(?:/>|>[\\s\\S]*?</c>)');
+      const m = sXml.match(re);
+      if(m){
+        const attrs = (m[1]||'').replace(/\s+t="[^"]*"/g,'');   // keep s= (style), drop t= (type)
+        sXml = sXml.replace(re, '<c r="'+ref+'"'+attrs+'><v>'+dateSerial+'</v></c>');
+        log('ℹ Raw Data: '+ref+' = report date ('+giDateISO+')','info');
+      } else {
+        log('⚠ Raw Data: cell '+ref+' not found in row 1 — date not written','warn');
+      }
+    }
+    setHeaderDateCell('B1');
+    setHeaderDateCell('V1');
+
     state.zip.file(sh.path, sXml);
 
     // Append new shared strings
@@ -778,7 +841,7 @@ const RPT = (function(){
         state.zip.file('xl/sharedStrings.xml', sstXml);
       }
     }
-    log('✅ Raw Data: '+(rn-startRow)+' rows ('+tlRows.length+' TL) from row '+startRow,'ok');
+    log('✅ Raw Data: '+(rn-startRow)+' rows ('+tlRows.length+' TL · '+vsRows.length+' Vessel) from row '+startRow,'ok');
   }
 
   /* ═════════════════════════════════════════════════════════
@@ -791,9 +854,10 @@ const RPT = (function(){
     if(!sh){ log('⚠ Sheet "Summary Data" not found — skip','warn'); return; }
     log('── Summary Data ──','info');
 
-    // Group TL rows (V4-18 has no vessel rows)
+    // Group TL rows + Vessel rows (vessel → gi.ship)
     const tlRows = collectTL(giDateISO);
-    if(!tlRows.length){ log('ℹ Summary: 0 rows for '+giDateISO,'info'); return; }
+    const vsRows = collectVS(giDateISO);
+    if(!tlRows.length && !vsRows.length){ log('ℹ Summary: 0 rows (TL+Vessel) for '+giDateISO,'info'); return; }
     const groups={};
     tlRows.forEach(r=>{
       const nw = parseFloat(String(r.lpgQty||'').replace(/,/g,''))||0;
@@ -807,7 +871,7 @@ const RPT = (function(){
       const cust  = r.cust || '';
       const key   = cust+'|'+(r.trade||'')+'|'+(r.type||'');
       if(!groups[key]) groups[key] = {
-        cust, trade:r.trade||'', type:r.type||'', trips:0, loadQty:0, price,
+        cust, trade:r.trade||'', type:r.type||'', trips:0, loadQty:0, price, isVessel:false,
         _tripSet:new Set(),
         gi:{tk3501:{c3:0,c4:0}, tk3502:{c3:0,c4:0}, ship:{c3:0,c4:0}, pure:{c3:0,c4:0}}
       };
@@ -822,9 +886,31 @@ const RPT = (function(){
       else if(sloc==='2101'){ g.gi.tk3502.c3 += c3; g.gi.tk3502.c4 += c4; }
       else { g.gi.tk3501.c3 += c3; g.gi.tk3501.c4 += c4; }
     });
+    // Vessel rows → ship GI column (grouped by cust|trade|type, V406 parity)
+    vsRows.forEach(r=>{
+      const nw = parseFloat(String(r.lpg||'').replace(/,/g,''))||0;
+      let c3 = parseFloat(String(r.c3||'').replace(/,/g,''))||0;
+      let c4 = parseFloat(String(r.c4||'').replace(/,/g,''))||0;
+      if(!c3 && !c4 && nw>0){ c3=nw/2; c4=nw/2; }
+      const price = parseFloat(String(r.price||'').replace(/,/g,''))||null;
+      const cust  = r.customer || '';
+      const key   = cust+'|'+(r.item||'')+'|'+(r.type||'');
+      if(!groups[key]) groups[key] = {
+        cust, trade:r.item||'', type:r.type||'', trips:0, loadQty:0, price, isVessel:true,
+        _tripSet:new Set(),
+        gi:{tk3501:{c3:0,c4:0}, tk3502:{c3:0,c4:0}, ship:{c3:0,c4:0}, pure:{c3:0,c4:0}}
+      };
+      const g = groups[key];
+      g._tripSet.add('VS|'+String(r.doNo||'')+'|'+String(r.vessel||'')+'|'+String(r.lot||''));
+      g.loadQty += nw;
+      if(!g.price && price) g.price = price;
+      g.gi.ship.c3 += c3; g.gi.ship.c4 += c4;
+    });
     Object.values(groups).forEach(g=>{ g.trips = g._tripSet.size; });
-    const gList = Object.values(groups).sort((a,b)=>(a.cust.localeCompare(b.cust))||(a.trade.localeCompare(b.trade)));
-    log('ℹ Summary: '+gList.length+' groups, '+tlRows.length+' total rows','info');
+    /* Vessel groups điền TRƯỚC, rồi mới tới TL; trong mỗi nhóm sort theo cust/trade. */
+    const gList = Object.values(groups).sort((a,b)=>
+      ((b.isVessel?1:0)-(a.isVessel?1:0)) || (a.cust.localeCompare(b.cust)) || (a.trade.localeCompare(b.trade)));
+    log('ℹ Summary: '+gList.length+' groups, '+tlRows.length+' TL + '+vsRows.length+' Vessel rows','info');
 
     const sstF = state.zip.file('xl/sharedStrings.xml');
     const sstXml = sstF ? await sstF.async('string') : '';
@@ -1018,16 +1104,19 @@ const RPT = (function(){
     const newTotalXml = '<row r="'+trn+'"'+(tRowAttr?' '+tRowAttr:'')+'>'+tc+'</row>';
     sXml = sXml.substring(0, curTotal.start) + newTotalXml + sXml.substring(curTotal.end);
 
-    // Update titles B2 & B3
+    // Update titles B2 & B3 — GIỮ NGUYÊN style (s=) của ô (B2 là merged cell)
     const dp=giDateISO.split('-');
-    const titleStr='['+dp[1]+'/'+dp[2]+' 탱크로리 출하 일보] ';
-    const r2Re=/<c\s+r="B2"[^>]*>[\s\S]*?<\/c>/;
-    const r2M = sXml.match(r2Re);
-    if(r2M) sXml = sXml.replace(r2M[0], '<c r="B2" t="inlineStr"><is><t>'+titleStr+'</t></is></c>');
-    const r3TitleStr='['+dp[1]+'/'+dp[2]+' Daily summary]';
-    const r3Re=/<c\s+r="B3"[^>]*>[\s\S]*?<\/c>/;
-    const r3M = sXml.match(r3Re);
-    if(r3M) sXml = sXml.replace(r3M[0], '<c r="B3" t="inlineStr"><is><t>'+r3TitleStr+'</t></is></c>');
+    const _xmlEsc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    function setTitleCell(ref, str){
+      const re = new RegExp('<c\\s+r="'+ref+'"([^>]*?)(?:/>|>[\\s\\S]*?</c>)');
+      const m = sXml.match(re);
+      if(!m){ log('⚠ Summary: cell '+ref+' not found — title not written','warn'); return; }
+      const sm = (m[1]||'').match(/\bs="(\d+)"/);   // preserve existing style/format
+      const sA = sm ? ' s="'+sm[1]+'"' : '';
+      sXml = sXml.replace(re, '<c r="'+ref+'"'+sA+' t="inlineStr"><is><t xml:space="preserve">'+_xmlEsc(str)+'</t></is></c>');
+    }
+    setTitleCell('B2', '['+dp[1]+'/'+dp[2]+' 탱크로리 출하 일보] ');
+    setTitleCell('B3', '['+dp[1]+'/'+dp[2]+' Daily summary]');
 
     // Update SUBTOTAL/SUM ranges to full slot range
     const lastDataR = totalRowNum-1;
@@ -1158,6 +1247,28 @@ const RPT = (function(){
       h+='<td><span class="rpc-badge '+(wmsSTcount?'ok':'err')+'">'+src+'</span></td></tr>';
     });
     h+='</tbody></table></div>';
+
+    // Vessel Data → Cavern GI (vào Raw Data + Summary cột Ship)
+    const vsRows = collectVS(giDate);
+    const vn = v => parseFloat(String(v==null?'':v).replace(/,/g,''))||0;
+    h+='<div class="rpc-section"><div class="rpc-stitle">🚢 VESSEL DATA → CAVERN GI (tons)</div>';
+    if(vsRows.length){
+      h+='<table class="rpc-tbl"><thead><tr><th>DO No.</th><th>Vessel</th><th>Customer</th><th>Trade</th><th>Tank</th><th>C3 (t)</th><th>C4 (t)</th><th>Net (t)</th></tr></thead><tbody>';
+      let vC3=0,vC4=0,vNet=0;
+      vsRows.forEach(r=>{
+        const c3=vn(r.c3), c4=vn(r.c4), net=vn(r.lpg!=null&&r.lpg!==''?r.lpg:(c3+c4));
+        vC3+=c3; vC4+=c4; vNet+=net;
+        h+='<tr><td style="font-weight:600">'+esc(r.doNo)+'</td><td>'+esc(r.vessel)+'</td><td>'+esc(r.customer)+'</td><td>'+esc(r.item)+'</td><td>'+esc(r.tank)+'</td>';
+        h+='<td class="num">'+fmT(c3)+'</td><td class="num">'+fmT(c4)+'</td><td class="num">'+fmT(net)+'</td></tr>';
+      });
+      h+='<tr style="font-weight:700;background:#f5f0ff"><td colspan="5">TOTAL · '+vsRows.length+' shipment'+(vsRows.length>1?'s':'')+'</td>';
+      h+='<td class="num">'+fmT(vC3)+'</td><td class="num">'+fmT(vC4)+'</td><td class="num">'+fmT(vNet)+'</td></tr>';
+      h+='</tbody></table>';
+      h+='<div class="rpc-note ok">✅ '+vsRows.length+' chuyến tàu sẽ được ghi vào sheet Raw Data và gộp vào Summary (cột Ship).</div>';
+    } else {
+      h+='<div class="rpc-note warn">ℹ Không có chuyến tàu (Vessel Data) nào có GI Date = '+giDate+'. Nếu hôm nay có nhập tàu, kiểm tra tab 🚢 VESSEL (nhớ điền GI Date).</div>';
+    }
+    h+='</div>';
 
     // SAP 5-day cross-check (needs file loaded)
     if(sapHas && state.zip){

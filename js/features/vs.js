@@ -510,8 +510,93 @@ function vsExport(){
   setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
   toast('📥 Exported '+rows.length+' vessel rows','ok');
 }
-function vsPaste(){ toast('ℹ Paste from Excel chưa bật ở V4 — dùng ➕ ADD để nhập tay','er'); }
-window.vsExport=vsExport; window.vsPaste=vsPaste;
+/* ── PASTE (CSV / Excel TSV) — header-aware, quote-aware, dedup theo DO ── */
+var _VS_HDR_MAP={
+  'date':'date','gi date':'giDate','gidate':'giDate',
+  'do no.':'doNo','do no':'doNo','do':'doNo','dono':'doNo',
+  'customer':'customer','trade':'item','item':'item','type':'type',
+  'tank':'tank','lot':'lot',
+  'net wt (kg)':'lpg','net wt':'lpg','netwt':'lpg','lpg':'lpg','lpg (kg)':'lpg',
+  'c3 (kg)':'c3','c3':'c3','c4 (kg)':'c4','c4':'c4',
+  '%c3':'ratioC3','ratioc3':'ratioC3','%c4':'ratioC4','ratioc4':'ratioC4',
+  'vessel':'vessel','destination':'dest','dest':'dest',
+  'price':'price','time':'time','ln':'lineNo','lineno':'lineNo','line':'lineNo'
+};
+var _VS_DEFAULT_ORDER=['date','giDate','doNo','customer','item','type','tank','lot','lpg','c3','c4','ratioC3','ratioC4','vessel','dest','price','time','lineNo'];
+
+function _vsSplitCSV(line, delim){
+  if(delim==='\t') return line.split('\t');
+  var out=[], cur='', q=false;
+  for(var i=0;i<line.length;i++){
+    var ch=line[i];
+    if(q){ if(ch==='"'){ if(line[i+1]==='"'){ cur+='"'; i++; } else q=false; } else cur+=ch; }
+    else { if(ch==='"') q=true; else if(ch===','){ out.push(cur); cur=''; } else cur+=ch; }
+  }
+  out.push(cur); return out;
+}
+function _vsCleanDo(v){ return (typeof cleanDO==='function') ? cleanDO(v||'') : String(v||'').trim().replace(/^0+/,''); }
+function _vsNormRow(o){
+  var num=function(v){ var n=parseFloat(String(v==null?'':v).replace(/,/g,'')); return isNaN(n)?0:n; };
+  var date=_vsToDMY(o.date||''); if(!date) return null;
+  var c3=num(o.c3), c4=num(o.c4), lpg=num(o.lpg); if(!lpg) lpg=c3+c4;
+  return {
+    date:date, giDate:_vsToDMY(o.giDate||o.date||'')||date,
+    time:o.time||'12:50', lot:(o.lot!=null?String(o.lot).trim():''),
+    vessel:o.vessel||'', item:o.item||'Domestic (Ship)', type:o.type||'',
+    customer:o.customer||'', dest:o.dest||'', tank:o.tank||'Cavern',
+    price:(o.price!=null?String(o.price).trim():''),
+    doNo:_vsCleanDo(o.doNo), c3:c3, c4:c4, lpg:lpg,
+    ratioC3:(o.ratioC3&&String(o.ratioC3).trim())?String(o.ratioC3).trim():(lpg?(c3/lpg).toFixed(2):'0'),
+    ratioC4:(o.ratioC4&&String(o.ratioC4).trim())?String(o.ratioC4).trim():(lpg?(c4/lpg).toFixed(2):'0'),
+    lineNo:(o.lineNo&&String(o.lineNo).trim())?String(o.lineNo).trim():'1'
+  };
+}
+function _vsParsePaste(raw){
+  if(!raw) return [];
+  raw=raw.replace(/^﻿/,'');
+  var lines=raw.split(/\r?\n/).filter(function(l){ return l.trim().length; });
+  if(!lines.length) return [];
+  var delim=lines[0].indexOf('\t')>=0?'\t':',';
+  var first=_vsSplitCSV(lines[0],delim).map(function(s){ return s.trim(); });
+  var hasHeader=/^date$/i.test(first[0]||'') || first.join(',').toLowerCase().indexOf('do no')>=0;
+  var order=_VS_DEFAULT_ORDER.slice(), start=0;
+  if(hasHeader){ order=first.map(function(h){ return _VS_HDR_MAP[h.toLowerCase().trim()]||null; }); start=1; }
+  var rows=[];
+  for(var i=start;i<lines.length;i++){
+    var cols=_vsSplitCSV(lines[i],delim).map(function(s){ return s.trim(); });
+    if(!cols.length || cols.every(function(x){ return !x; })) continue;
+    var obj={};
+    for(var j=0;j<order.length;j++){ var key=order[j]; if(key) obj[key]=cols[j]!=null?cols[j]:''; }
+    var row=_vsNormRow(obj); if(row) rows.push(row);
+  }
+  return rows;
+}
+function vsPaste(){
+  var m=document.getElementById('vs-paste-modal');
+  if(!m){ toast('⚠ Paste modal not found','er'); return; }
+  var ta=document.getElementById('vs-paste-area'); if(ta) ta.value='';
+  m.style.display=''; setTimeout(function(){ if(ta) ta.focus(); }, 30);
+}
+function vsClosePaste(){ var m=document.getElementById('vs-paste-modal'); if(m) m.style.display='none'; }
+function vsSubmitPaste(){
+  var ta=document.getElementById('vs-paste-area');
+  var rows=_vsParsePaste(ta?ta.value:'');
+  if(!rows.length){ toast('⚠ Không nhận được dòng hợp lệ — kiểm tra dữ liệu dán','er'); return; }
+  /* index hiện có theo DO (đã clean) để re-paste không tạo trùng */
+  var byDo={};
+  Object.keys(VS_ROWS||{}).forEach(function(k){
+    var r=VS_ROWS[k]; if(r&&r.doNo){ var d=_vsCleanDo(r.doNo); if(d) byDo[d]=k; }
+  });
+  var added=0, updated=0;
+  rows.forEach(function(row){
+    var d=row.doNo;
+    if(d && byDo[d]){ vsFbSet(byDo[d], Object.assign({}, VS_ROWS[byDo[d]], row, {_fbk:byDo[d]})).catch(function(){}); updated++; }
+    else { vsFbPush(row).catch(function(){}); added++; }
+  });
+  toast('✅ Imported '+rows.length+' rows ('+added+' new · '+updated+' updated)','ok');
+  vsClosePaste();
+}
+window.vsExport=vsExport; window.vsPaste=vsPaste; window.vsClosePaste=vsClosePaste; window.vsSubmitPaste=vsSubmitPaste;
 
 /* ── REPORT HELPER: total vessel C3/C4 GI on a date (ton) ──────
    Mirrors V406 _cvBizVessel — sums VS_ROWS c3/c4 (kg) by giDate. */

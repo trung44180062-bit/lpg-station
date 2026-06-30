@@ -1166,6 +1166,27 @@
           <div class="rd-mftr" id="vs-del-footer"></div>
         </div>
       </div>
+      <!-- Paste modal -->
+      <div id="vs-paste-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:640;overflow:auto" onclick="if(event.target===this)vsClosePaste()">
+        <div style="max-width:620px;margin:6vh auto;background:#fff;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.25);overflow:hidden">
+          <div style="padding:10px 16px;background:var(--ce);color:#fff;display:flex;align-items:center;gap:8px">
+            <span style="font-family:'Oswald',sans-serif;font-size:14px;font-weight:700;letter-spacing:1px">📋 PASTE VESSEL DATA</span>
+            <span style="margin-left:auto;cursor:pointer;font-size:18px;opacity:.85" onclick="vsClosePaste()">✕</span>
+          </div>
+          <div style="padding:16px">
+            <p style="margin:0 0 8px;font-size:11.5px;color:var(--mt);line-height:1.5">
+              Dán CSV hoặc copy trực tiếp từ Excel/Google Sheet. Thứ tự cột theo bản export:
+              <b>Date · GI Date · DO No. · Customer · Trade · Type · Tank · Lot · Net Wt · C3 · C4 · %C3 · %C4 · Vessel · Destination · Price · Time · Ln</b>.
+              Dòng tiêu đề tự bỏ qua. Dòng có cùng <b>DO No.</b> sẽ được cập nhật (không tạo trùng). DO sẽ tự bỏ số 0 ở đầu.
+            </p>
+            <textarea id="vs-paste-area" placeholder="Ctrl+V dữ liệu vessel vào đây…" style="width:100%;height:220px;box-sizing:border-box;border:1.5px solid var(--bd);border-radius:6px;padding:8px;font-family:'Courier New',monospace;font-size:11px;resize:vertical"></textarea>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+              <button class="pbtn" onclick="vsClosePaste()" style="color:var(--mt)">Cancel</button>
+              <button class="pbtn" onclick="vsSubmitPaste()" style="border-color:var(--ce);color:#fff;background:var(--ce);font-weight:700">⬇ IMPORT</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div><!-- /sub-vs -->
 
     <!-- SAP Paste Modal -->
