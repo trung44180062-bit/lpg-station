@@ -954,7 +954,7 @@ const RPT = (function(){
         const sm=sM[2].match(/\bs="(\d+)"/);
         if(sm) meta.styleByCol[sM[1]] = sm[1];
       }
-      const aM=rowXml.match(/<c\s+r="A\d+"[^>]*(?:\/>|>[\s\S]*?<\/c>)/);
+      const aM=rowXml.match(/<c\s+r="A\d+"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/);  /* non-greedy: KHÔNG được nuốt "/" của ô self-closing rồi tràn sang cột B */
       if(aM) meta.colAFull=aM[0];
       const raM=rowXml.match(/^<row\b([^>]*?)>/);
       if(raM) meta.rowAttr = raM[1].replace(/\br="\d+"/,'').replace(/\s*\bhidden="[^"]*"/,'').trim();
@@ -1080,7 +1080,7 @@ const RPT = (function(){
     const traM=curTotal.xml.match(/^<row\b([^>]*?)>/);
     if(traM) tRowAttr = traM[1].replace(/\br="\d+"/,'').replace(/\s*\bhidden="[^"]*"/,'').trim();
     let tAFull='';
-    const tAM=curTotal.xml.match(/<c\s+r="A\d+"[^>]*(?:\/>|>[\s\S]*?<\/c>)/);
+    const tAM=curTotal.xml.match(/<c\s+r="A\d+"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/);  /* non-greedy (self-closing safe) */
     if(tAM) tAFull=tAM[0];
 
     function bct(col, rn, val, isStr){
