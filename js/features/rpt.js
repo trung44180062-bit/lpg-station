@@ -474,18 +474,21 @@ const RPT = (function(){
       let rd=null;
       try{ rd = await readRawDataDetailByDate(state.zip, checkDate); }catch(e){ rd=null; }
       const checks = [
+        /* stEnd = ST End(D) tính TỪ CHÍNH ngày D: Init + TransferNet − GI.
+           (Trước đây lấy stNext.init = ô công thức ngày D+1, cache bị stale trên
+           file chưa recalc → so lệch giả. Nay tự tính, đáng tin cậy.) */
         {sl:'2100', mat:'C3', name:'TK-3501 C3', giCol:'F', trsCols:'C+D-E', initCol:'B',
           stGI:st.gi.C3_2100, stTrs:st.trsNet.C3_2100, stInit:st.init.C3_2100,
-          stEnd: stNext?stNext.init.C3_2100:null, rdSum: rd?rd.C3_2100:null},
+          stEnd: st.init.C3_2100 + st.trsNet.C3_2100 - st.gi.C3_2100, rdSum: rd?rd.C3_2100:null},
         {sl:'2100', mat:'C4', name:'TK-3501 C4', giCol:'K', trsCols:'H+I-J', initCol:'G',
           stGI:st.gi.C4_2100, stTrs:st.trsNet.C4_2100, stInit:st.init.C4_2100,
-          stEnd: stNext?stNext.init.C4_2100:null, rdSum: rd?rd.C4_2100:null},
+          stEnd: st.init.C4_2100 + st.trsNet.C4_2100 - st.gi.C4_2100, rdSum: rd?rd.C4_2100:null},
         {sl:'2101', mat:'C3', name:'TK-3502 C3', giCol:'P', trsCols:'M+N-O', initCol:'L',
           stGI:st.gi.C3_2101, stTrs:st.trsNet.C3_2101, stInit:st.init.C3_2101,
-          stEnd: stNext?stNext.init.C3_2101:null, rdSum: rd?rd.C3_2101:null},
+          stEnd: st.init.C3_2101 + st.trsNet.C3_2101 - st.gi.C3_2101, rdSum: rd?rd.C3_2101:null},
         {sl:'2101', mat:'C4', name:'TK-3502 C4', giCol:'U', trsCols:'R+S-T', initCol:'Q',
           stGI:st.gi.C4_2101, stTrs:st.trsNet.C4_2101, stInit:st.init.C4_2101,
-          stEnd: stNext?stNext.init.C4_2101:null, rdSum: rd?rd.C4_2101:null}
+          stEnd: st.init.C4_2101 + st.trsNet.C4_2101 - st.gi.C4_2101, rdSum: rd?rd.C4_2101:null}
       ];
       checks.forEach(ck=>{
         const sapGIval   = toT(sapGI  [ck.sl][ck.mat]);
@@ -503,7 +506,7 @@ const RPT = (function(){
             desc:checkDate+' '+ck.name+' Init: SAP='+sapInitVal.toFixed(3)+'t, ST['+ck.initCol+']='+ck.stInit.toFixed(3)+'t, Δ='+(sapInitVal-ck.stInit).toFixed(3)+'t'});
         if(ck.stEnd!=null && Math.abs(sapEndVal - ck.stEnd) > 0.01)
           diffs.push({date:checkDate, sloc:ck.sl, mat:ck.mat, field:'END',
-            desc:checkDate+' '+ck.name+' End: SAP='+sapEndVal.toFixed(3)+'t, ST INIT('+isoDayAfter(checkDate)+')='+ck.stEnd.toFixed(3)+'t, Δ='+(sapEndVal-ck.stEnd).toFixed(3)+'t'});
+            desc:checkDate+' '+ck.name+' End: SAP='+sapEndVal.toFixed(3)+'t, ST End(Init+Trs−GI)='+ck.stEnd.toFixed(3)+'t, Δ='+(sapEndVal-ck.stEnd).toFixed(3)+'t'});
         if(rd && ck.rdSum!=null){
           const rdT = ck.rdSum/1000;
           if(Math.abs(sapGIval - rdT) > 0.01)
@@ -688,13 +691,21 @@ const RPT = (function(){
         if(sm2) sAttrMap[sM[1]]=sm2[1];
       }
     }
+    /* v4-fix: write STRING cells as inline strings (t="inlineStr"), KHÔNG dùng
+       shared strings. Trước đây dùng sstIdx + sửa uniqueCount → nếu parseSST đếm
+       thiếu (vd <si/> rỗng) thì index lệch → Excel "Removed Records: Cell
+       information" + hiển thị sai chuỗi. Inline string tự chứa, an toàn tuyệt đối
+       (giống fillSummary). */
+    function _inlineStrCell(col, rn, sA, val){
+      const sv = String(val).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return '<c r="'+col+rn+'"'+sA+' t="inlineStr"><is><t xml:space="preserve">'+sv+'</t></is></c>';
+    }
     function buildCellXml(col, rn, val, isStr){
       const sA = sAttrMap[col] ? ' s="'+sAttrMap[col]+'"' : '';
       if(val===''||val===null||val===undefined) return '';
-      if(isStr){ const si=sstIdx(String(val)); return '<c r="'+col+rn+'"'+sA+' t="s"><v>'+si+'</v></c>'; }
+      if(isStr) return _inlineStrCell(col, rn, sA, val);
       if(typeof val==='number') return '<c r="'+col+rn+'"'+sA+'><v>'+val+'</v></c>';
-      const si = sstIdx(String(val));
-      return '<c r="'+col+rn+'"'+sA+' t="s"><v>'+si+'</v></c>';
+      return _inlineStrCell(col, rn, sA, val);
     }
 
     let newXml='';
