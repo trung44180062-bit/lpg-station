@@ -3146,15 +3146,21 @@
       <button class="modal-close" onclick="INV.closeAll()">×</button>
     </div>
     <div class="modal-body">
-      <div class="inv-fld" style="margin-bottom:10px">
-        <label>Export tank</label>
-        <div class="inv-tank-pick" id="invExportPick">
-          <button type="button" onclick="INV.pickExport('2100')">TK-3501</button>
-          <button type="button" onclick="INV.pickExport('2101')">TK-3502</button>
+      <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:10px">
+        <div class="inv-fld" style="flex:1;margin-bottom:0">
+          <label>Export tank</label>
+          <div class="inv-tank-pick" id="invExportPick">
+            <button type="button" onclick="INV.pickExport('2100')">TK-3501</button>
+            <button type="button" onclick="INV.pickExport('2101')">TK-3502</button>
+          </div>
+        </div>
+        <div class="inv-fld" style="margin-bottom:0">
+          <label>Date</label>
+          <input type="date" id="invExportDate" onchange="INV.pickExportDate(this.value)" style="height:34px">
         </div>
       </div>
       <div class="inv-export-sum" id="invExportSum"></div>
-      <p class="inv-hint" style="margin:0 0 6px">Chỉ gồm khách <b>EXPORT</b> (tên khách có chữ "Export"). Bấm vào dòng hoặc ô tick để chọn/bỏ chọn xe tính tổng.</p>
+      <p class="inv-hint" style="margin:0 0 6px">Chỉ gồm xe có <b>TRADE = Export</b> trong TL Data của ngày đã chọn (mặc định hôm nay). Bấm vào dòng hoặc ô tick để chọn/bỏ chọn xe tính tổng.</p>
       <div class="inv-hist-scroll">
         <table class="inv-export-tbl">
           <thead><tr><th class="pick"><input type="checkbox" id="invExportAll" checked onclick="INV.toggleExportAll(this.checked)" title="Chọn / bỏ chọn tất cả"></th><th>DO No.</th><th>Customer</th><th>Net (kg)</th><th>C3 (kg)</th><th>C4 (kg)</th></tr></thead>
@@ -3164,7 +3170,6 @@
     </div>
     <div class="modal-foot">
       <button class="btn" onclick="INV.closeAll()">Close</button>
-      <button class="btn btn-green" onclick="INV.copyExport()">Copy TSV</button>
     </div>
   </div>
 </div>

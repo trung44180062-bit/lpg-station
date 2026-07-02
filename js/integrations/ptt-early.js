@@ -539,6 +539,18 @@ var PTT_EARLY = (function(){
   function print(){
     var plan = _computePlan();
     if(!plan.length){ if(typeof toast==='function') toast('No orders selected','er'); return; }
+    /* Staff-on-duty gate (parity with the per-station PTT print in scale.js) —
+       these pages also carry Engineer/Check Booth, so block if either is unset. */
+    var eng = _staffEng().trim(), chk = _staffChk().trim();
+    if(!eng || !chk){
+      var engEl = document.getElementById('scEngineer'), chkEl = document.getElementById('scCheckBooth');
+      var missing = [];
+      if(!eng){ missing.push('Engineer'); if(engEl) engEl.classList.add('sc-staff-inp-err'); }
+      if(!chk){ missing.push('Check Booth'); if(chkEl) chkEl.classList.add('sc-staff-inp-err'); }
+      setTimeout(function(){ if(engEl) engEl.classList.remove('sc-staff-inp-err'); if(chkEl) chkEl.classList.remove('sc-staff-inp-err'); }, 2200);
+      if(typeof toast==='function') toast('⛔ Chưa chỉ định Staff on duty: '+missing.join(' & ')+' — vui lòng chọn trước khi in phiếu.','er');
+      return;
+    }
     var pages = '', printedOids = {};
     plan.forEach(function(item){
       pages += (item.combined && item.rows.length>1) ? _buildCombinedPage(item.rows) : _buildPage(item.rows[0]);
@@ -575,9 +587,24 @@ var _dnOvStId = 0;
 function _dnShowOverlay(stId, cur, tech){
   _dnOvStId = stId;
   /* Populate pf-dn-paper using the existing helper before showing the overlay */
-  const turn = (typeof SCALE!=='undefined'&&SCALE.getStations) ? (function(){
-    try{ const st = SCALE.getStations()[stId]; return st ? (st.turn||1) : 1; }catch(_){ return 1; }
-  })() : 1;
+  /* v4.57 — turn for the DN "Số trạm" cell. st.turn was written at ASSIGN time
+     and could be stale/off-by-one (bug: DN printed "1-2" while modal showed
+     Turn 3). Use SCALE.getPrintTurn — the same frozen turn the TL Data row was
+     written with — so DN, modal and TL Data always agree. st.turn stays as a
+     last-resort fallback. */
+  const turn = (function(){
+    try{
+      if(typeof SCALE!=='undefined' && SCALE.getPrintTurn){
+        const t = SCALE.getPrintTurn(stId);
+        if(t) return t;
+      }
+      if(typeof SCALE!=='undefined' && SCALE.getStations){
+        const st = SCALE.getStations()[stId];
+        return st ? (st.turn||1) : 1;
+      }
+    }catch(_){}
+    return 1;
+  })();
   const lotFull = (cur.batch && cur.tank) ? (_sanitizeLotPrefix(cur.batch)+'/'+cur.tank) : (cur.tank||'');
   const tw = tech.truckWt!=null ? parseFloat(tech.truckWt) : null;
   const gw = tech.grossWt!=null ? parseFloat(tech.grossWt) : null;

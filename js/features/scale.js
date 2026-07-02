@@ -915,6 +915,28 @@ const SCALE = (function(){
   }
   function mdoCancel(stId){ _mdoCtx = null; scClear(stId); }
 
+  /* ═══════════════════════════════════════════════════
+     STAFF-ON-DUTY GATE (v4.56 — hard block)
+     Engineer + Check Booth (Staff-on-duty bar) sign the printed PTT /
+     loading-info slip, so neither an assign nor a print may proceed
+     while either field is empty. Blocks with a red toast and flashes
+     the empty input(s) so the operator sees exactly what to fill.
+     ═══════════════════════════════════════════════════ */
+  function _requireStaffOnDuty(){
+    const engEl = document.getElementById('scEngineer');
+    const chkEl = document.getElementById('scCheckBooth');
+    const engOn = (engEl?.value||'').trim();
+    const chkOn = (chkEl?.value||'').trim();
+    if(engOn && chkOn) return true;
+    const missing = [];
+    if(!engOn){ missing.push('Engineer'); engEl?.classList.add('sc-staff-inp-err'); }
+    if(!chkOn){ missing.push('Check Booth'); chkEl?.classList.add('sc-staff-inp-err'); }
+    setTimeout(()=>{ engEl?.classList.remove('sc-staff-inp-err'); chkEl?.classList.remove('sc-staff-inp-err'); }, 2200);
+    (engOn ? chkEl : engEl)?.focus();
+    toast('⛔ Chưa chỉ định Staff on duty: '+missing.join(' & ')+' — vui lòng chọn trước khi assign/in phiếu.','er');
+    return false;
+  }
+
   function scAssignToStation(stId,row){
     /* v4.31.13 — central sales guard. Every assign path (search click, queue 📍,
        multi-DO picker, waitPop) funnels through here, so blocked orders
@@ -949,6 +971,9 @@ const SCALE = (function(){
     }
     const qty=parseFloat(row.qty||row.contractQty||0)||0;
     if(!qty){ toast('Missing Loading Qty','er'); return; }
+    /* Staff-on-duty gate — must run before any tank/lot allocation or the
+       multi-DO popup, so a blocked assign never partially commits state. */
+    if(!_requireStaffOnDuty()) return;
     let active=tkGetActive();
     /* ── Pure-product override ──────────────────────────────────────────────
        A Pure C3 / C4 order does NOT load from TK-3501/3502. Instead it draws
@@ -1004,25 +1029,17 @@ const SCALE = (function(){
     }catch(_){}
     setSt(stId,{status:'loading',plate:row.plate||'',driver:row.driver||'',tank:active.name,
       batch:active.lotFull,customer:row.customer||'',doNum:doStr,qty:String(qty),
-      rmooc:row.rmooc||row.romooc||'',turn:getDisplayTurn(stId),type:row.type||'',
+      /* v4.57 — turn must be the turn this truck WILL load (completed count +1).
+         getDisplayTurn() here read status while still 'empty' → returned base
+         (one less), so the DN printed "st-2" while the modal showed Turn 3. */
+      rmooc:row.rmooc||row.romooc||'',turn:getNextTurn(stId),type:row.type||'',
       note:stNote,tech:{},_oid:row._oid||'',
       tolerance:String(row.tolerance||row.maxTol||''),
       _multiDO:row._multiDO||false,_linkedRows:row._linkedRows||null});
-    /* v4.5x — Staff-on-duty reminder folded into the assign toast (so it isn't
-       overwritten by a separate toast). Engineer / Check Booth feed the PTT & DN
-       signatures that auto-print right after assign, so nudge if either is empty
-       at commit time. Non-blocking — the truck is still assigned. */
-    (function(){
-      const _engOn = (document.getElementById('scEngineer')?.value||'').trim();
-      const _chkOn = (document.getElementById('scCheckBooth')?.value||'').trim();
-      const _missStaff = [];
-      if(!_engOn) _missStaff.push('Engineer');
-      if(!_chkOn) _missStaff.push('Check Booth');
-      if(_missStaff.length)
-        toast(row.plate+' → Station '+stId+' · ⚠ Chưa điền Staff on duty: '+_missStaff.join(' & '), 'warn');
-      else
-        toast(row.plate+' → Station '+stId, 'ok');
-    })();
+    /* v4.56 — Staff-on-duty is now enforced by _requireStaffOnDuty() above
+       (hard block, before this point), so Engineer / Check Booth are always
+       present here. */
+    toast(row.plate+' → Station '+stId, 'ok');
     scClear(stId);
     /* v4.21.3 — Clean the wait-queue of any items matching this assigned
        row. Centralizing the cleanup here covers ALL assign paths (per-
@@ -2081,6 +2098,10 @@ const SCALE = (function(){
     const s = DB_SC.stations[stId];
     if(!s||s.status==='empty'){toast('⚠ Station empty','er');return;}
     if(!s.qty||parseFloat(s.qty)<=0){toast('⛔ No Loading Qty — check Sale Plan','er');return;}
+    /* Staff-on-duty gate — the printed slip carries the Engineer/Check Booth
+       signatures, so it cannot be issued while either is unset (e.g. cleared
+       after assign, or a manual re-print of an already-loading station). */
+    if(!_requireStaffOnDuty()) return;
     /* Build data object and call external overlay */
     const tk = tkGetActive();
     const turn = getDisplayTurn(stId);
@@ -2772,6 +2793,15 @@ const SCALE = (function(){
     scDestSearch, scDestPick, scDestKeydown, scGiToggle,
     certSearch, certModalOpen, certModalClose, certModalSave,
     getStations:()=>DB_SC.stations, getStation:(id)=>DB_SC.stations[id], getTkCfg:()=>SC_TK_CFG,
+    /* v4.57 — authoritative turn for printing (DN "Số trạm" = stId-turn).
+       Returns the SAME turn the TL Data row was written with (_tlFreezeTurn),
+       so the printed DN can never drift from TL/modal. Falls back to the
+       live display turn, then the station's stored turn. stId must be 1-4. */
+    getPrintTurn:(stId)=>{
+      if(!(stId>=1 && stId<=4)) return 0;
+      try{ return _tlFreezeTurn(stId) || getDisplayTurn(stId) || (DB_SC.stations[stId]||{}).turn || 1; }
+      catch(_){ return (DB_SC.stations[stId]||{}).turn || 1; }
+    },
     /* v4.36.3 — exposed for SYNC.promotePair to relink an in-flight station
        to the promoted real DO (was a dead bare-identifier call before). */
     setSt,

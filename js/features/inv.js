@@ -575,21 +575,32 @@ const INV = (function(){
      Pulls trucks read-only from TL.ROWS (no Firebase write).
      v4.22.15 — added in-modal tank picker (TK-3501 / TK-3502). Switching tank
      re-runs the calculation against TL.ROWS without closing the modal. */
-  let _exportTSV = '';
   let _exportPick = '2100';
+  let _exportDate = '';                 // dmy 'dd/mm/yy' — date being split
   let _exportRows = [];                 // {doNo, cust, lpg, c3, c4, sel}
   let _exportMeta = { sloc:'2100', pctC3:0, dmy:'' };
 
-  /* EXPORT detection — mirrors scale.js (trade = 'Export' when the customer
-     name contains "export") and CAV._dir. Domestic trucks are excluded.
-     Checks trade first (authoritative), then dest/cust as a fallback. */
+  /* dmy 'dd/mm/yy' ↔ ISO 'yyyy-mm-dd' (for the <input type="date">) */
+  function _dmyToISO(dmy){ const m=String(dmy||'').split('/'); return m.length===3 ? '20'+m[2]+'-'+m[1]+'-'+m[0] : ''; }
+  function _isoToDMY(iso){ const m=String(iso||'').split('-'); return m.length===3 ? m[2]+'/'+m[1]+'/'+m[0].slice(-2) : ''; }
+
+  /* EXPORT detection — the TRADE column written by scale.js is authoritative
+     ('Export' / 'Export (Pure)' vs 'Domestic' / 'Domestic (Pure)').
+     v4 fix: the old regex /EX|.../ matched "EX" inside names like PETIMEX and
+     let Domestic trucks leak in. Now: if trade is set, ONLY trade decides.
+     Name fallback (whole-word) is used only when trade is blank. */
   function _isExport(r){
-    const t = (String(r.trade||'')+' '+String(r.dest||'')+' '+String(r.cust||'')).toUpperCase();
-    return /EX|EXPORT|수출|XK|XUAT/.test(t);
+    const tr = String(r.trade||'').trim().toUpperCase();
+    if(tr) return tr.indexOf('EXPORT')===0;   // 'EXPORT', 'EXPORT (PURE)'
+    const t = (String(r.dest||'')+' '+String(r.cust||'')+' '+String(r.custFull||'')).toUpperCase();
+    return /\bEXPORT\b|수출|\bXK\b|XUẤT KHẨU|XUAT KHAU/.test(t);
   }
 
   function openExport(){
     _exportPick = sel;       // default to the tank shown in XFER card
+    _exportDate = todayDMY();             // default: today
+    const di=document.getElementById('invExportDate');
+    if(di) di.value=_dmyToISO(_exportDate);
     _setPick('invExportPick', _exportPick);
     _renderExport(_exportPick);
     open('invExportModal');
@@ -599,11 +610,17 @@ const INV = (function(){
     _setPick('invExportPick', sloc);
     _renderExport(sloc);
   }
+  function pickExportDate(iso){
+    const dmy=_isoToDMY(iso);
+    if(!dmy) return;
+    _exportDate=dmy;
+    _renderExport(_exportPick);
+  }
   function _renderExport(sloc){
     const c=compute(sloc);
     const pctC3=(num(c.wtC3)||DEFAULT_WT)/100;
     const suffix = sloc==='2100' ? '3501' : '3502';
-    const dmy=todayDMY();
+    const dmy=_exportDate||todayDMY();
     const rows=[];
     if(typeof TL!=='undefined' && TL.ROWS){
       Object.values(TL.ROWS).forEach(r=>{
@@ -629,7 +646,7 @@ const INV = (function(){
     const body=document.getElementById('invExportBody');
     if(!body) return;
     if(!_exportRows.length){
-      body.innerHTML='<tr><td colspan="6" class="inv-export-empty">No EXPORT trucks today from '+TKNAME[_exportMeta.sloc]+'</td></tr>';
+      body.innerHTML='<tr><td colspan="6" class="inv-export-empty">No EXPORT trucks on '+(_exportMeta.dmy||todayDMY())+' from '+TKNAME[_exportMeta.sloc]+'</td></tr>';
       return;
     }
     body.innerHTML=_exportRows.map((r,i)=>
@@ -639,9 +656,8 @@ const INV = (function(){
       +'<td class="c3">'+fmtKg(r.c3)+'</td><td class="c4">'+fmtKg(r.c4)+'</td></tr>').join('');
   }
 
-  /* recompute totals + TSV from SELECTED rows only */
+  /* recompute totals from SELECTED rows only */
   function _recalcExport(){
-    const pctC3=_exportMeta.pctC3||0;
     const selRows=_exportRows.filter(r=>r.sel);
     const totLpg=selRows.reduce((s,r)=>s+r.lpg,0);
     const totC3 =selRows.reduce((s,r)=>s+r.c3,0);
@@ -662,11 +678,6 @@ const INV = (function(){
       allBox.checked = _exportRows.length>0 && selRows.length===_exportRows.length;
       allBox.indeterminate = selRows.length>0 && selRows.length<_exportRows.length;
     }
-    /* TSV for clipboard: header + total + per-truck (selected only) */
-    const lines=[['DO No.','Customer','Net_kg','C3_kg','C4_kg','%wtC3'].join('\t')];
-    lines.push(['TỔNG','('+selRows.length+' xe)',Math.round(totLpg),Math.round(totC3),Math.round(totC4),+(pctC3*100).toFixed(1)].join('\t'));
-    selRows.forEach(r=>lines.push([r.doNo,r.cust,Math.round(r.lpg),Math.round(r.c3),Math.round(r.c4),''].join('\t')));
-    _exportTSV=lines.join('\n');
   }
 
   function toggleExportRow(i){
@@ -679,11 +690,6 @@ const INV = (function(){
     _exportRows.forEach(r=>{ r.sel=!!on; });
     _renderExportBody();
     _recalcExport();
-  }
-
-  function copyExport(){
-    try{ navigator.clipboard.writeText(_exportTSV); toast('✓ TSV copied','ok'); }
-    catch(_){ toast('Copy failed','er'); }
   }
 
   /* ── LPG → C3/C4 split calculator ──
@@ -752,7 +758,7 @@ const INV = (function(){
            openCavern, pickCav, saveCavern,
            openXfer, pickXferFrom, saveXfer,
            openHistory, renderHist, delHist,
-           openExport, pickExport, copyExport, toggleExportRow, toggleExportAll,
+           openExport, pickExport, pickExportDate, toggleExportRow, toggleExportAll,
            openSplit, pickSplit, calcSplit, copySplit, closeAll };
 })();
 window.INV = INV;

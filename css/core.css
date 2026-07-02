@@ -1030,6 +1030,17 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .sc-staff-inp::placeholder{color:#94a3b8;font-style:italic;}
 .sc-staff-inp:hover{border-color:#94a3b8;}
 .sc-staff-inp:focus{border-color:#1565c0;outline:none;box-shadow:0 0 0 3px rgba(21,101,192,.12);}
+/* v4.56 — flashed when assign/print is blocked because Engineer or Check
+   Booth (Staff on duty) is empty. Removed automatically after ~2.2s. */
+.sc-staff-inp-err{border-color:#d62839 !important;box-shadow:0 0 0 3px rgba(214,40,57,.18) !important;
+  animation:scStaffErrShake .35s;}
+@keyframes scStaffErrShake{
+  0%,100%{transform:translateX(0);}
+  20%{transform:translateX(-4px);}
+  40%{transform:translateX(4px);}
+  60%{transform:translateX(-3px);}
+  80%{transform:translateX(3px);}
+}
 .sc-staff-ac-list{
   display:none;
   position:absolute; left:0; right:0; top:calc(100% + 3px);
