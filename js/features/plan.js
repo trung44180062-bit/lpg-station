@@ -624,6 +624,14 @@ function _makePlanModule(opts){
     if(!FB_DB){ toast('Offline — Firebase not connected','er'); return; }
     const row = PLAN[oid];
     if(!row) return;
+    /* v4.56 — DO values typed/pasted from WMS carry leading zeros
+       ("0086687802" → "86687802"). Strip them on every DO-carrying edit;
+       cleanDO leaves temp DOs / non-DO text unchanged. */
+    let _doCleaned = false;
+    if((field === 'doNum' || field === '_oid') && typeof cleanDO === 'function'){
+      const _c = cleanDO(String(value==null?'':value));
+      if(_c !== value){ value = _c; _doCleaned = true; }
+    }
     /* special-case: editing the _oid (DO Var) column → rename the node */
     if(field === '_oid'){
       const newOid = String(value||'').trim();
@@ -661,6 +669,9 @@ function _makePlanModule(opts){
       .then(()=>{})
       .catch(e=>{ console.error('plan edit', e); toast('Edit write failed','er'); })
       .finally(()=>setTimeout(()=>{_suppressEcho--;}, 600));
+    /* v4.56 — the cell keeps showing the raw typed text (with leading zeros)
+       until the next redraw; force one so the operator sees the cleaned DO. */
+    if(_doCleaned && table) rebuildTableData();
     refreshCounts();
   }
 

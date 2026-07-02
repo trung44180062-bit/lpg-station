@@ -839,7 +839,9 @@ function scToggleMode(n){ SCALE.scToggleMode(n); }
    ============================================================ */
 let _tlSyncCands = [];
 function openTlSyncModal(cands){
-  _tlSyncCands = (cands||[]).filter(c => c && c.preview && c.preview.hasChanges);
+  /* v4.56 — keep DO-upgrade-only candidates (doOnly: pick = 0 rows) even
+     though they carry no field changes: the DO rename itself is the change. */
+  _tlSyncCands = (cands||[]).filter(c => c && c.preview && (c.preview.hasChanges || c.upgradeDo));
   const tbody = document.getElementById('wgTlSyncBody');
   if(!tbody){ console.warn('[WG→TL Sync] modal body not found'); return; }
   if(!_tlSyncCands.length){
@@ -864,9 +866,15 @@ function openTlSyncModal(cands){
     const cP4 = cell(B.c4Pct, A.c4Pct);
     const ident = _esc(r.customer || c.wmsRow?.customer || '');
     const plate = _esc(r.truck || r.plate || c.wmsRow?.vehicle || '');
+    /* v4.56 — temp-DO upgrades show "TMP → real DO"; doOnly rows get a badge
+       so the operator can see this match only renames the DO (no field stamp). */
+    const doCell = c.upgradeDo
+      ? `<span style="color:var(--muted)">${_esc(c.tempDo||'')}</span> → <b>${_esc(c.realDo)}</b>`
+        + (c.doOnly ? `<div class="sync-pm-sub">DO only (pick = 0)</div>` : '')
+      : `<b>${_esc(c.realDo)}</b>`;
     return `<tr>
       <td style="text-align:center"><input type="checkbox" class="wg-tl-cb" data-i="${i}" checked></td>
-      <td><b>${_esc(c.realDo)}</b></td>
+      <td>${doCell}</td>
       <td>${ident}<div class="sync-pm-sub">${plate}</div></td>
       <td${cGi.td}><div class="${cGi.cls}"><span class="b4">${cGi.b}</span><span class="af">${cGi.a}</span></div></td>
       <td${cNw.td} style="text-align:right"><div class="${cNw.cls}"><span class="b4">${cNw.b}</span><span class="af">${cNw.a}</span></div></td>
@@ -914,6 +922,36 @@ function closeWgMismatchModal(){
 function tlSyncToggleAll(on){
   document.querySelectorAll('#wgTlSyncBody .wg-tl-cb').forEach(cb=>{ cb.checked = on; });
 }
+/* v4.56 — when a TL temp DO is upgraded to its official DO (match confirm OR a
+   hand edit in TL Data), the SAME-DAY Today Plan order still holding that temp
+   DO must be upgraded too — otherwise the Plan↔Scale status chain and Actual
+   Loading lose the link. Goes through SYNC.promotePair, which renames the plan
+   oid (+ DO column), relinks any in-flight SCALE station and renames remaining
+   TL rows. Date guard: if the plan row carries _forDate and a TL date is given,
+   they must be the same day (plans without _forDate are allowed through).
+   Returns true iff a plan order was actually promoted. */
+function promoteTpTempDo(tempDo, realDo, tlDateDDMMYY){
+  try{
+    tempDo = String(tempDo||'').trim(); realDo = String(realDo||'').trim();
+    if(!tempDo || !realDo) return false;
+    if(typeof isTempOid !== 'function' || !isTempOid(tempDo)) return false;
+    if(typeof TP === 'undefined' || !TP.PLAN) return false;
+    if(typeof SYNC === 'undefined' || !SYNC.promotePair) return false;
+    const tU = tempDo.toUpperCase();
+    const oid = Object.keys(TP.PLAN).find(k => String(k).toUpperCase() === tU && isTempOid(String(k)));
+    if(!oid) return false;
+    if(tlDateDDMMYY){
+      const m = String(tlDateDDMMYY).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+      if(m){
+        let yy = m[3]; if(yy.length === 2) yy = '20'+yy;
+        const iso = yy+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
+        const fd = String((TP.PLAN[oid]||{})._forDate||'').trim();
+        if(fd && fd !== iso) return false;      /* plan order is for another day */
+      }
+    }
+    return SYNC.promotePair(oid, realDo) === true;
+  }catch(e){ console.warn('[promoteTpTempDo]', e); return false; }
+}
 function applyTlSyncSelected(){
   const picks = [];
   document.querySelectorAll('#wgTlSyncBody .wg-tl-cb').forEach(cb=>{
@@ -923,16 +961,25 @@ function applyTlSyncSelected(){
   let done = 0;
   picks.forEach(c=>{
     try{
+      let ok = false;
       /* v4 — a TL row matched via TEMP DO (plate+driver, net===pick) gets its
          temp DO upgraded to the real WMS DO before the field stamp. */
-      if(c.upgradeDo && c.tempDo && c.realDo && typeof TL!=='undefined' && TL.renameDoNo){
-        TL.renameDoNo(c.tempDo, c.realDo);
+      if(c.upgradeDo && c.tempDo && c.realDo){
+        /* v4.56 — same-day Today Plan order still on this temp DO → upgrade it
+           too (keeps status auto-run + Actual Loading linked to the real DO).
+           promotePair itself also renames TL rows; the explicit renameDoNo
+           below stays as fallback when no plan order exists (idempotent). */
+        try{ if(typeof promoteTpTempDo === 'function' && promoteTpTempDo(c.tempDo, c.realDo, (c.tlRow||{}).date)) ok = true; }catch(_){}
+        if(typeof TL!=='undefined' && TL.renameDoNo && TL.renameDoNo(c.tempDo, c.realDo) > 0) ok = true;
       }
-      if(typeof TL!=='undefined' && TL.applyWmsSync && TL.applyWmsSync(c.rid, c.opts)) done++;
+      /* v4.56 — doOnly candidates (pick = 0) carry opts = null: DO rename
+         only, no field stamp. Quantity rows apply exactly as before. */
+      if(c.opts && typeof TL!=='undefined' && TL.applyWmsSync && TL.applyWmsSync(c.rid, c.opts)) ok = true;
+      if(ok) done++;
     }catch(_){}
   });
   closeTlSyncModal();
-  try{ toast(done ? `🔄 Synced ${done} TL row(s) (GI Date · Net Wt · C3 · C4 · %wt)` : 'No rows were applied','ok'); }catch(_){}
+  try{ toast(done ? `🔄 Synced ${done} TL row(s) (DO · GI Date · Net Wt · C3 · C4 · %wt)` : 'No rows were applied','ok'); }catch(_){}
 }
 
 /* ============================================================

@@ -61,12 +61,13 @@ const SYNC = (function(){
      Identity only — _status is never changed (so a 🔒 manual row keeps its status,
      it just gains its real DO).
 
-     MATCH RULE (per spec): a WMS GI row is a candidate to replace a TEMP order only when
-       1) pickKg !== 0, AND
-       2) pickKg === net weight (propane + butane), AND
-       3) a TEMP order matches on customer (WMS name) + driver + plate.
-     This also re-matches: if a WMS row was pasted earlier with pick=0 and later edited so
-     pick === net, the next paste run will pick it up.
+     MATCH RULE (v4.56): a WMS GI row is a candidate to replace a TEMP order when
+       1) pickKg === 0 (planning paste — DO issued before loading), OR
+          pickKg !== 0 AND pickKg === net weight (propane + butane) ±1 kg, AND
+       2) a TEMP order matches on customer (WMS name) + driver + plate.
+     (v4.56 removed the old "pickKg !== 0" hard gate so a DO created on WMS
+      before loading can already promote the temp order. Quantity checking
+      for pick ≠ 0 rows is unchanged.)
 
      Candidates are NEVER applied silently — they are shown in a confirm table where the
      user ticks/unticks each line (default: all ticked) before promotion happens. */
@@ -101,7 +102,13 @@ const SYNC = (function(){
       const delivId = String(w.delivId||'').trim();
       if(!delivId) return;
       if(TP.PLAN[delivId]) return;                /* a real-DO order already exists */
-      if(!pickEqualsNet(w)) return;               /* gate: pick≠0 AND pick===net */
+      /* v4.56 — pick=0 no longer blocks the DO promotion. A planning paste
+         (WMS DO issued before loading, pick still 0) already carries the
+         official Delivery ID, so identity match (customer+driver+plate+date)
+         is enough to promote TMP → real DO. When pick≠0 the old quantity
+         gate stays unchanged: pick must equal net (C3+C4) ±1 kg. */
+      const _pick = parseFloat(w.pickKg)||0;
+      if(_pick !== 0 && !pickEqualsNet(w)) return; /* gate (pick≠0 only): pick===net */
       const wDate = String(w._wmsDate||'').trim();
       if(!/^\d{4}-\d{2}-\d{2}$/.test(wDate)) return;   /* v4.22.0 — legacy row without picker date → skip */
       const oid = TP.findTempOrderStrict(w.customer, w.driver, w.vehicle);

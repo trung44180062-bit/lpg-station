@@ -411,9 +411,41 @@ const TL = (function(){
     if(DATE_FIELDS.has(field)) val = parseDate(val);
     /* normalize numbers */
     if(NUM_FIELDS.has(field) && val!=null && val!=='') val = parseNum(val);
+    /* v4.56 — DO No. typed/pasted from WMS carries leading zeros
+       ("0086687802"). Strip them (cleanDO keeps temp DOs unchanged) and
+       reflect the cleaned value in the grid. row.update does NOT re-fire
+       cellEdited, so no recursion. */
+    if(field === 'doNo' && typeof cleanDO === 'function'){
+      const _c = cleanDO(val);
+      if(_c !== val){ val = _c; try{ cell.getRow().update({ doNo: _c }); }catch(_){} }
+    }
 
-    if(ROWS[rid][field] === val) return; /* no change */
+    const oldVal = ROWS[rid][field];
+    if(oldVal === val) return; /* no change */
     ROWS[rid][field] = val;
+
+    /* v4.56 — staff replaced a TEMP DO with the official DO by hand: if Today
+       Plan still holds a temp order with that DO for the same day (row's Date
+       column), upgrade the plan order too — keeps the auto status chain and
+       Actual Loading matched on the real DO. promoteTpTempDo also renames any
+       other TL rows still carrying the temp DO. */
+    if(field === 'doNo'){
+      const oldS = String(oldVal||'').trim();
+      const toks = String(val||'').split(/[\s\/,]+/).filter(Boolean);
+      const realDo = toks.find(t => /^\d{6,}$/.test(t) && !(typeof isTempOid==='function' && isTempOid(t)));
+      const rowDate = ROWS[rid].date;
+      if(oldS && realDo && typeof isTempOid==='function' && isTempOid(oldS)){
+        /* deferred: promotePair triggers TL rebuildTableData / plan writes —
+           keep that OUT of the Tabulator cellEdited cycle. */
+        setTimeout(()=>{
+          try{
+            if(typeof promoteTpTempDo === 'function' && promoteTpTempDo(oldS, realDo, rowDate)){
+              if(typeof toast==='function') toast('Today Plan: '+oldS+' → '+realDo,'ok');
+            }
+          }catch(_){}
+        }, 0);
+      }
+    }
 
     /* v4.49.9 — recompute derived weights when TW / GW / FQ / Net Weight change.
          • Net Weight (lpgQty) = Gross Wt − Truck Wt  (only when BOTH are present;
@@ -632,6 +664,9 @@ const TL = (function(){
         else if(NUM_FIELDS.has(k) && v!=='') v = parseNum(v);
         if(v !== '' && v !== null) obj[k] = v;
       });
+      /* v4.56 — strip WMS leading zeros from a pasted DO ("0086687802" →
+         "86687802"); temp DOs / non-DO text pass through cleanDO unchanged. */
+      if(obj.doNo != null && typeof cleanDO === 'function') obj.doNo = cleanDO(String(obj.doNo));
       if(!obj.doNo && !obj.truck) continue; /* skip empty rows */
 
       /* anti-misplaced-paste: reject anything that doesn't look like a TL row */
@@ -835,6 +870,22 @@ const TL = (function(){
     askDel, doDelete, rangeDelete, exportCsv,
     openPicker, pickerChange, applyTextFilter, clearDate,
     refreshBadge,
+    /* v4.56 — manual "Match DO" button: take every TL row whose Date equals
+       the current date filter, search WMS GI for the same date and match
+       (same logic as the automatic post-paste run). Fallback for when a WMS
+       paste error meant the automatic match never ran. Results are shown in
+       the usual confirm table — nothing is written without operator approval. */
+    matchWmsDo: function(){
+      if(!dateFilter){
+        if(typeof toast==='function') toast('Pick a Date filter first — match runs on that day only','er');
+        return;
+      }
+      if(typeof WG === 'undefined' || !WG.matchTlForDate){
+        if(typeof toast==='function') toast('WMS GI module not ready','er');
+        return;
+      }
+      WG.matchTlForDate(dateFilter);
+    },
     /* Stamp the current date into this row's GI Date column.
        Persisted via the normal per-field delta write (raw_data/{rid}/giDate). */
     setGiNow: function(rid){
@@ -1023,6 +1074,7 @@ function tlRangeDelete(){ TL.rangeDelete(); }
 function tlExportCsv(){ TL.exportCsv(); }
 function tlOpenPicker(){ TL.openPicker(); }
 function tlClearDate(){ TL.clearDate(); }
+function tlMatchWmsDo(){ TL.matchWmsDo(); }   /* v4.56 — manual WMS GI match */
 
 /* live search + date-filter wiring for TL Data */
 document.getElementById('tlSearch').addEventListener('input', ()=>{ if(TL.table) TL.rebuildTableData(); });

@@ -926,6 +926,7 @@
           <span class="tl-sync-dot" id="tlSyncDot" title="Firebase sync status">●</span>
         </div>
         <div class="tl-right">
+          <button class="btn btn-blue" onclick="tlMatchWmsDo()" title="Tìm trong WMS GI các dòng cùng ngày (Date filter đang chọn) để match DO tạm → DO chính thức và đối chiếu Pick/C3/C4. Hiện bảng xác nhận trước khi ghi.">🔗 Match DO ↔ WMS GI</button>
           <button class="btn btn-green" onclick="tlOpenPaste()">📋 Paste from Excel</button>
           <button class="btn btn-blue" onclick="tlExportCsv()">⬇ Export CSV</button>
           <button class="btn btn-red-soft" onclick="tlRangeDelete()" title="Delete rows by date range (downloads a CSV backup first)">🗑 Range delete</button>
@@ -3589,7 +3590,7 @@
     <div class="tp-diff-hdr">
       <div>
         <h3>🔄 Match WMS GI → TL Data (pull Pick / C3 / C4 / %wt)</h3>
-        <div class="sub">Matched within the same loading day (TL.date = WMS loading date): official-DO rows by DO, temp-DO rows by plate + driver confirmed with Pick = Net Wt. Temp DOs are upgraded to the real DO on confirm. GI date is stamped with <b>the current date</b>. <b id="wgTlSyncCount">0</b> TL row(s) have changes. Untick any row you do not want overwritten.</div>
+        <div class="sub">Matched within the same loading day (TL.date = WMS loading date): official-DO rows by DO, temp-DO rows by plate + driver. Temp DOs are upgraded to the real DO on confirm — rows tagged <b>DO only (pick = 0)</b> just rename the DO, no quantity is written. For pick ≠ 0 rows the GI date is stamped with <b>the current date</b> and Pick / C3 / C4 / %wt are pulled from WMS. <b id="wgTlSyncCount">0</b> TL row(s) matched. Untick any row you do not want overwritten.</div>
       </div>
       <button class="modal-close" onclick="closeTlSyncModal()">×</button>
     </div>

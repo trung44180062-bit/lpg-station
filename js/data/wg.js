@@ -601,8 +601,9 @@ const WG = (function(){
 
      Search pool — every WMS row where:
        • delivId is a real DO (6+ digits)
-       • pickKg > 0
        • _wmsDate === picker wmsDate (same date window)
+       (v4.56 — pick = 0 rows are included too, but only for temp-DO → real-DO
+        upgrade; quantity stamping still requires pickKg ≠ 0.)
      Includes rows from past pastes, not just this paste's adds /
      changes — so a TL row added today can still match a WMS row
      pasted yesterday, as long as both reference the same export day.
@@ -621,8 +622,25 @@ const WG = (function(){
      matches (hasChanges === false) so the modal only surfaces real
      diffs. */
   function _autoFillTlGiDate(adds, changes, wmsDate){
-    if(!wmsDate) return;
-    if(typeof TL === 'undefined' || !TL.ROWS || !TL.applyWmsSync || !TL.previewWmsSync) return;
+    _runTlMatch(wmsDate, false);
+  }
+
+  /* v4.56 — shared WMS GI ↔ TL Data matcher.
+     Called (a) automatically after every WMS GI paste (_autoFillTlGiDate) and
+     (b) manually from the TL Data "Match DO" button via WG.matchTlForDate —
+     a fallback for when a paste error meant the automatic run never matched.
+     `manual` = true → toast feedback when nothing is found / pool is empty.
+
+     v4.56 change: WMS rows with pick = 0 are NO LONGER skipped. They now
+     participate in temp-DO matching (plate + driver) so a DO issued on WMS
+     before loading can already upgrade the TL row's temp DO to the official
+     one. For those rows ONLY the DO is upgraded (doOnly candidate) — no
+     giDate / quantity stamp and no weight-mismatch warning. Quantity match
+     for pick ≠ 0 rows is unchanged. */
+  function _runTlMatch(wmsDate, manual){
+    const _say = (msg)=>{ if(manual){ try{ toast(msg,'er'); }catch(_){} } };
+    if(!wmsDate){ _say('No date selected'); return; }
+    if(typeof TL === 'undefined' || !TL.ROWS || !TL.applyWmsSync || !TL.previewWmsSync){ _say('TL Data module not ready'); return; }
 
     /* GI Date stamp = TODAY (when the operator GI's on WMS), not the loading date. */
     const dNow = new Date();
@@ -670,12 +688,19 @@ const WG = (function(){
     const wmsRows = [];
     Object.values(ROWS).forEach(w=>{
       if(!w) return;
-      if((parseFloat(w.pickKg||0)||0) === 0) return;          /* skip pick = 0 */
+      /* v4.56 — pick = 0 rows are kept: they can still upgrade a temp DO. */
       if(String(w._wmsDate||'') !== wmsDate) return;          /* this loading date */
       if(!_isDoTok(_normDO(w.delivId))) return;               /* must carry a real DO */
       wmsRows.push(w);
     });
-    if(!wmsRows.length) return;
+    /* Process pick ≠ 0 rows FIRST so real loading data claims its TL row
+       before a pick = 0 planning row can grab the same plate/driver. */
+    wmsRows.sort((a,b)=>{
+      const pa = (parseFloat(a.pickKg||0)||0) !== 0 ? 0 : 1;
+      const pb = (parseFloat(b.pickKg||0)||0) !== 0 ? 0 : 1;
+      return pa - pb;
+    });
+    if(!wmsRows.length){ _say('No WMS GI rows found for '+wmsDate); return; }
 
     /* TL rows in the SAME date window (TL.date column === loading date) that are
        not yet fully reconciled with WMS. This is the search region per spec. */
@@ -697,7 +722,7 @@ const WG = (function(){
       if(realDos.length && c3set && c4set) continue;
       tlPool.push({ rid, r, realDos, tempDos });
     }
-    if(!tlPool.length) return;
+    if(!tlPool.length){ _say('No TL Data rows to match for this date'); return; }
 
     const TOL = 1;                 /* kg rounding slack (same as promotion) */
     const usedTl = new Set();
@@ -728,6 +753,28 @@ const WG = (function(){
       }
 
       if(!hit) return;                                        /* no TL row for this WMS row */
+
+      /* v4.56 — pick = 0 (planning row, not loaded/GI'd yet on WMS):
+         upgrade the temp DO to the official Delivery ID ONLY. No giDate,
+         no quantity stamp, no weight-mismatch warning — the C3/C4 quantity
+         match still runs later (pick ≠ 0) exactly as before. Official-DO
+         rows with pick = 0 have nothing to gain yet → skipped. */
+      if(pick === 0){
+        if(!viaTemp) return;
+        usedTl.add(hit.rid);
+        cands.push({
+          rid: hit.rid,
+          realDo: String(w.delivId||'').trim(),
+          upgradeDo: true,
+          doOnly: true,                       /* DO rename only — no field stamp */
+          tempDo: String(hit.r.doNo||'').trim(),
+          opts: null,
+          preview: { before:{}, after:{}, hasChanges:false },
+          wmsRow: w, tlRow: hit.r
+        });
+        return;
+      }
+
       const netWt = Math.round(parseFloat(hit.r.lpgQty||0)||0);
       const diff  = pick - netWt;
 
@@ -771,6 +818,21 @@ const WG = (function(){
 
     if(mismatches.length){ try{ openWgMismatchModal(mismatches); }catch(e){ console.warn('[WG] mismatch modal', e); } }
     if(cands.length){ try{ openTlSyncModal(cands); }catch(e){ console.warn('[WG] openTlSyncModal', e); } }
+    if(manual && !mismatches.length && !cands.length){
+      try{ toast('No WMS GI ↔ TL match found for this date','ok'); }catch(_){}
+    }
+  }
+
+  /* v4.56 — manual entry point for the TL Data "Match DO" button.
+     Accepts the TL date filter (DD/MM/YY or DD/MM/YYYY), converts it to the
+     ISO form used by WMS `_wmsDate`, then runs the exact same matcher as the
+     automatic post-paste run — but with toast feedback (manual = true). */
+  function matchTlForDate(ddmmyy){
+    const m = String(ddmmyy||'').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if(!m){ try{ toast('Pick a date in TL Data first (DD/MM/YY)','er'); }catch(_){} return; }
+    let yy = m[3]; if(yy.length === 2) yy = '20'+yy;
+    const iso = yy+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[1]).padStart(2,'0');
+    _runTlMatch(iso, true);
   }
 
   /* -------- Clear all -------- */
@@ -887,6 +949,7 @@ const WG = (function(){
     rangeDelete, requestDeleteRow, exportCsv,
     openPicker, pickerChange, applyTextFilter, clearDate,
     refreshBadge,
+    matchTlForDate,          /* v4.56 — manual TL Data "Match DO" button */
     get table(){ return table; },
     get ROWS(){ return ROWS; }
   };
