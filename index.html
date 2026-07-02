@@ -1561,6 +1561,14 @@
             <th style="width:70px">Remark</th>
             <th style="width:46px;color:#d97706">T.C3%</th>
             <th style="width:46px;color:#d97706">T.Vol</th>
+            <th style="width:84px;color:#7b2d8e;background:#f6f0fb">COQ No</th>
+            <th style="width:44px;color:#7b2d8e;background:#f6f0fb">C₃H₆</th>
+            <th style="width:44px;color:#7b2d8e;background:#f6f0fb">VP kPa</th>
+            <th style="width:44px;color:#7b2d8e;background:#f6f0fb">S mg/kg</th>
+            <th style="width:40px;color:#7b2d8e;background:#f6f0fb">H₂O</th>
+            <th style="width:36px;color:#7b2d8e;background:#f6f0fb">Cu</th>
+            <th style="width:40px;color:#7b2d8e;background:#f6f0fb">Res</th>
+            <th style="width:40px;color:#7b2d8e;background:#f6f0fb">MW</th>
           </tr></thead>
           <tbody id="engTbody"></tbody>
         </table>
@@ -1683,32 +1691,39 @@
               <div class="mc-gc-hdr">
                 <span class="mc-gc-ttl">🧪 GC RESULT</span>
                 <span id="mc-gcsum1" class="mc-gc-sum">Sum: —</span>
+                <span style="flex:1;min-width:4px"></span>
+                <button type="button" class="mc-coq-btn mc-coq-btn-imp" onclick="MC.importCoqPick('1')"
+                  title="Import file COQ (.xlsx) từ lab — tự kiểm tra Lot/bồn rồi điền dữ liệu">📄 IMPORT COQ</button>
+                <button type="button" class="mc-coq-btn mc-coq-btn-spec" onclick="MC.openSpec()"
+                  title="Bảng tiêu chuẩn chất lượng LPG — chỉnh sửa được, đồng bộ mọi máy">📋 SPEC</button>
+                <input type="file" id="mc-coqfile1" accept=".xlsx,.xls" style="display:none"
+                  onchange="MC.coqFileChosen('1', this)">
               </div>
               <div class="mc-gc-grid">
                 <div class="mc-fld"><div class="mc-lbl">CH₄</div>
-                  <input class="mc-inp gc-inp-1" id="gc1-ch4" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-1 gc-calc" id="gc1-ch4" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('1')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">C₂H₆</div>
-                  <input class="mc-inp gc-inp-1" id="gc1-c2h6" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-1 gc-calc" id="gc1-c2h6" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('1')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue);font-weight:700">C₃H₈</div>
-                  <input class="mc-inp gc-inp-1" id="gc1-c3h8" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-1 gc-calc" id="gc1-c3h8" type="text" inputmode="decimal"
                     style="border-color:var(--blue)" oninput="MC.gcSumInline('1')"
                     onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">i-C₄</div>
-                  <input class="mc-inp gc-inp-1" id="gc1-ic4" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-1 gc-calc" id="gc1-ic4" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('1')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">n-C₄</div>
-                  <input class="mc-inp gc-inp-1" id="gc1-nc4" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-1 gc-calc" id="gc1-nc4" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('1')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">1.3-BD</div>
-                  <input class="mc-inp gc-inp-1" id="gc1-bd13" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-1 gc-calc" id="gc1-bd13" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('1')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">C5+</div>
-                  <input class="mc-inp gc-inp-1" id="gc1-c5" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-1 gc-calc" id="gc1-c5" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('1')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">OLEF</div>
-                  <input class="mc-inp gc-inp-1" id="gc1-olef" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-1 gc-calc" id="gc1-olef" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('1')" onkeydown="MC.gcTabNext(event,this)"></div>
               </div>
               <div class="mc-gc-row2">
@@ -1716,15 +1731,44 @@
                   <input class="mc-inp" id="gc1-temp" type="text" inputmode="decimal" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">PRESSURE</div>
                   <input class="mc-inp" id="gc1-pres" type="text" inputmode="decimal" onkeydown="MC.gcTabNext(event,this)"></div>
-                <div class="mc-fld"><div class="mc-lbl mc-lbl-fvol">FINAL VOL m³</div>
-                  <input class="mc-inp mc-inp-fvol" id="gc1-fvol" type="text" inputmode="decimal"
+                <div class="mc-fld"><div class="mc-lbl mc-lbl-fvol">FINAL VOL m³ <span class="mc-coq-hint">= COQ Quantity</span></div>
+                  <input class="mc-inp mc-inp-fvol gc-calc" id="gc1-fvol" type="text" inputmode="decimal"
                     oninput="MC.autoGcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">DENSITY kg/L</div>
-                  <input class="mc-inp" id="gc1-den" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-calc" id="gc1-den" type="text" inputmode="decimal"
                     oninput="MC.autoGcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <button type="button" class="mc-btn-gc mc-btn-calc-1" onclick="MC.gcCalcInline('1')">🧮 CALC</button>
                 <button type="button" class="mc-btn-gc mc-btn-draft" onclick="MC.gcSaveDraftInline('1')">💾 DRAFT</button>
               </div>
+              <!-- v4.55 — COQ extra fields -->
+              <div class="mc-coq-grid">
+                <div class="mc-fld"><div class="mc-lbl mc-lbl-coq">COQ NO</div>
+                  <input class="mc-inp" id="gc1-coqno" type="text" placeholder="PPT-YYYY-NNN"
+                    oninput="MC.qcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">C₃H₆ %VOL</div>
+                  <input class="mc-inp" id="gc1-c3h6" type="text" inputmode="decimal"
+                    oninput="MC.qcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">V.PRES kPa</div>
+                  <input class="mc-inp" id="gc1-vp" type="text" inputmode="decimal"
+                    oninput="MC.qcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">SULFUR mg/kg</div>
+                  <input class="mc-inp" id="gc1-sul" type="text" inputmode="decimal"
+                    oninput="MC.qcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">FREE H₂O</div>
+                  <input class="mc-inp" id="gc1-h2o" type="text" placeholder="pass"
+                    oninput="MC.qcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">CU CORR</div>
+                  <input class="mc-inp" id="gc1-cu" type="text" placeholder="No.1"
+                    oninput="MC.qcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">RESIDUE</div>
+                  <input class="mc-inp" id="gc1-res" type="text" placeholder="pass"
+                    oninput="MC.qcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">M.WEIGHT</div>
+                  <input class="mc-inp" id="gc1-mw" type="text" inputmode="decimal"
+                    oninput="MC.qcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+              </div>
+              <!-- v4.55 — quality verdict vs spec table -->
+              <div class="mc-qc" id="mc-qc1"></div>
               <div class="mc-gc-result" id="mc-gcres1"></div>
             </div>
           </div>
@@ -1818,32 +1862,39 @@
               <div class="mc-gc-hdr">
                 <span class="mc-gc-ttl">🧪 GC RESULT</span>
                 <span id="mc-gcsum2" class="mc-gc-sum">Sum: —</span>
+                <span style="flex:1;min-width:4px"></span>
+                <button type="button" class="mc-coq-btn mc-coq-btn-imp" onclick="MC.importCoqPick('2')"
+                  title="Import file COQ (.xlsx) từ lab — tự kiểm tra Lot/bồn rồi điền dữ liệu">📄 IMPORT COQ</button>
+                <button type="button" class="mc-coq-btn mc-coq-btn-spec" onclick="MC.openSpec()"
+                  title="Bảng tiêu chuẩn chất lượng LPG — chỉnh sửa được, đồng bộ mọi máy">📋 SPEC</button>
+                <input type="file" id="mc-coqfile2" accept=".xlsx,.xls" style="display:none"
+                  onchange="MC.coqFileChosen('2', this)">
               </div>
               <div class="mc-gc-grid">
                 <div class="mc-fld"><div class="mc-lbl">CH₄</div>
-                  <input class="mc-inp gc-inp-2" id="gc2-ch4" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-2 gc-calc" id="gc2-ch4" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('2')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">C₂H₆</div>
-                  <input class="mc-inp gc-inp-2" id="gc2-c2h6" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-2 gc-calc" id="gc2-c2h6" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('2')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue);font-weight:700">C₃H₈</div>
-                  <input class="mc-inp gc-inp-2" id="gc2-c3h8" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-2 gc-calc" id="gc2-c3h8" type="text" inputmode="decimal"
                     style="border-color:var(--blue)" oninput="MC.gcSumInline('2')"
                     onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">i-C₄</div>
-                  <input class="mc-inp gc-inp-2" id="gc2-ic4" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-2 gc-calc" id="gc2-ic4" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('2')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">n-C₄</div>
-                  <input class="mc-inp gc-inp-2" id="gc2-nc4" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-2 gc-calc" id="gc2-nc4" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('2')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">1.3-BD</div>
-                  <input class="mc-inp gc-inp-2" id="gc2-bd13" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-2 gc-calc" id="gc2-bd13" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('2')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">C5+</div>
-                  <input class="mc-inp gc-inp-2" id="gc2-c5" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-2 gc-calc" id="gc2-c5" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('2')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">OLEF</div>
-                  <input class="mc-inp gc-inp-2" id="gc2-olef" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-inp-2 gc-calc" id="gc2-olef" type="text" inputmode="decimal"
                     oninput="MC.gcSumInline('2')" onkeydown="MC.gcTabNext(event,this)"></div>
               </div>
               <div class="mc-gc-row2">
@@ -1851,15 +1902,44 @@
                   <input class="mc-inp" id="gc2-temp" type="text" inputmode="decimal" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">PRESSURE</div>
                   <input class="mc-inp" id="gc2-pres" type="text" inputmode="decimal" onkeydown="MC.gcTabNext(event,this)"></div>
-                <div class="mc-fld"><div class="mc-lbl mc-lbl-fvol">FINAL VOL m³</div>
-                  <input class="mc-inp mc-inp-fvol" id="gc2-fvol" type="text" inputmode="decimal"
+                <div class="mc-fld"><div class="mc-lbl mc-lbl-fvol">FINAL VOL m³ <span class="mc-coq-hint">= COQ Quantity</span></div>
+                  <input class="mc-inp mc-inp-fvol gc-calc" id="gc2-fvol" type="text" inputmode="decimal"
                     oninput="MC.autoGcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <div class="mc-fld"><div class="mc-lbl">DENSITY kg/L</div>
-                  <input class="mc-inp" id="gc2-den" type="text" inputmode="decimal"
+                  <input class="mc-inp gc-calc" id="gc2-den" type="text" inputmode="decimal"
                     oninput="MC.autoGcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
                 <button type="button" class="mc-btn-gc mc-btn-calc-2" onclick="MC.gcCalcInline('2')">🧮 CALC</button>
                 <button type="button" class="mc-btn-gc mc-btn-draft" onclick="MC.gcSaveDraftInline('2')">💾 DRAFT</button>
               </div>
+              <!-- v4.55 — COQ extra fields -->
+              <div class="mc-coq-grid">
+                <div class="mc-fld"><div class="mc-lbl mc-lbl-coq">COQ NO</div>
+                  <input class="mc-inp" id="gc2-coqno" type="text" placeholder="PPT-YYYY-NNN"
+                    oninput="MC.qcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">C₃H₆ %VOL</div>
+                  <input class="mc-inp" id="gc2-c3h6" type="text" inputmode="decimal"
+                    oninput="MC.qcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">V.PRES kPa</div>
+                  <input class="mc-inp" id="gc2-vp" type="text" inputmode="decimal"
+                    oninput="MC.qcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">SULFUR mg/kg</div>
+                  <input class="mc-inp" id="gc2-sul" type="text" inputmode="decimal"
+                    oninput="MC.qcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">FREE H₂O</div>
+                  <input class="mc-inp" id="gc2-h2o" type="text" placeholder="pass"
+                    oninput="MC.qcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">CU CORR</div>
+                  <input class="mc-inp" id="gc2-cu" type="text" placeholder="No.1"
+                    oninput="MC.qcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">RESIDUE</div>
+                  <input class="mc-inp" id="gc2-res" type="text" placeholder="pass"
+                    oninput="MC.qcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">M.WEIGHT</div>
+                  <input class="mc-inp" id="gc2-mw" type="text" inputmode="decimal"
+                    oninput="MC.qcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+              </div>
+              <!-- v4.55 — quality verdict vs spec table -->
+              <div class="mc-qc" id="mc-qc2"></div>
               <div class="mc-gc-result" id="mc-gcres2"></div>
             </div>
           </div>
@@ -1895,6 +1975,38 @@
             <button type="button" class="btn btn-amber" onclick="MC.resetSettings()">↺ RESET TO DEFAULTS</button>
             <button type="button" class="btn" onclick="MC.closeSettings()">CANCEL</button>
             <button type="button" class="btn btn-blue" onclick="MC.saveSettings()">💾 SAVE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- v4.55 — COQ quality SPEC table modal (Firebase-synced) -->
+      <div class="mc-cfg-backdrop" id="mc-spec-backdrop" onclick="if(event.target===this)MC.closeSpec()">
+        <div class="mc-cfg-modal">
+          <h3>📋 LPG Quality Spec Table</h3>
+          <div class="mc-cfg-sub">Giới hạn tiêu chuẩn dùng để tự động kết luận Quality PASS / FAIL khi nhập hoặc import COQ.
+            Đồng bộ Firebase — sửa ở đây áp dụng cho mọi máy. Riêng <b>%vol C3 lệch target</b> chỉ hiện <b>cảnh báo</b>, không tính Fail.</div>
+          <div class="mc-cfg-grid">
+            <div class="mc-fld"><div class="mc-lbl">1,3-BUTADIENE — MAX %VOL</div>
+              <input class="mc-inp" id="mc-spec-bd13" type="text" inputmode="decimal"></div>
+            <div class="mc-fld"><div class="mc-lbl">TOTAL OLEFIN — MAX %VOL</div>
+              <input class="mc-inp" id="mc-spec-olef" type="text" inputmode="decimal"></div>
+            <div class="mc-fld"><div class="mc-lbl">C5 &amp; C5+ — MAX %VOL</div>
+              <input class="mc-inp" id="mc-spec-c5" type="text" inputmode="decimal"></div>
+            <div class="mc-fld"><div class="mc-lbl">VAPOR PRES. @37.8°C — MAX kPa</div>
+              <input class="mc-inp" id="mc-spec-vp" type="text" inputmode="decimal"></div>
+            <div class="mc-fld"><div class="mc-lbl">TOTAL SULFUR — MAX mg/kg</div>
+              <input class="mc-inp" id="mc-spec-sul" type="text" inputmode="decimal"></div>
+            <div class="mc-fld"><div class="mc-lbl">CU CORROSION — MAX No.</div>
+              <input class="mc-inp" id="mc-spec-cu" type="text" inputmode="decimal"></div>
+            <div class="mc-fld"><div class="mc-lbl">RESIDUE — MAX ml</div>
+              <input class="mc-inp" id="mc-spec-res" type="text" inputmode="decimal"></div>
+            <div class="mc-fld"><div class="mc-lbl" style="color:#d97706">%VOL C3 LỆCH TARGET — ± ĐIỂM % (CẢNH BÁO)</div>
+              <input class="mc-inp" id="mc-spec-c3tol" type="text" inputmode="decimal"></div>
+          </div>
+          <div class="mc-cfg-foot">
+            <button type="button" class="btn btn-amber" onclick="MC.resetSpec()">↺ RESET TO DEFAULTS</button>
+            <button type="button" class="btn" onclick="MC.closeSpec()">CANCEL</button>
+            <button type="button" class="btn btn-blue" onclick="MC.saveSpec()">💾 SAVE</button>
           </div>
         </div>
       </div>

@@ -29,6 +29,13 @@ const ENG = (function(){
   const CACHE_KEY = 'lpg_v4_eng_tkmix_v2';   // v2 schema: rid-keyed
   const FB_PATH   = 'eng_tkmix';
 
+  /* ROW_W — row width. v4.55: extended 34 → 44 for COQ data:
+     [34] COQ No  [35] Sampling Time  [36] Analysis Date  [37] C3H6 %vol
+     [38] Vapor Pressure kPa  [39] Total Sulfur mg/kg  [40] Free Water
+     [41] Cu Corrosion  [42] Residue  [43] Molecular Weight.
+     Old 34-col rows load fine (missing cells default ''). */
+  const ROW_W = 44;
+
   /* ROWS — display-ordered array of 34-col row arrays. Each row also
      carries a non-enumerable `_rid` (base36 random) used as Firebase key.
      RID_MAP[rid] points at the SAME row object, so all reads share state.
@@ -65,7 +72,7 @@ const ENG = (function(){
   function _saveCache(){
     try{
       const dump = { schema:2, rows:{} };
-      ROWS.forEach(r => { if(r._rid) dump.rows[r._rid] = r.slice(0, 34); });
+      ROWS.forEach(r => { if(r._rid) dump.rows[r._rid] = r.slice(0, ROW_W); });
       localStorage.setItem(CACHE_KEY, JSON.stringify(dump));
     }catch(_){}
   }
@@ -76,10 +83,10 @@ const ENG = (function(){
   function _setRowLocal(rid, cells, silent){
     let row = RID_MAP[rid];
     if(row){
-      for(let i = 0; i < 34; i++) row[i] = (cells[i] != null ? cells[i] : '');
+      for(let i = 0; i < ROW_W; i++) row[i] = (cells[i] != null ? cells[i] : '');
     } else {
-      row = new Array(34);
-      for(let i = 0; i < 34; i++) row[i] = (cells[i] != null ? cells[i] : '');
+      row = new Array(ROW_W);
+      for(let i = 0; i < ROW_W; i++) row[i] = (cells[i] != null ? cells[i] : '');
       Object.defineProperty(row, '_rid', { value: rid, writable: true, enumerable: false, configurable: true });
       RID_MAP[rid] = row;
       ROWS.push(row);
@@ -99,7 +106,7 @@ const ENG = (function(){
   function _pushRowFb(rid, cells){
     if(!_fbRef) return;
     _suppressEcho++;
-    _fbRef.child(rid).set({ cells: cells.slice(0, 34), _ts: Date.now() })
+    _fbRef.child(rid).set({ cells: cells.slice(0, ROW_W), _ts: Date.now() })
       .catch(e => console.warn('[ENG] fb push row', e))
       .finally(()=> setTimeout(()=>{ _suppressEcho = Math.max(0, _suppressEcho - 1); }, 400));
   }
@@ -117,7 +124,7 @@ const ENG = (function(){
     let count = 0;
     for(const rid in updates){
       const v = updates[rid];
-      payload[rid] = v ? { cells: v.slice(0, 34), _ts: Date.now() } : null;
+      payload[rid] = v ? { cells: v.slice(0, ROW_W), _ts: Date.now() } : null;
       count++;
     }
     if(!count) return;
@@ -209,7 +216,7 @@ const ENG = (function(){
 
     /* render rows */
     tbody.innerHTML = filtered.map((r, idx)=>{
-      const c = []; for(let i=0;i<34;i++) c.push(r[i]||'');
+      const c = []; for(let i=0;i<ROW_W;i++) c.push(r[i]||'');
       const tk = String(c[2]).toUpperCase();
       const tkCls = tk.includes('3501') ? 'td-tk-3501' : (tk.includes('3502') ? 'td-tk-3502' : '');
       const ql = String(c[27]).trim().toLowerCase();
@@ -252,6 +259,14 @@ const ENG = (function(){
         '<td>'+_esc(c[28])+'</td>' +
         '<td class="td-r td-target">'+(c[29]?_fmtPct(c[29]):'')+'</td>' +
         '<td class="td-r td-target">'+(c[30]?_fmtNum(c[30],0):'')+'</td>' +
+        '<td class="td-c td-coq">'+_esc(c[34])+'</td>' +
+        '<td class="td-r td-coq">'+(c[37]!==''?_fmtNum(c[37],4):'')+'</td>' +
+        '<td class="td-r td-coq">'+(c[38]!==''?_fmtNum(c[38],0):'')+'</td>' +
+        '<td class="td-r td-coq">'+(c[39]!==''?_fmtNum(c[39],2):'')+'</td>' +
+        '<td class="td-c td-coq">'+_esc(c[40])+'</td>' +
+        '<td class="td-c td-coq">'+_esc(c[41])+'</td>' +
+        '<td class="td-c td-coq">'+_esc(c[42])+'</td>' +
+        '<td class="td-r td-coq">'+(c[43]!==''?_fmtNum(c[43],2):'')+'</td>' +
         '</tr>';
     }).join('');
 
@@ -290,7 +305,11 @@ const ENG = (function(){
     'c2h6':17,'c3h8':18,'i-c4':19,'n-c4':20,'c5+':22,'olefin':23,
     'odorant':26,'quality':27,'remark':28,
     't.c3%':29,'targetc3%':29,'t.vol':30,'targetvol':30,
-    'temp':31,'pres':32,'pressure':32,'density':33
+    'temp':31,'pres':32,'pressure':32,'density':33,
+    'coqno':34,'samptime':35,'samplingtime':35,'analysisdate':36,
+    'c3h6':37,'propylene':37,'vp':38,'vaporpressure':38,
+    'sulfur':39,'totalsulfur':39,'freewater':40,'cucorr':41,'coppercorrosion':41,
+    'residue':42,'mw':43,'molecularweight':43
   };
   function _pasteNorm(s){ return String(s==null?'':s).toLowerCase().replace(/\s+/g,''); }
   function _pasteIsHeader(cols){
@@ -313,7 +332,7 @@ const ENG = (function(){
         return;
       }
       if(headerMap){
-        const cells = new Array(34).fill('');
+        const cells = new Array(ROW_W).fill('');
         for(let j = 0; j < cols.length && j < headerMap.length; j++){
           const idx = headerMap[j];
           if(idx >= 0) cells[idx] = cols[j];
@@ -335,7 +354,7 @@ const ENG = (function(){
     const fbUpdates = {};
     newRows.forEach(raw=>{
       const cells = raw.slice();
-      while(cells.length < 34) cells.push('');
+      while(cells.length < ROW_W) cells.push('');
       const k = String(cells[1]||'').trim() + '|' + String(cells[2]||'').trim();
       let rid;
       if(k !== '|' && lotTankToRid[k]){
@@ -346,7 +365,7 @@ const ENG = (function(){
         add++;
       }
       _setRowLocal(rid, cells);
-      fbUpdates[rid] = cells.slice(0, 34);
+      fbUpdates[rid] = cells.slice(0, ROW_W);
     });
     _saveCache();
 
@@ -378,7 +397,8 @@ const ENG = (function(){
       getDate: r=> (typeof window.parseDate==='function' ? window.parseDate(r[3]) : null),
       columns: ['No','Lot','Tank','Date','Start','Finish','Vol(m³)','Qty(ton)','%C3','%C4',
         'InitVol','I.%C3','I.%C4','FilledC3','FilledC4','FilledLPG','CH4','C2H6','C3H8','i-C4','n-C4','1.3-BD',
-        'C5+','Olefin','(24)','(25)','Odorant','Quality','Remark','TargetC3%','TargetVol','Temp','Pres','Density']
+        'C5+','Olefin','(24)','(25)','Odorant','Quality','Remark','TargetC3%','TargetVol','Temp','Pres','Density',
+        'COQNo','SampTime','AnalysisDate','C3H6','VP','Sulfur','FreeWater','CuCorr','Residue','MW']
         .map((t,i)=>({title:t, get:r=> r[i]==null?'':r[i]})),
       deleteRids: (rids)=>{
         const map = {};
@@ -419,8 +439,8 @@ const ENG = (function(){
       console.warn('[ENG] upsertRow: cells must be an array', cells);
       return null;
     }
-    const safe = cells.slice(0, 34);
-    while(safe.length < 34) safe.push('');
+    const safe = cells.slice(0, ROW_W);
+    while(safe.length < ROW_W) safe.push('');
     let rid = opts && opts.rid;
     if(!rid){
       /* try to match by Lot|Tank — preserves rid for updates */
@@ -502,7 +522,19 @@ const ENG = (function(){
     {col:22,label:'C5+'},
     {col:23,label:'Olefin'},
     {col:27,label:'Quality'},
-    {col:28,label:'Remark', span:2}
+    {col:28,label:'Remark', span:2},
+    /* Row 6 — COQ identity + composition extras (v4.55) */
+    {col:34,label:'COQ No',            cls:'hl-coq', type:'str'},
+    {col:35,label:'Sampling Time',     type:'time'},
+    {col:36,label:'Analysis Date',     type:'date'},
+    {col:37,label:'C₃H₆ (Propylene)'},
+    {col:38,label:'Vapor Pres. (kPa)'},
+    {col:39,label:'T.Sulfur (mg/kg)'},
+    /* Row 7 — COQ quality checks */
+    {col:40,label:'Free Water',        type:'str'},
+    {col:41,label:'Cu Corrosion',      type:'str'},
+    {col:42,label:'Residue',           type:'str'},
+    {col:43,label:'Mol. Weight'}
   ];
 
   function _fmtEditDate(raw){
@@ -553,7 +585,7 @@ const ENG = (function(){
   function openEdit(rid){
     const r = RID_MAP[rid]; if(!r) return;
     _editingRid = rid;
-    while(r.length < 34) r.push('');
+    while(r.length < ROW_W) r.push('');
 
     const tagEl = document.getElementById('engEditTag');
     if(tagEl) tagEl.textContent = (r[1]||'—') + '  ·  ' + (r[2]||'—');
@@ -597,8 +629,8 @@ const ENG = (function(){
     const modal = document.getElementById('engEditModal');
     if(!modal) return;
 
-    /* string-preserving columns: date/time, lot/tank labels, quality, remark */
-    const strCols = new Set([3,4,5,1,2,27,28]);
+    /* string-preserving columns: date/time, lot/tank labels, quality, remark, COQ text cols */
+    const strCols = new Set([3,4,5,1,2,27,28,34,35,36,40,41,42]);
     modal.querySelectorAll('input[data-col]').forEach(inp=>{
       const col = parseInt(inp.dataset.col);
       const val = String(inp.value||'').trim();
@@ -609,6 +641,23 @@ const ENG = (function(){
         r[col] = (!isNaN(num) && val !== '') ? num : val;
       }
     });
+
+    /* v4.55 — auto re-evaluate Quality vs the spec table whenever
+       parameters are edited (only for rows already judged Pass/Fail;
+       Pending drafts keep their status). %C3-vs-target deviation is a
+       WARNING only — it never flips the verdict. */
+    const q0 = String(r[27]||'').trim().toLowerCase();
+    if((q0==='pass' || q0==='fail')
+       && typeof MC !== 'undefined' && typeof MC.evalRowQuality === 'function'){
+      try{
+        const ev = MC.evalRowQuality(r);
+        if(ev && ev.verdict){
+          r[27] = ev.verdict;
+          if(ev.fails.length) toast('⚠ Quality = FAIL: '+ev.fails.join(' · '),'er');
+          if(ev.warns.length) toast('⚠ '+ev.warns.join(' · '),'warn');
+        }
+      }catch(e){ console.warn('[ENG] evalRowQuality', e); }
+    }
 
     _saveCache();
     _pushRowFb(_editingRid, r);
@@ -624,7 +673,7 @@ const ENG = (function(){
   function openGc(){
     if(!_editingRid){ toast('No row selected','warn'); return; }
     const r = RID_MAP[_editingRid]; if(!r){ closeEdit(); return; }
-    const snap = r.slice(0, 34);
+    const snap = r.slice(0, ROW_W);
     closeEdit();
     if(typeof MC === 'undefined' || typeof MC.openGc !== 'function'){
       toast('❌ Mix Cal not ready — try again after the Mix Cal tab loads once','er');
@@ -721,11 +770,12 @@ const ENG = (function(){
     if(!ROWS.length){ toast('Tank Log is empty','er'); return; }
     const headers = ['No','Lot','Tank','Date','Start','Finish','Vol(m³)','Qty(ton)','%C3','%C4',
       'InitVol','I.%C3','I.%C4','FilledC3','FilledC4','FilledLPG','CH4','C2H6','C3H8','i-C4','n-C4','1.3-BD',
-      'C5+','Olefin','(24)','(25)','Odorant','Quality','Remark','TargetC3%','TargetVol','Temp','Pres','Density'];
+      'C5+','Olefin','(24)','(25)','Odorant','Quality','Remark','TargetC3%','TargetVol','Temp','Pres','Density',
+      'COQNo','SampTime','AnalysisDate','C3H6','VP','Sulfur','FreeWater','CuCorr','Residue','MW'];
     const csvLines = [headers.join(',')];
     ROWS.forEach(r=>{
       const cells = [];
-      for(let i=0;i<34;i++){
+      for(let i=0;i<ROW_W;i++){
         let v = String(r[i] == null ? '' : r[i]);
         if(/[",\n]/.test(v)) v = '"' + v.replace(/"/g,'""') + '"';
         cells.push(v);
@@ -796,7 +846,7 @@ const ENG = (function(){
           val.forEach(rowArr=>{
             if(!Array.isArray(rowArr)) return;
             const cells = [];
-            for(let i = 0; i < 34; i++) cells[i] = rowArr[i] != null ? rowArr[i] : '';
+            for(let i = 0; i < ROW_W; i++) cells[i] = rowArr[i] != null ? rowArr[i] : '';
             const rid = _genRid();
             migrated[rid] = { cells, _ts: Date.now() };
             _setRowLocal(rid, cells);
@@ -813,7 +863,7 @@ const ENG = (function(){
           val.forEach(rowArr=>{
             if(!Array.isArray(rowArr)) return;
             const cells = [];
-            for(let i = 0; i < 34; i++) cells[i] = rowArr[i] != null ? rowArr[i] : '';
+            for(let i = 0; i < ROW_W; i++) cells[i] = rowArr[i] != null ? rowArr[i] : '';
             _setRowLocal(_genRid(), cells);
           });
           _saveCache();

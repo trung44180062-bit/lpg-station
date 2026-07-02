@@ -100,6 +100,29 @@ const MC = (function(){
   /* GC context — last calc result per tank (used by SAVE/DRAFT) */
   const GCR = { '1':null, '2':null };
 
+  /* v4.55 — Tank Log row width (34 legacy + 10 COQ cols) */
+  const ROW_W = 44;
+
+  /* v4.55 — COQ metadata captured on import (sampling time / analysis date) */
+  const CQM = { '1':null, '2':null };
+
+  /* v4.55 — LPG quality spec table. Defaults mirror the lab COQ sheet.
+     Synced via Firebase node 'eng_coq_spec' so every device shares one table. */
+  const SPEC_DEF = {
+    bd13: 0.5,     // 1,3-Butadiene       max %vol
+    olef: 10,      // Total Olefin        max %vol
+    c5:   2.0,     // C5 & C5+            max %vol
+    vp:   1430,    // Vapor pres @37.8°C  max kPa
+    sul:  140,     // Total sulfur        max mg/kg
+    cu:   1,       // Cu strip corrosion  max class No.
+    res:  0.05,    // Residue             max ml ('pass' text also OK)
+    c3tol: 3       // %vol C3 deviation vs target — WARNING only (± points)
+  };
+  let SPEC = Object.assign({}, SPEC_DEF);
+  let _specFbRef = null;
+  const SPEC_LS_KEY = 'lpg_v4_coq_spec_v1';
+  const _qcTimer = { '1':null, '2':null };
+
   /* ---------- generic helpers ---------- */
   function _gid(id){ return document.getElementById(id); }
   function _gv(id){ const e = _gid(id); return e ? e.value : ''; }
@@ -465,10 +488,14 @@ const MC = (function(){
     _autoFillCr(n);
     _gid('mc-r'+n)?.classList.remove('on');
     _gid('mc-gcres'+n)?.classList.remove('on');
-    /* Clear GC inputs too */
-    ['ch4','c2h6','c3h8','ic4','nc4','bd13','c5','olef','temp','pres','fvol','den'].forEach(k=>{
+    /* Clear GC inputs too (v4.55: + COQ fields) */
+    ['ch4','c2h6','c3h8','ic4','nc4','bd13','c5','olef','temp','pres','fvol','den',
+     'coqno','c3h6','vp','sul','h2o','cu','res','mw'].forEach(k=>{
       const e = _gid('gc'+n+'-'+k); if(e) e.value = '';
     });
+    CQM[n] = null;
+    const qcEl = _gid('mc-qc'+n);
+    if(qcEl){ qcEl.className = 'mc-qc'; qcEl.innerHTML = ''; }
     const sumEl = _gid('mc-gcsum'+n);
     if(sumEl){ sumEl.textContent = 'Sum: —'; sumEl.className = 'mc-gc-sum'; }
     LP[n] = false; _gid('mc-lp'+n)?.classList.remove('on'); _gid('mc-lp-box'+n)?.classList.remove('on');
@@ -627,6 +654,7 @@ const MC = (function(){
       el.textContent = 'Sum: '+sum.toFixed(2)+'% ≠100'; el.className = 'mc-gc-sum s-err';
     }
     autoGcRecalc(n);
+    qcRecalc(n);         // v4.55 — live Pass/Fail re-evaluation on every edit
   }
   function gcTabNext(e, el){
     if(e.key !== 'Enter') return;
@@ -756,10 +784,10 @@ const MC = (function(){
     let row;
     if(existing){
       /* mutate copy of existing row, keep its rid */
-      row = existing.slice(0, 34);
-      while(row.length < 34) row.push('');
+      row = existing.slice(0, ROW_W);
+      while(row.length < ROW_W) row.push('');
     } else {
-      row = new Array(34).fill('');
+      row = new Array(ROW_W).fill('');
       row[1] = lotStr;
       row[2] = tkName;
     }
@@ -807,6 +835,22 @@ const MC = (function(){
     if(gcDen)  row[33] = gcDen;
     row[27] = quality;
     if(!row[28]) row[28] = '';
+    /* v4.55 — COQ columns [34..43] */
+    const _cv = id => (_gv(id)||'').trim();
+    const _cn = id => { const v = parseFloat(String(_gv(id)||'').replace(/,/g,'')); return isNaN(v) ? '' : v; };
+    const coqNo = _cv('gc'+n+'-coqno');
+    if(coqNo) row[34] = coqNo;
+    if(CQM[n]){
+      if(CQM[n].sampTime) row[35] = CQM[n].sampTime;
+      if(CQM[n].anaDate)  row[36] = CQM[n].anaDate;
+    }
+    const _c3h6 = _cn('gc'+n+'-c3h6'); if(_c3h6 !== '') row[37] = _c3h6;
+    const _vp   = _cn('gc'+n+'-vp');   if(_vp   !== '') row[38] = _vp;
+    const _sul  = _cn('gc'+n+'-sul');  if(_sul  !== '') row[39] = _sul;
+    const _h2o  = _cv('gc'+n+'-h2o');  if(_h2o) row[40] = _h2o;
+    const _cu   = _cv('gc'+n+'-cu');   if(_cu)  row[41] = _cu;
+    const _res  = _cv('gc'+n+'-res');  if(_res) row[42] = _res;
+    const _mw   = _cn('gc'+n+'-mw');   if(_mw  !== '') row[43] = _mw;
     /* Push via ENG (one child write) — ENG handles rid generation/lookup */
     const rid = ENG.upsertRow(row, existing ? { rid: existing._rid } : null);
     _audit('tankmix:'+(quality==='Pass'?'save':'draft'), rid, 'quality', '', quality.toLowerCase(),
@@ -841,8 +885,13 @@ const MC = (function(){
   /* Called by the SAVE button inside the GC result block (Quality = Pass) */
   function gcSave(n){
     if(!GCR[n]){ toast('⚠ Press 🧮 CALC in the GC section first','er'); return; }
-    if(!confirm('Save GC PASS result to Tank Log?\n\n• Lot: '+_lotName(GCR[n].lot)+'\n• Tank: TK-'+GCR[n].tk+'\n• Filled LPG: '+_fmt(GCR[n].fLPG)+' ton\n\nOne child write to Firebase (incremental sync).')) return;
-    if(!_saveToTankLog(n, 'Pass', /*silent*/ false)) return;
+    /* v4.55 — verdict vs spec table decides Pass/Fail (C3 deviation = warning only) */
+    const ev = evalQuality(n);
+    const quality = ev.fails.length ? 'Fail' : 'Pass';
+    const failTxt = ev.fails.length ? '\n\n⚠ FAIL:\n'+ev.fails.map(f=>'  • '+f).join('\n') : '';
+    const warnTxt = ev.warns.length ? '\n\n⚠ '+ev.warns.join('\n⚠ ') : '';
+    if(!confirm('Save GC '+quality.toUpperCase()+' result to Tank Log?\n\n• Lot: '+_lotName(GCR[n].lot)+'\n• Tank: TK-'+GCR[n].tk+'\n• Filled LPG: '+_fmt(GCR[n].fLPG)+' ton'+failTxt+warnTxt+'\n\nOne child write to Firebase (incremental sync).')) return;
+    if(!_saveToTankLog(n, quality, /*silent*/ false)) return;
     /* Exit mixing if applicable; mixing-state node will be cleared */
     if(ST[n] === 'mixing'){
       ST[n] = 'calc';
@@ -884,13 +933,439 @@ const MC = (function(){
     if(warns.length){
       if(!confirm('TK-'+tk+' — Finish without complete GC?\n\n'+warns.join('\n')+'\n\nRow will be saved as Quality = Pending.\n\nOK = save Pending  ·  Cancel = go back')) return;
     }
-    const quality = hasGc ? 'Pass' : 'Pending';
+    /* v4.55 — verdict vs spec table decides Pass/Fail when GC is complete */
+    let quality = 'Pending';
+    if(hasGc){
+      const ev = evalQuality(n);
+      quality = ev.fails.length ? 'Fail' : 'Pass';
+      if(ev.fails.length && !confirm('⚠ QUALITY FAIL so với tiêu chuẩn:\n\n'+ev.fails.map(f=>'• '+f).join('\n')+'\n\nLưu với Quality = Fail?')) return;
+      if(ev.warns.length) toast('⚠ '+ev.warns[0],'warn');
+    }
     if(!_saveToTankLog(n, quality, /*silent*/ false)) return;
     if(ST[n] === 'mixing'){
       ST[n] = 'calc';
       _clearMixingFb(n);
     }
     _renderStatus(n);
+  }
+
+  /* ============================================================
+     v4.55 — COQ SPEC TABLE (Firebase-synced) + QUALITY EVALUATION
+     ============================================================ */
+  function _loadSpecLocal(){
+    try{
+      const raw = localStorage.getItem(SPEC_LS_KEY);
+      if(raw) SPEC = Object.assign({}, SPEC_DEF, JSON.parse(raw));
+    }catch(_){}
+  }
+  function _saveSpecLocal(){
+    try{ localStorage.setItem(SPEC_LS_KEY, JSON.stringify(SPEC)); }catch(_){}
+  }
+  function _initSpecFb(){
+    try{
+      if(typeof firebase === 'undefined') return;
+      _specFbRef = firebase.database().ref('eng_coq_spec');
+      _specFbRef.on('value', snap=>{
+        const v = snap.val();
+        if(v && typeof v === 'object'){
+          SPEC = Object.assign({}, SPEC_DEF, v);
+          _saveSpecLocal();
+          /* refresh visible verdicts */
+          ['1','2'].forEach(n=>{ if(ST[n] !== 'idle') _renderQc(n); });
+        }
+      });
+    }catch(e){ console.warn('[MC] spec FB init', e); }
+  }
+
+  const _SPEC_FIELDS = [
+    { k:'bd13', label:'1,3-Butadiene',            unit:'max %vol'  },
+    { k:'olef', label:'Total Olefin',             unit:'max %vol'  },
+    { k:'c5',   label:'C5 & C5+',                 unit:'max %vol'  },
+    { k:'vp',   label:'Vapor Pressure @37.8°C',   unit:'max kPa'   },
+    { k:'sul',  label:'Total Sulfur',             unit:'max mg/kg' },
+    { k:'cu',   label:'Cu Strip Corrosion',       unit:'max No.'   },
+    { k:'res',  label:'Residue',                  unit:'max ml'    },
+    { k:'c3tol',label:'%vol C3 lệch target (cảnh báo)', unit:'± điểm %' }
+  ];
+  function openSpec(){
+    _SPEC_FIELDS.forEach(f=>{
+      const e = _gid('mc-spec-'+f.k);
+      if(e) e.value = SPEC[f.k];
+    });
+    _gid('mc-spec-backdrop')?.classList.add('on');
+  }
+  function closeSpec(){ _gid('mc-spec-backdrop')?.classList.remove('on'); }
+  function saveSpec(){
+    const next = {};
+    _SPEC_FIELDS.forEach(f=>{
+      const v = parseFloat(_gv('mc-spec-'+f.k));
+      next[f.k] = isNaN(v) ? SPEC_DEF[f.k] : v;
+    });
+    SPEC = Object.assign({}, SPEC_DEF, next);
+    _saveSpecLocal();
+    if(_specFbRef){
+      _specFbRef.set(next).catch(e=>console.warn('[MC] spec push', e));
+    }
+    closeSpec();
+    toast('📋 Spec table saved (synced to all devices)','ok');
+    ['1','2'].forEach(n=>{ if(ST[n] !== 'idle') _renderQc(n); });
+  }
+  function resetSpec(){
+    if(!confirm('Reset spec table to lab defaults?\n\nBD<0.5 · Olefin≤10 · C5+<2 · VP≤1430 · S≤140 · Cu No.1 · Residue<0.05 · C3 ±3')) return;
+    SPEC = Object.assign({}, SPEC_DEF);
+    _saveSpecLocal();
+    if(_specFbRef) _specFbRef.set(SPEC_DEF).catch(()=>{});
+    openSpec();
+    toast('↺ Spec reset to defaults','ok');
+  }
+
+  /* ---------- quality evaluation core ----------
+     vals = { bd13, olef, c5, vp, sul, h2o, cu, res, c3vol, c3target }
+     Numeric fields: empty/absent → skipped (không có dữ liệu → không xét).
+     Text fields (h2o/res): 'pass'/'nil'/'ok'/'no' pass; numbers compared.
+     %C3 deviation → WARNING only, never a Fail. */
+  function _evalQualityCore(vals){
+    const fails = [], warns = [];
+    const numChk = (v, lim, name, unit)=>{
+      if(v === '' || v == null || isNaN(v)) return;
+      if(v > lim) fails.push(name+' = '+v+' > '+lim+' '+(unit||''));
+    };
+    numChk(vals.bd13, SPEC.bd13, '1,3-BD', '%vol');
+    numChk(vals.olef, SPEC.olef, 'Olefin', '%vol');
+    numChk(vals.c5,   SPEC.c5,   'C5+',    '%vol');
+    numChk(vals.vp,   SPEC.vp,   'Vapor Pres.', 'kPa');
+    numChk(vals.sul,  SPEC.sul,  'Sulfur', 'mg/kg');
+    /* Free water — text: pass/nil OK */
+    const h2o = String(vals.h2o == null ? '' : vals.h2o).trim().toLowerCase();
+    if(h2o && !/^(pass|nil|ok|no|đạt|dat|-)/.test(h2o)) fails.push('Free Water = "'+vals.h2o+'"');
+    /* Cu corrosion — parse leading class number: "1", "1a", "No.1" */
+    const cuRaw = String(vals.cu == null ? '' : vals.cu).trim();
+    if(cuRaw){
+      const m = cuRaw.match(/(\d+(?:\.\d+)?)/);
+      if(m){ if(parseFloat(m[1]) > SPEC.cu) fails.push('Cu Corrosion = '+cuRaw+' > No.'+SPEC.cu); }
+      else if(!/^(pass|ok|đạt|dat|-)/i.test(cuRaw)) fails.push('Cu Corrosion = "'+cuRaw+'"');
+    }
+    /* Residue — 'pass' or numeric < limit */
+    const resRaw = String(vals.res == null ? '' : vals.res).trim().toLowerCase();
+    if(resRaw && !/^(pass|nil|ok|đạt|dat|-)/.test(resRaw)){
+      const rv = parseFloat(resRaw.replace('<',''));
+      if(isNaN(rv)) fails.push('Residue = "'+vals.res+'"');
+      else if(rv > SPEC.res && resRaw.indexOf('<') !== 0) fails.push('Residue = '+rv+' > '+SPEC.res+' ml');
+    }
+    /* %vol C3 vs target — warning only */
+    const c3 = parseFloat(vals.c3vol), tg = parseFloat(vals.c3target);
+    if(!isNaN(c3) && !isNaN(tg) && c3 > 0 && tg > 0){
+      const dev = c3 - tg;
+      if(Math.abs(dev) > SPEC.c3tol)
+        warns.push('%vol C3 = '+c3.toFixed(2)+'% lệch '+(dev>0?'+':'')+dev.toFixed(2)+' điểm % so với target '+tg.toFixed(1)+'% (giới hạn ±'+SPEC.c3tol+')');
+    }
+    return { verdict: fails.length ? 'Fail' : 'Pass', fails, warns };
+  }
+
+  /* Evaluate from the live GC panel inputs of tank n */
+  function evalQuality(n){
+    const numOrEmpty = id => {
+      const s = String(_gv(id)||'').trim();
+      if(!s) return '';
+      const v = parseFloat(s.replace(/,/g,'').replace('<',''));
+      return isNaN(v) ? '' : v;
+    };
+    return _evalQualityCore({
+      bd13: numOrEmpty('gc'+n+'-bd13'),
+      olef: numOrEmpty('gc'+n+'-olef'),
+      c5:   numOrEmpty('gc'+n+'-c5'),
+      vp:   numOrEmpty('gc'+n+'-vp'),
+      sul:  numOrEmpty('gc'+n+'-sul'),
+      h2o:  _gv('gc'+n+'-h2o'),
+      cu:   _gv('gc'+n+'-cu'),
+      res:  _gv('gc'+n+'-res'),
+      c3vol: numOrEmpty('gc'+n+'-c3h8'),
+      c3target: numOrEmpty('mc-tr'+n)
+    });
+  }
+
+  /* Evaluate from a Tank Log row (used by ENG.saveEdit re-check) */
+  function evalRowQuality(r){
+    const num = v => {
+      const s = String(v == null ? '' : v).trim();
+      if(!s) return '';
+      const x = parseFloat(s.replace(/,/g,'').replace('<',''));
+      return isNaN(x) ? '' : x;
+    };
+    /* GC %vol may be stored 0–1 fraction or 0–100 % — normalize like calcFromRow */
+    let c3 = num(r[18]), bd13 = num(r[21]), c5 = num(r[22]), olef = num(r[23]);
+    const gcSum = (num(r[16])||0)+(num(r[17])||0)+(c3||0)+(num(r[19])||0)
+                + (num(r[20])||0)+(bd13||0)+(c5||0)+(olef||0);
+    if(gcSum > 0 && gcSum < 1.5){
+      if(c3   !== '') c3   *= 100;
+      if(bd13 !== '') bd13 *= 100;
+      if(c5   !== '') c5   *= 100;
+      if(olef !== '') olef *= 100;
+    }
+    return _evalQualityCore({
+      bd13, olef, c5,
+      vp:  num(r[38]),
+      sul: num(r[39]),
+      h2o: r[40],
+      cu:  r[41],
+      res: r[42],
+      c3vol: c3,
+      c3target: num(r[29])
+    });
+  }
+
+  /* Render verdict panel under the GC block */
+  function _renderQc(n){
+    const el = _gid('mc-qc'+n);
+    if(!el) return;
+    const c3h8 = _gnum('gc'+n+'-c3h8');
+    if(!c3h8){ el.className = 'mc-qc'; el.innerHTML = ''; return; }
+    const ev = evalQuality(n);
+    let html = '';
+    if(ev.fails.length){
+      html += '<div class="mc-qc-badge mc-qc-fail">✖ QUALITY FAIL</div>'
+            + '<div class="mc-qc-list">'+ev.fails.map(f=>'<div>• '+f+'</div>').join('')+'</div>';
+    } else {
+      html += '<div class="mc-qc-badge mc-qc-pass">✔ QUALITY PASS — đạt tiêu chuẩn</div>';
+    }
+    if(ev.warns.length){
+      html += '<div class="mc-qc-list mc-qc-warn">'+ev.warns.map(w=>'<div>⚠ '+w+'</div>').join('')+'</div>';
+    }
+    el.className = 'mc-qc on ' + (ev.fails.length ? 'qc-fail' : (ev.warns.length ? 'qc-warn' : 'qc-pass'));
+    el.innerHTML = html;
+    return ev;
+  }
+  function qcRecalc(n){
+    clearTimeout(_qcTimer[n]);
+    _qcTimer[n] = setTimeout(()=>{ _renderQc(n); }, 300);
+  }
+
+  /* ============================================================
+     v4.55 — COQ FILE IMPORT (.xlsx via SheetJS)
+     Reads the lab COQ, validates Lot + Shore Tank against the live
+     mix, then fills GC composition, COQ extras, Final Vol (=Quantity),
+     Density and Finish time (= Sampling time / Analysis date).
+     ============================================================ */
+  function importCoqPick(n){
+    const inp = _gid('mc-coqfile'+n);
+    if(!inp){ toast('❌ File input missing','er'); return; }
+    inp.value = '';
+    inp.click();
+  }
+
+  function _coqNum(v){
+    if(v == null) return null;
+    const s = String(v).trim();
+    if(!s) return null;
+    if(/^</.test(s)) return 0;                       // '<0.01' → 0
+    const m = s.replace(/,/g,'').match(/-?\d+(\.\d+)?/);
+    return m ? parseFloat(m[0]) : null;
+  }
+
+  function _parseCoqWorkbook(wb){
+    /* pick the sheet that contains 'CERTIFICATE OF QUALITY' (or first) */
+    let ws = null;
+    for(const name of wb.SheetNames){
+      const s = wb.Sheets[name];
+      const txt = JSON.stringify(XLSX.utils.sheet_to_json(s, {header:1, defval:'', raw:false}) || []);
+      if(/CERTIFICATE OF QUALITY/i.test(txt)){ ws = s; break; }
+    }
+    if(!ws) ws = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:true});
+
+    /* locate the RESULTS column from the table header row */
+    let resCol = 6;   // default col G
+    outer:
+    for(const row of aoa){
+      for(let j = 0; j < row.length; j++){
+        if(/RESULTS/i.test(String(row[j]))){ resCol = j; break outer; }
+      }
+    }
+
+    const coq = { comp:{} };
+
+    /* label → value on the same row (value = first non-empty cell right of label) */
+    const findVal = (labelRe, valRe)=>{
+      for(const row of aoa){
+        for(let j = 0; j < row.length; j++){
+          const cell = String(row[j]||'');
+          if(labelRe.test(cell)){
+            for(let k = j; k < row.length; k++){
+              if(k === j && !valRe) continue;
+              const v = String(row[k]||'').trim();
+              if(!v || v === ':' ) continue;
+              if(valRe){ const m = v.match(valRe); if(m) return m[0]; }
+              else if(k > j) return v;
+            }
+          }
+        }
+      }
+      return null;
+    };
+    /* component label → numeric result in resCol */
+    const compVal = (labelRe)=>{
+      for(const row of aoa){
+        for(let j = 0; j < Math.min(row.length, resCol); j++){
+          if(labelRe.test(String(row[j]||''))){
+            const v = _coqNum(row[resCol]);
+            if(v != null) return v;
+            /* '<0.01' stored as text also handled by _coqNum; fallback scan right */
+            for(let k = resCol; k < row.length; k++){
+              const x = _coqNum(row[k]); if(x != null) return x;
+            }
+          }
+        }
+      }
+      return null;
+    };
+
+    coq.no      = findVal(/No\.?\s*\/\s*S[oố]/i, /[A-Z]{2,5}-\d{4}-\d+/) ||
+                  findVal(/CERTIFICATE/i, /[A-Z]{2,5}-\d{4}-\d+/);
+    coq.lot     = findVal(/Lot\s*No/i, /LPG-\d{4}-\d+/i);
+    const qtyS  = findVal(/Quantity/i, /[\d.,]+\s*m3/i);
+    coq.qty     = qtyS ? _coqNum(qtyS) : null;
+    coq.tank    = findVal(/Shore\s*Tank/i, /TK\s*-?\s*\d{4}/i);
+    const smpS  = findVal(/Sampling\s*Time/i, /\d{1,2}:\d{2}/);
+    coq.sampTime= smpS || '';
+    const anaS  = findVal(/Analysis\s*Date/i, /\d{1,2}\/\d{1,2}\/\d{2,4}/);
+    coq.anaDate = anaS || '';
+
+    coq.comp.c2h6 = compVal(/\(C2H6\)/i);
+    coq.comp.c3h8 = compVal(/\(C3H8\)/i);
+    coq.comp.c3h6 = compVal(/Propylene|\(C3H6\)/i);
+    coq.comp.ic4  = compVal(/i-C4H10|Iso\s*-?\s*Butane/i);
+    coq.comp.nc4  = compVal(/n-C4H10|n-butane/i);
+    coq.comp.bd13 = compVal(/Butadiene/i);
+    coq.comp.olef = compVal(/Total\s*-?\s*Olefin/i);
+    coq.comp.c5   = compVal(/C5\s*&\s*C5\+/i);
+
+    coq.vp  = compVal(/Vapor\s*Pressure/i);
+    coq.sul = compVal(/Total\s*Sulfur/i);
+    coq.den = compVal(/Density\s*at\s*15/i);
+    coq.mw  = compVal(/Molecular\s*weight|Kh[oố]i\s*l[uư][oợ]ng\s*ph[aâ]n\s*t[uử]/i);
+    /* text results — read raw cell in resCol on the label row */
+    const textVal = (labelRe)=>{
+      for(const row of aoa){
+        for(let j = 0; j < Math.min(row.length, resCol); j++){
+          if(labelRe.test(String(row[j]||''))){
+            const v = String(row[resCol]||'').trim();
+            if(v) return v;
+          }
+        }
+      }
+      return '';
+    };
+    coq.h2o = textVal(/Free\s*Water/i);
+    coq.cu  = textVal(/Copper\s*Strip/i);
+    coq.res = textVal(/Residue/i);
+    return coq;
+  }
+
+  function _fmtCoqDate(s){
+    const m = String(s||'').match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if(!m) return '';
+    const yy = m[3].length === 4 ? m[3].slice(2) : m[3];
+    return _p2(parseInt(m[1]))+'/'+_p2(parseInt(m[2]))+'/'+yy;
+  }
+
+  function coqFileChosen(n, inputEl){
+    const f = inputEl && inputEl.files && inputEl.files[0];
+    if(!f) return;
+    if(typeof XLSX === 'undefined'){ toast('❌ XLSX library not loaded','er'); return; }
+    const reader = new FileReader();
+    reader.onload = e => {
+      let coq;
+      try{
+        const wb = XLSX.read(e.target.result, {type:'array'});
+        coq = _parseCoqWorkbook(wb);
+      }catch(err){
+        console.warn('[MC] COQ parse', err);
+        toast('❌ Không đọc được file COQ: '+err.message,'er');
+        return;
+      }
+      _applyCoq(n, coq, f.name);
+    };
+    reader.onerror = ()=> toast('❌ Không đọc được file','er');
+    reader.readAsArrayBuffer(f);
+  }
+
+  function _applyCoq(n, coq, fname){
+    const tk = n==='1' ? '3501' : '3502';
+    /* ── 1. Lot check — mismatch → warn & ABORT (no data written) ── */
+    if(!coq.lot){
+      alert('⚠ KHÔNG TÌM THẤY SỐ LOT trong file COQ\n\nFile: '+fname+'\nKiểm tra lại file trước khi import.');
+      return;
+    }
+    const coqLot = _parseLotNum(coq.lot);
+    const curNum = parseInt(_gv('mc-l'+n)) || 0;
+    if(!curNum){
+      alert('⚠ TK-'+tk+' CHƯA CÓ LOT ĐANG MIX\n\nCOQ: '+coq.lot+'\n\nNhập số Lot / bấm ▶START trước rồi import lại.');
+      return;
+    }
+    const curYear = new Date().getFullYear();
+    if(!coqLot || coqLot.num !== curNum || coqLot.year !== curYear){
+      alert('❌ SỐ LOT KHÔNG KHỚP — DỮ LIỆU KHÔNG ĐƯỢC IMPORT\n\n'+
+            '• COQ file:   '+coq.lot+'\n'+
+            '• Đang mix:  '+_lotName(curNum)+' (TK-'+tk+')\n\n'+
+            'Nhân viên có thể đã chọn sai file. Kiểm tra lại.');
+      toast('❌ COQ Lot '+coq.lot+' ≠ Lot đang mix — không import','er');
+      return;
+    }
+    /* ── 2. Shore-tank check ── */
+    if(coq.tank){
+      const coqTk = String(coq.tank).replace(/[^\d]/g,'');
+      if(coqTk && coqTk !== tk){
+        alert('❌ SAI BỒN — DỮ LIỆU KHÔNG ĐƯỢC IMPORT\n\n'+
+              '• COQ file:  TK'+coqTk+'\n'+
+              '• Panel này: TK-'+tk+'\n\n'+
+              'Import file này vào đúng panel TK'+coqTk+'.');
+        return;
+      }
+    }
+    /* ── 3. Fill GC composition (calc cells) ── */
+    const setV = (id, v, dec)=>{
+      const el = _gid(id);
+      if(!el) return;
+      if(v == null || v === ''){ return; }
+      el.value = (typeof v === 'number') ? String(parseFloat(v.toFixed(dec == null ? 4 : dec))) : String(v);
+    };
+    const c = coq.comp;
+    const el = _gid('gc'+n+'-ch4'); if(el) el.value = '';   // COQ has no CH4 line
+    setV('gc'+n+'-c2h6', c.c2h6);
+    setV('gc'+n+'-c3h8', c.c3h8);
+    setV('gc'+n+'-ic4',  c.ic4);
+    setV('gc'+n+'-nc4',  c.nc4);
+    setV('gc'+n+'-bd13', c.bd13);
+    setV('gc'+n+'-c5',   c.c5);
+    setV('gc'+n+'-olef', c.olef);
+    /* ── 4. COQ extras ── */
+    setV('gc'+n+'-coqno', coq.no || '');
+    setV('gc'+n+'-c3h6', c.c3h6);
+    setV('gc'+n+'-vp',   coq.vp, 0);
+    setV('gc'+n+'-sul',  coq.sul, 2);
+    setV('gc'+n+'-h2o',  coq.h2o);
+    setV('gc'+n+'-cu',   coq.cu);
+    setV('gc'+n+'-res',  coq.res);
+    setV('gc'+n+'-mw',   coq.mw, 2);
+    /* ── 5. Quantity = Final Vol · Density@15 ── */
+    if(coq.qty) setV('gc'+n+'-fvol', coq.qty, 3);
+    if(coq.den) setV('gc'+n+'-den',  coq.den, 4);
+    /* ── 6. Sampling time + Analysis date = FINISH time ── */
+    const anaFmt = _fmtCoqDate(coq.anaDate);
+    if(coq.sampTime){ const e = _gid('mc-f'+n);  if(e) e.value = coq.sampTime; }
+    if(anaFmt){       const e = _gid('mc-fd'+n); if(e) e.value = anaFmt; }
+    CQM[n] = { no: coq.no || '', sampTime: coq.sampTime || '', anaDate: anaFmt };
+    /* ── 7. Recalc + verdict ── */
+    try{ gcSumInline(n); }catch(_){}
+    _gcSilent = true;
+    try{ gcCalcInline(n); }catch(_){}
+    _gcSilent = false;
+    const ev = _renderQc(n);
+    _renderStatus(n);
+    const vTxt = ev ? (ev.fails.length ? '✖ FAIL ('+ev.fails.length+' chỉ tiêu)' : '✔ PASS') : '';
+    toast('📄 Import COQ '+(coq.no||'')+' → TK-'+tk+' · '+coq.lot+' '+vTxt,
+          ev && ev.fails.length ? 'er' : 'ok');
+    if(ev && ev.warns.length) setTimeout(()=>toast('⚠ '+ev.warns[0],'warn'), 600);
   }
 
   /* ---------- Settings modal ---------- */
@@ -968,6 +1443,9 @@ const MC = (function(){
         });
       }
     }catch(e){ console.warn('[MC] FB init', e); }
+    /* v4.55 — COQ spec table: localStorage fallback + Firebase sync */
+    _loadSpecLocal();
+    _initSpecFb();
     /* Initial UI sync */
     refresh();
     console.log('[MC] ✅ Init OK · Mix Calculator ready');
@@ -1065,6 +1543,18 @@ const MC = (function(){
     _set('gc'+n+'-fvol', _numStr(rowSnap[6]));
     _set('gc'+n+'-den',  _numStr(rowSnap[33]));
 
+    /* v4.55 — COQ columns */
+    _set('gc'+n+'-coqno', rowSnap[34]);
+    _set('gc'+n+'-c3h6', _numStr(rowSnap[37]));
+    _set('gc'+n+'-vp',   _numStr(rowSnap[38]));
+    _set('gc'+n+'-sul',  _numStr(rowSnap[39]));
+    _set('gc'+n+'-h2o',  rowSnap[40]);
+    _set('gc'+n+'-cu',   rowSnap[41]);
+    _set('gc'+n+'-res',  rowSnap[42]);
+    _set('gc'+n+'-mw',   _numStr(rowSnap[43]));
+    CQM[n] = { no:String(rowSnap[34]||''), sampTime:String(rowSnap[35]||''), anaDate:String(rowSnap[36]||'') };
+    try{ qcRecalc(n); }catch(_){}
+
     /* Refresh derived UI */
     try{ updateLotNames(); }catch(_){}
     _renderStatus(n);
@@ -1149,7 +1639,11 @@ const MC = (function(){
     updateLotNames, checkDupLot,
     gcSumInline, gcTabNext, autoGcRecalc, gcCalcInline, gcSave, gcSaveDraftInline,
     openSettings, closeSettings, saveSettings, resetSettings,
-    calcFromRow, openGc
+    calcFromRow, openGc,
+    /* v4.55 — COQ import + spec table + quality evaluation */
+    importCoqPick, coqFileChosen,
+    openSpec, closeSpec, saveSpec, resetSpec,
+    evalQuality, evalRowQuality, qcRecalc
   };
 })();
 

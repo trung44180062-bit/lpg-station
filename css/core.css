@@ -2061,6 +2061,40 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .mc-gc-result{display:none;margin-top:6px;}
 .mc-gc-result.on{display:block;}
 
+/* ── v4.55 — COQ import / spec / verdict ─────────────────────── */
+/* GC-calculation cells keep a distinct tint so operators can spot &
+   edit the numbers that actually drive the mass-balance calc */
+.mc-inp.gc-calc{background:#eef6ff;border-color:#9ec5e8;}
+.mc-inp.gc-calc:focus{background:#e2f0ff;}
+.mc-coq-btn{font-size:10.5px;padding:4px 10px;border-radius:5px;font-family:'Oswald',sans-serif;
+  font-weight:700;letter-spacing:.5px;cursor:pointer;white-space:nowrap;}
+.mc-coq-btn.mc-coq-btn-imp{background:#7b2d8e;color:#fff;border:1.5px solid #7b2d8e;}
+.mc-coq-btn.mc-coq-btn-imp:hover{background:#5f2170;}
+.mc-coq-btn.mc-coq-btn-spec{background:#fff;color:#7b2d8e;border:1.5px solid #7b2d8e;}
+.mc-coq-btn.mc-coq-btn-spec:hover{background:#f6f0fb;}
+.mc-coq-grid{display:flex;gap:5px;flex-wrap:nowrap;margin-top:6px;padding-top:6px;
+  border-top:1px dashed #d4b5f0;}
+.mc-coq-grid .mc-fld{flex:1;min-width:0;}
+.mc-coq-grid .mc-lbl{font-size:10px;color:#7b2d8e;}
+.mc-coq-grid .mc-inp{font-size:13px;padding:5px 4px;background:#fbf8fd;border-color:#d4b5f0;}
+.mc-lbl-coq{font-weight:700;}
+.mc-coq-hint{font-size:8.5px;color:#7b2d8e;font-weight:600;letter-spacing:0;}
+/* verdict panel */
+.mc-qc{display:none;margin-top:6px;border-radius:6px;padding:7px 10px;}
+.mc-qc.on{display:block;}
+.mc-qc.qc-pass{background:var(--green-soft);border:1.5px solid #a7d9bc;}
+.mc-qc.qc-warn{background:var(--yellow-soft);border:1.5px solid #f0d48a;}
+.mc-qc.qc-fail{background:var(--red-soft);border:1.5px solid #efb2ab;}
+.mc-qc-badge{font-family:'Oswald',sans-serif;font-size:13px;font-weight:800;letter-spacing:1.2px;}
+.mc-qc-badge.mc-qc-pass{color:#157a40;}
+.mc-qc-badge.mc-qc-fail{color:var(--red);}
+.mc-qc-list{font-size:11px;margin-top:3px;line-height:1.5;color:var(--ink-2);}
+.mc-qc-list.mc-qc-warn{color:#92400e;font-weight:600;}
+/* Tank Log COQ columns */
+.eng-tbl td.td-coq{background:#fbf8fd;color:#5f2170;}
+/* edit-modal highlight for COQ No */
+.eng-edit-inp.hl-coq{background:#f6f0fb;border-color:#d4b5f0;}
+
 /* Settings modal */
 .mc-cfg-backdrop{position:fixed;inset:0;background:rgba(11,31,66,.55);z-index:9500;
   display:none;align-items:center;justify-content:center;padding:20px;}
