@@ -1570,6 +1570,15 @@
             <th style="width:36px;color:#7b2d8e;background:#f6f0fb">Cu</th>
             <th style="width:40px;color:#7b2d8e;background:#f6f0fb">Res</th>
             <th style="width:40px;color:#7b2d8e;background:#f6f0fb">MW</th>
+            <th style="width:76px;color:#7b2d8e;background:#f6f0fb">Pro/Bu %V</th>
+            <th style="width:76px;color:#7b2d8e;background:#f6f0fb">Pro/Bu %W</th>
+            <th style="width:48px;color:#7b2d8e;background:#f6f0fb">t-2-C₄⁼</th>
+            <th style="width:48px;color:#7b2d8e;background:#f6f0fb">1-C₄⁼</th>
+            <th style="width:48px;color:#7b2d8e;background:#f6f0fb">i-C₄⁼</th>
+            <th style="width:48px;color:#7b2d8e;background:#f6f0fb">neo-C₅</th>
+            <th style="width:44px;color:#7b2d8e;background:#f6f0fb">i-C₅</th>
+            <th style="width:44px;color:#7b2d8e;background:#f6f0fb">n-C₅</th>
+            <th style="width:44px;color:#7b2d8e;background:#f6f0fb">n-C₆</th>
           </tr></thead>
           <tbody id="engTbody"></tbody>
         </table>
@@ -1768,6 +1777,36 @@
                   <input class="mc-inp" id="gc1-mw" type="text" inputmode="decimal"
                     oninput="MC.qcRecalc('1')" onkeydown="MC.gcTabNext(event,this)"></div>
               </div>
+              <!-- v4.55.1 — Pro/Bu fraction + minor components (%vol) -->
+              <div class="mc-coq-grid mc-coq-grid2">
+                <div class="mc-fld mc-fld-fr"><div class="mc-lbl mc-lbl-coq">PRO/BU %VOL</div>
+                  <input class="mc-inp" id="gc1-frv" type="text" placeholder="C3/C4"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld mc-fld-fr"><div class="mc-lbl mc-lbl-coq">PRO/BU %WT</div>
+                  <input class="mc-inp" id="gc1-frw" type="text" placeholder="C3/C4"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">t-2-BUTENE</div>
+                  <input class="mc-inp" id="gc1-t2b" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">1-BUTENE</div>
+                  <input class="mc-inp" id="gc1-b1" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">i-BUTENE</div>
+                  <input class="mc-inp" id="gc1-ib" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">neo-C₅</div>
+                  <input class="mc-inp" id="gc1-neoc5" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">i-C₅</div>
+                  <input class="mc-inp" id="gc1-ic5" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">n-C₅</div>
+                  <input class="mc-inp" id="gc1-nc5" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">n-C₆</div>
+                  <input class="mc-inp" id="gc1-nc6" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+              </div>
               <!-- v4.55 — quality verdict vs spec table -->
               <div class="mc-qc" id="mc-qc1"></div>
               <div class="mc-gc-result" id="mc-gcres1"></div>
@@ -1938,6 +1977,36 @@
                 <div class="mc-fld"><div class="mc-lbl">M.WEIGHT</div>
                   <input class="mc-inp" id="gc2-mw" type="text" inputmode="decimal"
                     oninput="MC.qcRecalc('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+              </div>
+              <!-- v4.55.1 — Pro/Bu fraction + minor components (%vol) -->
+              <div class="mc-coq-grid mc-coq-grid2">
+                <div class="mc-fld mc-fld-fr"><div class="mc-lbl mc-lbl-coq">PRO/BU %VOL</div>
+                  <input class="mc-inp" id="gc2-frv" type="text" placeholder="C3/C4"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld mc-fld-fr"><div class="mc-lbl mc-lbl-coq">PRO/BU %WT</div>
+                  <input class="mc-inp" id="gc2-frw" type="text" placeholder="C3/C4"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">t-2-BUTENE</div>
+                  <input class="mc-inp" id="gc2-t2b" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">1-BUTENE</div>
+                  <input class="mc-inp" id="gc2-b1" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">i-BUTENE</div>
+                  <input class="mc-inp" id="gc2-ib" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">neo-C₅</div>
+                  <input class="mc-inp" id="gc2-neoc5" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">i-C₅</div>
+                  <input class="mc-inp" id="gc2-ic5" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">n-C₅</div>
+                  <input class="mc-inp" id="gc2-nc5" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
+                <div class="mc-fld"><div class="mc-lbl">n-C₆</div>
+                  <input class="mc-inp" id="gc2-nc6" type="text" inputmode="decimal"
+                    onkeydown="MC.gcTabNext(event,this)"></div>
               </div>
               <!-- v4.55 — quality verdict vs spec table -->
               <div class="mc-qc" id="mc-qc2"></div>

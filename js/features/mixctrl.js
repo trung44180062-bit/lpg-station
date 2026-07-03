@@ -100,8 +100,11 @@ const MC = (function(){
   /* GC context — last calc result per tank (used by SAVE/DRAFT) */
   const GCR = { '1':null, '2':null };
 
-  /* v4.55 — Tank Log row width (34 legacy + 10 COQ cols) */
-  const ROW_W = 44;
+  /* v4.55 — Tank Log row width (34 legacy + 10 COQ cols).
+     v4.55.1: +9 → 53: [44] Pro/Bu %Vol  [45] Pro/Bu %Wt  [46] t-2-Butene
+     [47] 1-Butene  [48] i-Butene  [49] neo-Pentane  [50] i-Pentane
+     [51] n-Pentane  [52] n-Hexane */
+  const ROW_W = 53;
 
   /* v4.55 — COQ metadata captured on import (sampling time / analysis date) */
   const CQM = { '1':null, '2':null };
@@ -490,7 +493,8 @@ const MC = (function(){
     _gid('mc-gcres'+n)?.classList.remove('on');
     /* Clear GC inputs too (v4.55: + COQ fields) */
     ['ch4','c2h6','c3h8','ic4','nc4','bd13','c5','olef','temp','pres','fvol','den',
-     'coqno','c3h6','vp','sul','h2o','cu','res','mw'].forEach(k=>{
+     'coqno','c3h6','vp','sul','h2o','cu','res','mw',
+     'frv','frw','t2b','b1','ib','neoc5','ic5','nc5','nc6'].forEach(k=>{
       const e = _gid('gc'+n+'-'+k); if(e) e.value = '';
     });
     CQM[n] = null;
@@ -851,6 +855,12 @@ const MC = (function(){
     const _cu   = _cv('gc'+n+'-cu');   if(_cu)  row[41] = _cu;
     const _res  = _cv('gc'+n+'-res');  if(_res) row[42] = _res;
     const _mw   = _cn('gc'+n+'-mw');   if(_mw  !== '') row[43] = _mw;
+    /* v4.55.1 — Pro/Bu fraction + minor components [44..52] */
+    const _frv  = _cv('gc'+n+'-frv');  if(_frv) row[44] = _frv;
+    const _frw  = _cv('gc'+n+'-frw');  if(_frw) row[45] = _frw;
+    [['t2b',46],['b1',47],['ib',48],['neoc5',49],['ic5',50],['nc5',51],['nc6',52]].forEach(p=>{
+      const v = _cn('gc'+n+'-'+p[0]); if(v !== '') row[p[1]] = v;
+    });
     /* Push via ENG (one child write) — ENG handles rid generation/lookup */
     const rid = ENG.upsertRow(row, existing ? { rid: existing._rid } : null);
     _audit('tankmix:'+(quality==='Pass'?'save':'draft'), rid, 'quality', '', quality.toLowerCase(),
@@ -1238,6 +1248,35 @@ const MC = (function(){
     coq.comp.bd13 = compVal(/Butadiene/i);
     coq.comp.olef = compVal(/Total\s*-?\s*Olefin/i);
     coq.comp.c5   = compVal(/C5\s*&\s*C5\+/i);
+    /* v4.55.1 — minor components (%vol, matched by chemical formula to avoid
+       cross-hits: e.g. 'Neo - Pentane (neo-C5H12)' vs 'n-Pentane (n-C5H12)') */
+    coq.comp.t2b   = compVal(/\(t-C4H8\)|t-2\s*butene/i);
+    coq.comp.b1    = compVal(/\(1-C4H8\)|1-Butene/i);
+    coq.comp.ib    = compVal(/\(i-C4H8\)|i-Butene/i);
+    coq.comp.neoc5 = compVal(/\(neo-C5H12\)|Neo\s*-\s*Pentane/i);
+    coq.comp.ic5   = compVal(/\(i-C5H12\)|Iso\s*-\s*Pentane/i);
+    coq.comp.nc5   = compVal(/\(n-C5H12\)/i);
+    coq.comp.nc6   = compVal(/\(n-C6H14\)|n-Hexane/i);
+
+    /* v4.55.1 — Propane/Butane fraction: label row holds %Vol ('52.96/45.62'),
+       the row(s) right below hold %Wt ('50.31/49.69') */
+    coq.frv = ''; coq.frw = '';
+    for(let i = 0; i < aoa.length; i++){
+      const row = aoa[i] || [];
+      let hit = false;
+      for(let j = 0; j < Math.min(row.length, resCol); j++){
+        if(/Propane\s*\/\s*Butane|Pro\s*\/\s*Bu/i.test(String(row[j]||''))){ hit = true; break; }
+      }
+      if(!hit) continue;
+      const frRe = /\d+(?:\.\d+)?\s*\/\s*\d+(?:\.\d+)?/;
+      const v0 = String(row[resCol]||'').match(frRe);
+      if(v0) coq.frv = v0[0].replace(/\s+/g,'');
+      for(let k = i+1; k <= i+2 && k < aoa.length; k++){
+        const v1 = String((aoa[k]||[])[resCol]||'').match(frRe);
+        if(v1){ coq.frw = v1[0].replace(/\s+/g,''); break; }
+      }
+      break;
+    }
 
     coq.vp  = compVal(/Vapor\s*Pressure/i);
     coq.sul = compVal(/Total\s*Sulfur/i);
@@ -1347,6 +1386,16 @@ const MC = (function(){
     setV('gc'+n+'-cu',   coq.cu);
     setV('gc'+n+'-res',  coq.res);
     setV('gc'+n+'-mw',   coq.mw, 2);
+    /* v4.55.1 — Pro/Bu fraction + minor components */
+    setV('gc'+n+'-frv',  coq.frv);
+    setV('gc'+n+'-frw',  coq.frw);
+    setV('gc'+n+'-t2b',  c.t2b);
+    setV('gc'+n+'-b1',   c.b1);
+    setV('gc'+n+'-ib',   c.ib);
+    setV('gc'+n+'-neoc5',c.neoc5);
+    setV('gc'+n+'-ic5',  c.ic5);
+    setV('gc'+n+'-nc5',  c.nc5);
+    setV('gc'+n+'-nc6',  c.nc6);
     /* ── 5. Quantity = Final Vol · Density@15 ── */
     if(coq.qty) setV('gc'+n+'-fvol', coq.qty, 3);
     if(coq.den) setV('gc'+n+'-den',  coq.den, 4);
@@ -1552,6 +1601,15 @@ const MC = (function(){
     _set('gc'+n+'-cu',   rowSnap[41]);
     _set('gc'+n+'-res',  rowSnap[42]);
     _set('gc'+n+'-mw',   _numStr(rowSnap[43]));
+    _set('gc'+n+'-frv',  rowSnap[44]);
+    _set('gc'+n+'-frw',  rowSnap[45]);
+    _set('gc'+n+'-t2b',  _numStr(rowSnap[46]));
+    _set('gc'+n+'-b1',   _numStr(rowSnap[47]));
+    _set('gc'+n+'-ib',   _numStr(rowSnap[48]));
+    _set('gc'+n+'-neoc5',_numStr(rowSnap[49]));
+    _set('gc'+n+'-ic5',  _numStr(rowSnap[50]));
+    _set('gc'+n+'-nc5',  _numStr(rowSnap[51]));
+    _set('gc'+n+'-nc6',  _numStr(rowSnap[52]));
     CQM[n] = { no:String(rowSnap[34]||''), sampTime:String(rowSnap[35]||''), anaDate:String(rowSnap[36]||'') };
     try{ qcRecalc(n); }catch(_){}
 

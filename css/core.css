@@ -2079,6 +2079,9 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .mc-coq-grid .mc-inp{font-size:13px;padding:5px 4px;background:#fbf8fd;border-color:#d4b5f0;}
 .mc-lbl-coq{font-weight:700;}
 .mc-coq-hint{font-size:8.5px;color:#7b2d8e;font-weight:600;letter-spacing:0;}
+.mc-coq-grid2{border-top:none;padding-top:0;}
+.mc-coq-grid2 .mc-fld-fr{flex:1.4;}
+.mc-coq-grid2 .mc-fld-fr .mc-inp{font-weight:700;color:#5f2170;}
 /* verdict panel */
 .mc-qc{display:none;margin-top:6px;border-radius:6px;padding:7px 10px;}
 .mc-qc.on{display:block;}

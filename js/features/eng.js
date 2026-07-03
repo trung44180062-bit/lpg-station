@@ -33,8 +33,11 @@ const ENG = (function(){
      [34] COQ No  [35] Sampling Time  [36] Analysis Date  [37] C3H6 %vol
      [38] Vapor Pressure kPa  [39] Total Sulfur mg/kg  [40] Free Water
      [41] Cu Corrosion  [42] Residue  [43] Molecular Weight.
-     Old 34-col rows load fine (missing cells default ''). */
-  const ROW_W = 44;
+     v4.55.1: +9 → 53: [44] Pro/Bu %Vol  [45] Pro/Bu %Wt  [46] t-2-Butene
+     [47] 1-Butene  [48] i-Butene  [49] neo-Pentane  [50] i-Pentane
+     [51] n-Pentane  [52] n-Hexane.
+     Old shorter rows load fine (missing cells default ''). */
+  const ROW_W = 53;
 
   /* ROWS — display-ordered array of 34-col row arrays. Each row also
      carries a non-enumerable `_rid` (base36 random) used as Firebase key.
@@ -267,6 +270,15 @@ const ENG = (function(){
         '<td class="td-c td-coq">'+_esc(c[41])+'</td>' +
         '<td class="td-c td-coq">'+_esc(c[42])+'</td>' +
         '<td class="td-r td-coq">'+(c[43]!==''?_fmtNum(c[43],2):'')+'</td>' +
+        '<td class="td-c td-coq" style="white-space:nowrap">'+_esc(c[44])+'</td>' +
+        '<td class="td-c td-coq" style="white-space:nowrap">'+_esc(c[45])+'</td>' +
+        '<td class="td-r td-coq">'+(c[46]!==''?_fmtNum(c[46],4):'')+'</td>' +
+        '<td class="td-r td-coq">'+(c[47]!==''?_fmtNum(c[47],4):'')+'</td>' +
+        '<td class="td-r td-coq">'+(c[48]!==''?_fmtNum(c[48],4):'')+'</td>' +
+        '<td class="td-r td-coq">'+(c[49]!==''?_fmtNum(c[49],4):'')+'</td>' +
+        '<td class="td-r td-coq">'+(c[50]!==''?_fmtNum(c[50],4):'')+'</td>' +
+        '<td class="td-r td-coq">'+(c[51]!==''?_fmtNum(c[51],4):'')+'</td>' +
+        '<td class="td-r td-coq">'+(c[52]!==''?_fmtNum(c[52],4):'')+'</td>' +
         '</tr>';
     }).join('');
 
@@ -309,7 +321,9 @@ const ENG = (function(){
     'coqno':34,'samptime':35,'samplingtime':35,'analysisdate':36,
     'c3h6':37,'propylene':37,'vp':38,'vaporpressure':38,
     'sulfur':39,'totalsulfur':39,'freewater':40,'cucorr':41,'coppercorrosion':41,
-    'residue':42,'mw':43,'molecularweight':43
+    'residue':42,'mw':43,'molecularweight':43,
+    'probu%vol':44,'probu%wt':45,'t2butene':46,'1butene':47,'ibutene':48,
+    'neopentane':49,'ipentane':50,'npentane':51,'nhexane':52
   };
   function _pasteNorm(s){ return String(s==null?'':s).toLowerCase().replace(/\s+/g,''); }
   function _pasteIsHeader(cols){
@@ -398,7 +412,8 @@ const ENG = (function(){
       columns: ['No','Lot','Tank','Date','Start','Finish','Vol(m³)','Qty(ton)','%C3','%C4',
         'InitVol','I.%C3','I.%C4','FilledC3','FilledC4','FilledLPG','CH4','C2H6','C3H8','i-C4','n-C4','1.3-BD',
         'C5+','Olefin','(24)','(25)','Odorant','Quality','Remark','TargetC3%','TargetVol','Temp','Pres','Density',
-        'COQNo','SampTime','AnalysisDate','C3H6','VP','Sulfur','FreeWater','CuCorr','Residue','MW']
+        'COQNo','SampTime','AnalysisDate','C3H6','VP','Sulfur','FreeWater','CuCorr','Residue','MW',
+        'ProBu%Vol','ProBu%Wt','t2Butene','1Butene','iButene','neoPentane','iPentane','nPentane','nHexane']
         .map((t,i)=>({title:t, get:r=> r[i]==null?'':r[i]})),
       deleteRids: (rids)=>{
         const map = {};
@@ -534,7 +549,18 @@ const ENG = (function(){
     {col:40,label:'Free Water',        type:'str'},
     {col:41,label:'Cu Corrosion',      type:'str'},
     {col:42,label:'Residue',           type:'str'},
-    {col:43,label:'Mol. Weight'}
+    {col:43,label:'Mol. Weight'},
+    {col:44,label:'Pro/Bu %Vol',       cls:'hl-coq', type:'str'},
+    {col:45,label:'Pro/Bu %Wt',        cls:'hl-coq', type:'str'},
+    /* Row 8 — COQ minor components (%vol) */
+    {col:46,label:'t-2-Butene'},
+    {col:47,label:'1-Butene'},
+    {col:48,label:'i-Butene'},
+    {col:49,label:'neo-Pentane'},
+    {col:50,label:'i-Pentane'},
+    {col:51,label:'n-Pentane'},
+    /* Row 9 */
+    {col:52,label:'n-Hexane'}
   ];
 
   function _fmtEditDate(raw){
@@ -630,7 +656,7 @@ const ENG = (function(){
     if(!modal) return;
 
     /* string-preserving columns: date/time, lot/tank labels, quality, remark, COQ text cols */
-    const strCols = new Set([3,4,5,1,2,27,28,34,35,36,40,41,42]);
+    const strCols = new Set([3,4,5,1,2,27,28,34,35,36,40,41,42,44,45]);
     modal.querySelectorAll('input[data-col]').forEach(inp=>{
       const col = parseInt(inp.dataset.col);
       const val = String(inp.value||'').trim();
@@ -771,7 +797,8 @@ const ENG = (function(){
     const headers = ['No','Lot','Tank','Date','Start','Finish','Vol(m³)','Qty(ton)','%C3','%C4',
       'InitVol','I.%C3','I.%C4','FilledC3','FilledC4','FilledLPG','CH4','C2H6','C3H8','i-C4','n-C4','1.3-BD',
       'C5+','Olefin','(24)','(25)','Odorant','Quality','Remark','TargetC3%','TargetVol','Temp','Pres','Density',
-      'COQNo','SampTime','AnalysisDate','C3H6','VP','Sulfur','FreeWater','CuCorr','Residue','MW'];
+      'COQNo','SampTime','AnalysisDate','C3H6','VP','Sulfur','FreeWater','CuCorr','Residue','MW',
+      'ProBu%Vol','ProBu%Wt','t2Butene','1Butene','iButene','neoPentane','iPentane','nPentane','nHexane'];
     const csvLines = [headers.join(',')];
     ROWS.forEach(r=>{
       const cells = [];
