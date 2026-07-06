@@ -29,6 +29,10 @@ var PTT_EARLY = (function(){
   var _selected   = {};          /* _oid -> true (checked) */
   var _printedOids = {};         /* _oid -> ts (RAM-only "already printed" mark) */
   var _built = false;
+  /* v4.58 — the modal now serves TWO sources, set by open(mode):
+       'early' = Tomorrow Plan, note contains "8" (arrive before 8AM) — original.
+       'today' = Today Plan, effective status Pending or Entered, NO note filter. */
+  var _mode = 'early';
   var _units     = [];           /* ordered render/print units (single rows + multi-DO truck groups) */
   var _groupMode = {};           /* groupKey -> 'combined' | 'separate' (RAM-only; default combined) */
   var MDO_CAP_MT = 27;           /* one truck cannot exceed this — same cap as the scale assign picker */
@@ -70,14 +74,31 @@ var PTT_EARLY = (function(){
      Only the note field is checked (DO/qty/customer never count). */
   function _isEarly8(note){ return String(note==null?'':note).indexOf('8') !== -1; }
 
+  /* v4.58 — source plan module per mode: 'today' reads TP, 'early' reads TMR. */
+  function _srcMod(){
+    if(_mode==='today') return (typeof TP  !== 'undefined' && TP.PLAN)  ? TP  : null;
+    return                     (typeof TMR !== 'undefined' && TMR.PLAN) ? TMR : null;
+  }
   function _planRows(){
-    if(typeof TMR === 'undefined' || !TMR.PLAN) return [];
-    return Object.keys(TMR.PLAN).map(function(oid){ return TMR.PLAN[oid]; })
-      .filter(function(r){ return r && r._status!=='done' && r._status!=='cancel'; });
+    var M = _srcMod();
+    if(!M) return [];
+    var rows = Object.keys(M.PLAN).map(function(oid){ return M.PLAN[oid]; }).filter(Boolean);
+    if(_mode==='today'){
+      /* Today bulk print — only Pending ('' ) and Entered rows qualify.
+         Effective status: AUTO rows follow live TL/station state, MANUAL rows
+         honour the stored _status (same rule as the Today Plan status bar). */
+      return rows.filter(function(r){
+        var st = (M.getEffectiveStatus ? M.getEffectiveStatus(r) : (r._status||'')) || '';
+        return st==='' || st==='entered';
+      });
+    }
+    return rows.filter(function(r){ return r._status!=='done' && r._status!=='cancel'; });
   }
 
   function _gather(){
-    var rows = _planRows().filter(function(r){ return _isEarly8(r.note); });
+    var rows = _planRows();
+    /* 'early' keeps the note-"8" filter; 'today' lists ALL pending/entered rows. */
+    if(_mode!=='today') rows = rows.filter(function(r){ return _isEarly8(r.note); });
     /* v4.55.4 — print/selection order MUST match Plan TABLE VIEW = paste/Excel
        source order. Sort by _forDate then _seq (global paste index stamped in
        PLAN.parsePlanSheet), tie-break by per-customer "no". Rows without _seq
@@ -186,6 +207,26 @@ var PTT_EARLY = (function(){
     }
     return { x:x, y:y, note:note };
   }
+  /* v4.59 — Lot/Tank on the printed slip.
+     mode 'today': take the tank + lot currently SELECTED on the Scale tab
+     (SCALE.tankForType — pure orders resolve their pure tank/lot), because
+     Today-Plan bulk prints happen the same morning the tank is already chosen.
+     mode 'early' (Tomorrow Plan, printed the evening before): keep the blank
+     placeholders — tomorrow's tank is not decided yet. */
+  function _lotTankStr(type){
+    var curYr = new Date().getFullYear();
+    var ph = 'LPG-'+curYr+'-......\nTK-350.....';
+    if(_mode !== 'today') return ph;
+    try{
+      if(typeof SCALE !== 'undefined' && SCALE.tankForType){
+        var tk = SCALE.tankForType(type||'');
+        if(tk && (tk.lotFull || tk.name)){
+          return (tk.lotFull || ('LPG-'+curYr+'-......')) + '\n' + (tk.name || 'TK-350.....');
+        }
+      }
+    }catch(_){}
+    return ph;
+  }
   function _staffEng(){ var el=document.getElementById('scEngineer'); return el ? (el.value||'') : ''; }
   function _staffChk(){ var el=document.getElementById('scCheckBooth'); return el ? (el.value||'') : ''; }
   /* Customer printed name = VN full name, same as the assign-into-station PTT. */
@@ -200,7 +241,7 @@ var PTT_EARLY = (function(){
     var dp = _dateParts(r._forDate);
     var curYr = new Date().getFullYear();
     var prodType = (typeof _pfDeriveType==='function') ? _pfDeriveType(r.type||'') : (r.type||'');
-    var lotPlaceholder = 'LPG-'+curYr+'-......\nTK-350.....';
+    var lotPlaceholder = _lotTankStr(r.type);   /* v4.59 — real tank/lot in 'today' mode */
     var custName = _custVN(r.customer);
     var twAvg = _twAvgFor(r.plate);
     var sfKg  = _sfKgFor(r.plate, r.rmooc);
@@ -318,7 +359,7 @@ var PTT_EARLY = (function(){
     var curYr = new Date().getFullYear();
     var prodType = (typeof deriveProductTypeMulti==='function') ? deriveProductTypeMulti(rows) : '';
     if(!prodType) prodType = (typeof _pfDeriveType==='function') ? _pfDeriveType(r0.type||'') : (r0.type||'');
-    var lotPlaceholder = 'LPG-'+curYr+'-......\nTK-350.....';
+    var lotPlaceholder = _lotTankStr(r0.type);   /* v4.59 — real tank/lot in 'today' mode */
     var custs = []; rows.forEach(function(r){ var c=_custVN(r.customer).trim(); if(c && custs.indexOf(c)<0) custs.push(c); });
     var custStr = custs.join(' / ');
     var notes = []; rows.forEach(function(r){ var n=String(r.note||'').trim(); if(n && notes.indexOf(n)<0) notes.push(n); });
@@ -436,8 +477,8 @@ var PTT_EARLY = (function(){
     bg.innerHTML = ''
       + '<div class="pe-card">'
       +   '<div class="pe-hdr">'
-      +     '<div class="pe-title">\uD83D\uDDA8 BULK PRINT PTT \u2014 EARLY-MORNING ORDERS</div>'
-      +     '<div class="pe-sub">Scanned <b>Tomorrow Plan</b> notes for "8" (arrive before 8AM). Uncheck any to skip. Trucks with several DOs are grouped \u2014 choose <b>Combined</b> (one slip, all DOs) or <b>Separate</b> (one slip per DO). PTT date = plan date. Lot/Tank print as placeholders (LPG-YYYY-\u2026 / TK-350\u2026) \u2014 booth staff fills the tank by hand.</div>'
+      +     '<div class="pe-title" id="pe-title">\uD83D\uDDA8 BULK PRINT PTT \u2014 EARLY-MORNING ORDERS</div>'
+      +     '<div class="pe-sub" id="pe-sub"></div>'
       +   '</div>'
       +   '<div class="pe-tools">'
       +     '<span class="pe-link" onclick="PTT_EARLY.selectAll(true)">Select all</span>'
@@ -473,7 +514,9 @@ var PTT_EARLY = (function(){
     var list = document.getElementById('pe-list');
     if(!list) return;
     if(!_units.length){
-      list.innerHTML = '<div class="pe-empty">No early-morning orders found in Tomorrow Plan.<br>(No row note contains "8".)</div>';
+      list.innerHTML = (_mode==='today')
+        ? '<div class="pe-empty">No Pending / Entered orders found in Today Plan.</div>'
+        : '<div class="pe-empty">No early-morning orders found in Tomorrow Plan.<br>(No row note contains "8".)</div>';
       _updateCount();
       return;
     }
@@ -513,8 +556,19 @@ var PTT_EARLY = (function(){
   }
 
   /* ── Public API ── */
-  function open(){
+  /* open(mode) — mode 'early' (default, Tomorrow Plan note "8") or 'today'
+     (Today Plan, Pending + Entered, no note filter). */
+  function open(mode){
+    _mode = (mode==='today') ? 'today' : 'early';
     _ensureModal();
+    var ttl = document.getElementById('pe-title');
+    var sub = document.getElementById('pe-sub');
+    if(ttl) ttl.textContent = (_mode==='today')
+      ? '🖨 BULK PRINT PTT — TODAY PLAN (PENDING + ENTERED)'
+      : '🖨 BULK PRINT PTT — EARLY-MORNING ORDERS';
+    if(sub) sub.innerHTML = (_mode==='today')
+      ? 'Listing every <b>Today Plan</b> order still <b>Pending / Entered</b>. Uncheck any to skip. Trucks with several DOs are grouped — choose <b>Combined</b> (one slip, all DOs) or <b>Separate</b> (one slip per DO). PTT date = plan date. Lot/Tank = the tank currently <b>selected on the Scale tab</b> (pure orders print their pure tank/lot).'
+      : 'Scanned <b>Tomorrow Plan</b> notes for "8" (arrive before 8AM). Uncheck any to skip. Trucks with several DOs are grouped — choose <b>Combined</b> (one slip, all DOs) or <b>Separate</b> (one slip per DO). PTT date = plan date. Lot/Tank print as placeholders (LPG-YYYY-… / TK-350…) — booth staff fills the tank by hand.';
     _candidates = _gather();
     _selected = {};
     _candidates.forEach(function(r){ if(r._oid) _selected[r._oid] = true; });
@@ -539,17 +593,17 @@ var PTT_EARLY = (function(){
   function print(){
     var plan = _computePlan();
     if(!plan.length){ if(typeof toast==='function') toast('No orders selected','er'); return; }
-    /* Staff-on-duty gate (parity with the per-station PTT print in scale.js) —
-       these pages also carry Engineer/Check Booth, so block if either is unset. */
+    /* v4.58 — the Staff-on-duty gate (block when Engineer / Check Booth unset)
+       NO LONGER applies to advance bulk printing: these slips are printed the
+       evening/morning BEFORE the duty staff may be assigned. Blank names print
+       as empty signature lines to be filled by hand. A soft toast still nudges
+       the operator so the omission is visible, but printing proceeds. */
     var eng = _staffEng().trim(), chk = _staffChk().trim();
     if(!eng || !chk){
-      var engEl = document.getElementById('scEngineer'), chkEl = document.getElementById('scCheckBooth');
       var missing = [];
-      if(!eng){ missing.push('Engineer'); if(engEl) engEl.classList.add('sc-staff-inp-err'); }
-      if(!chk){ missing.push('Check Booth'); if(chkEl) chkEl.classList.add('sc-staff-inp-err'); }
-      setTimeout(function(){ if(engEl) engEl.classList.remove('sc-staff-inp-err'); if(chkEl) chkEl.classList.remove('sc-staff-inp-err'); }, 2200);
-      if(typeof toast==='function') toast('⛔ Chưa chỉ định Staff on duty: '+missing.join(' & ')+' — vui lòng chọn trước khi in phiếu.','er');
-      return;
+      if(!eng) missing.push('Engineer');
+      if(!chk) missing.push('Check Booth');
+      if(typeof toast==='function') toast('ℹ Staff on duty chưa chọn: '+missing.join(' & ')+' — phiếu in trống tên ký, điền tay sau.','ok');
     }
     var pages = '', printedOids = {};
     plan.forEach(function(item){
@@ -564,14 +618,37 @@ var PTT_EARLY = (function(){
     /* RAM-only "printed" mark — never written to Firebase / the row object */
     var orders = Object.keys(printedOids);
     orders.forEach(function(o){ _printedOids[o] = Date.now(); });
-    if(typeof logAudit==='function'){ try{ logAudit('print:ptt_bulk_early', { pages: plan.length, orders: orders.length }); }catch(_){} }
+    if(typeof logAudit==='function'){ try{ logAudit(_mode==='today' ? 'print:ptt_bulk_today' : 'print:ptt_bulk_early', { pages: plan.length, orders: orders.length }); }catch(_){} }
     if(typeof toast==='function') toast('\uD83D\uDDA8 Printing '+plan.length+' PTT page(s) \u00B7 '+orders.length+' order(s)','ok');
     close();
   }
 
+  /* v4.58 — live counter on the two "PTT TODAY" buttons (Today Plan toolbar +
+     Scale Quick Actions). Counts Today Plan rows whose effective status is
+     Pending ('') or Entered — i.e. exactly the rows the 'today' modal lists.
+     Called from TP.refreshCounts/refreshBadge (plan.js) and once after boot. */
+  function updateTodayBadge(){
+    try{
+      if(typeof TP === 'undefined' || !TP.PLAN) return;
+      var n = 0;
+      for(var oid in TP.PLAN){
+        var r = TP.PLAN[oid]; if(!r) continue;
+        var st = (TP.getEffectiveStatus ? TP.getEffectiveStatus(r) : (r._status||'')) || '';
+        if(st==='' || st==='entered') n++;
+      }
+      ['peTodayCntScale','peTodayCntPlan'].forEach(function(id){
+        var el = document.getElementById(id);
+        if(el) el.textContent = n;
+      });
+    }catch(_){}
+  }
+  /* Initial fill once modules/cache have loaded (boot order independent). */
+  setTimeout(updateTodayBadge, 2500);
+
   return {
     open: open, close: close, toggle: toggle, selectAll: selectAll, print: print,
-    setGroupMode: setGroupMode, isEarly8: _isEarly8, gather: _gather
+    setGroupMode: setGroupMode, isEarly8: _isEarly8, gather: _gather,
+    updateTodayBadge: updateTodayBadge
   };
 })();
 

@@ -367,25 +367,21 @@ const SCALE = (function(){
        'done' rows (whose r._status is empty by design) and rows currently
        on a station ('loading') are both counted. Then sums INV.compute
        across both tanks for the cross-tank LPG/C3/C4 row. Pure RAM.
-       v4.22.17 — Second pass over SCALE.getStations() picks up any station
-       currently loading whose _oid did NOT match a plan row in the first
-       pass (e.g. manually-created plan rows with empty _oid, or stations
-       loading a truck not represented in today's plan). Their station.qty
-       (operator-typed in-progress volume) is added to LOADED so the figure
-       includes every truck physically loading at this moment. */
+       (v4.22.17 second pass over stations REMOVED in v4.59 — live loading
+       trucks are no longer added to LOADED; see the sale-plan rule below.) */
     /* v4.55.x — KHỚP logic với Customer Ledger (đúng số liệu):
        • PLAN  = Σ qty (CHỈ trường qty, KHÔNG fallback contractQty — contractQty là
                  cả hợp đồng, dùng nó sẽ thổi phồng PLAN) của đơn KHÔNG cancel.
-       • LOADED= Σ khối lượng cân THỰC (TL) cho đơn 'done' (đổi kg→MT), thiếu thì
-                 dùng qty; cộng thêm qty trạm đang nạp (live) ở vòng 2 bên dưới.
-       Tránh các lỗi cũ: dùng plan qty thay vì cân thực, đếm cả đơn cancel. */
+       v4.59 — LOADED/REMAIN theo dõi KẾ HOẠCH SALE, toàn bộ theo cột qty (MT):
+       • LOADED= Σ plan qty của đơn 'done' — KHÔNG dùng cân thực TL, KHÔNG
+                 max tole, KHÔNG cộng trạm đang nạp (đã bỏ vòng 2 cũ — nó làm
+                 số lệch so với thanh Plan/Loaded/Remain bên tab Today Plan).
+       • REMAIN= PLAN − LOADED. Khớp 1:1 với renderLedger (plan.js). */
     let planTotalMt = 0, planDoneLoadMt = 0;
-    const countedOids = new Set();
     const hasTP = (typeof TP !== 'undefined' && TP.PLAN);
     const getEff = (hasTP && typeof TP.getEffectiveStatus === 'function')
       ? TP.getEffectiveStatus : null;
-    const getAct = (hasTP && typeof TP.getEffectiveActual === 'function')
-      ? TP.getEffectiveActual : null;
+    /* v4.59 — getEffectiveActual không còn dùng ở đây (LOADED theo plan qty) */
     let planRowCount = 0;
     let planDoneCount = 0;   /* v4.5x — số ĐƠN đã complete (status done) */
     if(hasTP){
@@ -402,36 +398,12 @@ const SCALE = (function(){
         planTotalMt += qty;
         if(st === 'done'){
           planDoneCount++;                                   /* đếm số đơn complete */
-          const akg = getAct ? parseFloat(getAct(r)) : NaN;  /* khối lượng cân thực (kg) */
-          planDoneLoadMt += (isFinite(akg) && akg > 0) ? akg/1000 : qty;
-          const oid = String(r._oid||'').trim();
-          if(oid) countedOids.add(oid);                      /* tránh trạm đếm trùng */
+          planDoneLoadMt += qty;                             /* v4.59 — plan qty, không dùng actual */
         }
-        /* 'loading' KHÔNG cộng ở đây — vòng 2 cộng qty trạm đang nạp (live) */
+        /* v4.59 — 'loading' KHÔNG cộng: LOADED chỉ tính đơn đã complete để
+           khớp thanh thống kê Today Plan (vòng 2 station cũ đã bỏ). */
       });
     }
-    /* v4.22.17 — Station-level second pass: add qty for any station currently
-       loading whose _oid wasn't already counted via the plan loop. Uses the
-       station's own qty (what's actually being loaded right now), not plan.qty.
-       Skips already-counted oids and skips loading sessions whose plan row was
-       already counted under 'done' (TL row exists). */
-    try{
-      const stations = (typeof SCALE !== 'undefined' && SCALE.getStations) ? SCALE.getStations() : null;
-      if(stations){
-        Object.values(stations).forEach(s => {
-          if(!s || s.status !== 'loading') return;
-          const sOid = String(s._oid||'').trim();
-          if(sOid && countedOids.has(sOid)) return;          /* already counted via plan loop */
-          const q = parseFloat(s.qty) || 0;
-          if(q <= 0) return;
-          planDoneLoadMt += q;
-          /* v4.5x — đếm đơn LOADED tạm tính: xe đang nạp ở trạm cũng tính là
-             "loaded", khớp đúng cách LOADED qty cộng qty trạm đang nạp (live).
-             Mirror qty 1:1 — không dedup riêng để count & qty luôn đồng bộ. */
-          planDoneCount++;
-        });
-      }
-    }catch(_){}
     const planRemainMt = Math.max(0, planTotalMt - planDoneLoadMt);
     const fmtMt = v => v > 0
       ? (Math.round(v * 10) / 10).toFixed(1)
@@ -2145,6 +2117,14 @@ const SCALE = (function(){
         const val=s.val();
         if(val){ for(let i=1;i<=4;i++) if(val[i]) DB_SC.stations[i]=val[i]; }
         if(document.getElementById('sub-scale')?.classList.contains('on')) scRenderCtrl();
+        /* v4.59 — CRITICAL SYNC FIX: Today Plan AUTO status ('loading') is
+           computed from DB_SC.stations at render time. Local station changes
+           already trigger TP.refreshStatus (updateStation), but REMOTE changes
+           (another machine assigning / finishing a load) updated DB_SC without
+           telling the plan to re-render — status stayed Pending/stale until an
+           unrelated redraw or an AUTO-toggle. RAM-only, no Firebase traffic. */
+        try{ if(typeof TP !=='undefined' && TP.refreshStatus)  TP.refreshStatus();  }catch(_){}
+        try{ if(typeof TMR!=='undefined' && TMR.refreshStatus) TMR.refreshStatus(); }catch(_){}
       });
       FB_SC.ref('tank_config').on('value',snap=>{
         const val=snap.val();
@@ -2793,6 +2773,22 @@ const SCALE = (function(){
     scDestSearch, scDestPick, scDestKeydown, scGiToggle,
     certSearch, certModalOpen, certModalClose, certModalSave,
     getStations:()=>DB_SC.stations, getStation:(id)=>DB_SC.stations[id], getTkCfg:()=>SC_TK_CFG,
+    /* v4.59 — selected tank/lot resolver for advance-printed PTTs (PTT_EARLY
+       bulk "PTT Today"). Returns {name:'TK-3501', lotFull:'LPG-2026-7', ...}
+       from the tank SELECTED on the Scale tab; pure orders resolve their
+       dedicated pure tank + next Pure-Log lot — the SAME rule used by
+       scAssignToStation and the queue PTT (_scWaitPttPrint). RAM-only. */
+    tkGetActive,
+    tankForType:(type)=>{
+      let tk = tkGetActive();
+      const pt = _scPureType(type);
+      if(pt){
+        const pn = pt==='C3' ? '3301' : '3401';
+        let plot=''; try{ if(typeof PLOG!=='undefined' && PLOG.nextLot) plot = PLOG.nextLot(pt); }catch(_){}
+        tk = { name:'TK-'+pn, key:'pure', lotFull:plot, lotNum:plot, initWt:0 };
+      }
+      return tk;
+    },
     /* v4.57 — authoritative turn for printing (DN "Số trạm" = stId-turn).
        Returns the SAME turn the TL Data row was written with (_tlFreezeTurn),
        so the printed DN can never drift from TL/modal. Falls back to the

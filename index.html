@@ -440,6 +440,7 @@
         <button class="sc-sc-btn sc-sc-btn-sap"     onclick="spOpenPaste()"   title="Paste SAP ZMMFR022 from Excel">📊 PASTE SAP</button>
         <button class="sc-sc-btn sc-sc-btn-ktptvc"  onclick="scOpenKtptvc()"  title="Open KTPTVC form (print)">🔍 KTPTVC</button>
         <button class="sc-sc-btn sc-sc-btn-early"   onclick="PTT_EARLY.open()" title="Bulk print PTT for early-morning orders (Tomorrow Plan note contains '8' = arrive before 8AM). Date = plan date; lot/tank are placeholders.">🖨 EARLY-8AM PTT</button>
+        <button class="sc-sc-btn sc-sc-btn-ptoday"  onclick="PTT_EARLY.open('today')" title="Bulk print PTT from Today Plan — every order still Pending / Entered. Tick/untick in the list to choose which to print. Lot/tank are placeholders.">🖨 PTT TODAY <span class="sc-sc-badge" id="peTodayCntScale">0</span></button>
         <span class="sc-sc-sep"></span>
         <button class="sc-sc-btn sc-sc-btn-tk1"     onclick="TKV.open('3501')" title="View outgoing orders from TK-3501 (compact TL viewer)">🛢 TK-3501</button>
         <button class="sc-sc-btn sc-sc-btn-tk2"     onclick="TKV.open('3502')" title="View outgoing orders from TK-3502 (compact TL viewer)">🛢 TK-3502</button>
@@ -756,6 +757,7 @@
         <span class="tp-syncnote" title="Per-row ☑ column: CHECKED = status &amp; actual follow SCALE/WMS automatically; UNCHECKED = manual entry (locked).">☑ Per-row auto-sync</span>
         <button class="btn btn-amber" onclick="tpCreateTemp()" title="Assign a temp DO (TMP) to every order without a real DO (DO column says 'after loading' / empty). Runs automatically on paste.">🔢 Create Temp DO</button>
         <button class="btn btn-green" onclick="tpOpenPaste()">📋 Paste from Excel</button>
+        <button class="btn" style="background:#7b2d8e;color:#fff;border-color:#7b2d8e" onclick="PTT_EARLY.open('today')" title="Bulk print PTT from Today Plan — every order still Pending / Entered. Tick/untick in the list to choose which to print. Lot/tank are placeholders.">🖨 PTT Today (<span id="peTodayCntPlan">0</span>)</button>
         <button class="btn btn-blue" onclick="tpExportCsv()">⬇ Export</button>
         <button class="btn btn-red-soft" onclick="tpClearAll()" title="Delete every row in Today Plan">🗑 Clear All</button>
       </div>

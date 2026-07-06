@@ -1626,6 +1626,12 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 /* KTPTVC — purple */
 .sc-sc-btn-ktptvc{border-color:#7b2d8e;color:#7b2d8e;background:#f3e8ff;}
 .sc-sc-btn-ktptvc:hover{background:#7b2d8e;color:#fff;}
+/* v4.58 — PTT TODAY (bulk print from Today Plan, Pending+Entered) — crimson */
+.sc-sc-btn-ptoday{border-color:#c2185b;color:#c2185b;background:#fde8f0;}
+.sc-sc-btn-ptoday:hover{background:#c2185b;color:#fff;}
+.sc-sc-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;
+  padding:0 5px;border-radius:9px;background:#c2185b;color:#fff;font-size:10px;font-weight:700;line-height:1;}
+.sc-sc-btn-ptoday:hover .sc-sc-badge{background:#fff;color:#c2185b;}
 /* v4.29.1 — visual separator between PASTE/PRINT group and tank-viewer group */
 .sc-sc-sep{display:inline-block;width:1px;height:22px;background:var(--border);margin:0 2px;}
 /* TK-3501 — blue (matches tank-3501 colour throughout app) */

@@ -284,6 +284,7 @@ function _makePlanModule(opts){
         _seq:        gseq++,                                       /* v4.55.4 — paste/Excel source order */
         _status:     '',
         _actualQty:  '',
+        _autoSync:   true,                                         /* v4.59 — auto-sync is ALWAYS the default */
         _forDate:    planDate
       });
     }
@@ -411,6 +412,11 @@ function _makePlanModule(opts){
       nr._oid       = or._oid;
       nr._status    = or._status || '';
       nr._actualQty = or._actualQty || '';
+      /* v4.59 — carry the per-row auto flag through the re-paste. Before this,
+         a matched row whose _oid changed (TMP → real DO) was written as a FULL
+         node from `nr` (which had no _autoSync), silently dropping a manual
+         lock / cancel override. Default stays AUTO (true). */
+      nr._autoSync  = (or._autoSync === false) ? false : true;
       nr._forDate   = forDate;
       const newDO = String(nr.doNum||'').trim();
       const oldDO = String(or.doNum||'').trim();
@@ -443,6 +449,7 @@ function _makePlanModule(opts){
       nr._oid = resolveOid(nr, forDate, seqMap);
       nr._forDate = forDate;
       nr._status = nr._status || '';
+      nr._autoSync = true;               /* v4.59 — new rows are ALWAYS auto */
       if(isTempOid(String(nr._oid||''))){
         nr.doNum = nr._oid;
       }
@@ -499,6 +506,7 @@ function _makePlanModule(opts){
       nr._forDate = forDate;
       nr._status = '';
       nr._actualQty = '';
+      nr._autoSync = true;               /* v4.59 — wipe restores the AUTO default */
       if(isTempOid(String(nr._oid||''))){
         nr.doNum = nr._oid;
       }
@@ -748,6 +756,45 @@ function _makePlanModule(opts){
       try{ renderLedger(); }catch(_){}
     }, 30);
     toast('Row '+(row.plate||oid)+': Auto-sync '+(goingAuto?'ON':'OFF (manual)'), 'ok');
+  }
+
+  /* v4.59 — CANCEL from AUTO mode, one click.
+     Operators must be able to cancel an order without first hunting for the
+     AUTO checkbox. This flips the row to MANUAL and stores the given status
+     (always 'cancel' today) in ONE atomic Firebase write. The current computed
+     Actual is snapshotted too, so a partially-loaded row keeps its weight.
+     Re-checking the AUTO box (toggleRowSync) un-cancels: it wipes the override
+     and the row goes back to computed status. */
+  function setManualStatus(oid, status){
+    const row = PLAN[oid];
+    if(!row) return;
+    if(!FB_DB){ toast('Offline — Firebase not connected','er'); return; }
+    if(!canWrite(PERMK)){ toast('You do not have permission','er'); return; }
+    const now  = Date.now();
+    const snapAct = computeActualFromState(row);   /* keep whatever was loaded */
+    const payload = {};
+    payload[`${FBN}${oid}/_autoSync`]  = false;
+    payload[`${FBN}${oid}/_status`]    = status;
+    payload[`${FBN}${oid}/_actualQty`] = snapAct || '';
+    payload[`${FBN}${oid}/lastBy`]     = CURRENT_USER.name;
+    payload[`${FBN}${oid}/lastAt`]     = now;
+    row._autoSync  = false;
+    row._status    = status;
+    row._actualQty = snapAct || '';
+    row.lastBy = CURRENT_USER.name;
+    row.lastAt = now;
+    bumpVersion(payload);
+    _suppressEcho++;
+    FB_DB.ref().update(payload)
+      .then(()=>{ try{ logAudit(PERMK + ':status', oid, '_status', '', status, 'cancel from auto'); }catch(_){} })
+      .catch(e=>{ console.error('plan setManualStatus', e); toast('Status write failed','er'); })
+      .finally(()=>setTimeout(()=>{ _suppressEcho--; }, 600));
+    setTimeout(()=>{
+      if(table){ try{ const r = table.getRow(oid); if(r){ r.reformat(); rowFmt(r); } }catch(_){} }
+      refreshCounts();
+      try{ renderLedger(); }catch(_){}
+    }, 30);
+    toast('Row '+(row.plate||oid)+': '+status.toUpperCase()+' (Auto-sync OFF — re-check ☑ to undo)', 'ok');
   }
 
   /* -------- Ensure temp DOs for orders without a real DO --------
@@ -1281,28 +1328,41 @@ function _makePlanModule(opts){
   }
 
   function statusEditor(cell, onRendered, success, cancel){
-    /* Refuse to open in AUTO mode — status is computed there, manual edits would
-       be discarded by autoSet. Operator must toggle the row off Auto first. */
+    /* v4.59 — AUTO mode no longer refuses outright. Status is still computed
+       there (Pending/Loading/Done follow the scale + TL Data), but the
+       operator may pick CANCEL directly: it flips the row to MANUAL + cancel
+       in one write (setManualStatus). Other statuses stay disabled in AUTO —
+       they would be overwritten by the computed value anyway. */
     const rowData = cell.getRow().getData();
-    if(rowData._autoSync !== false){
-      toast('Uncheck Auto-sync (☑) to edit status manually', '');
-      cancel();
-      return document.createElement('input');
-    }
-    /* custom popup editor anchored to the cell — used only in MANUAL mode. */
-    const current = rowData._status || '';
+    const isAuto  = rowData._autoSync !== false;
+    const current = isAuto ? getEffectiveStatus(rowData) : (rowData._status || '');
+    const oid     = String(rowData._oid||'');
     const menu = document.createElement('div');
     menu.className = 'tp-stdd';
     STATUS_OPTS.forEach(opt=>{
       const item = document.createElement('div');
+      const disabled = isAuto && opt.val !== 'cancel';
       item.className = 'tp-stdd-item' + (current === opt.val ? ' on' : '');
+      if(disabled){
+        item.style.opacity = '.45';
+        item.style.cursor  = 'not-allowed';
+        item.title = 'Auto-sync ON — this status is computed from the scale / TL Data. Uncheck ☑ to set it manually.';
+      }
       item.innerHTML = `<span class="pdot" style="background:${opt.cls==='s-pending'?'#90a0ad':
         opt.cls==='s-entered'?'#00b8c8':opt.cls==='s-loading'?'#e8740c':
         opt.cls==='s-done'?'#1f9d55':'#d8392b'}"></span>${opt.icon} ${opt.label}`;
       item.onmousedown = e=>{ e.preventDefault(); e.stopPropagation();
-        success(opt.val);
+        if(disabled){ toast('Auto-sync ON — only Cancel can be set here. Uncheck ☑ for full manual control.',''); return; }
         document.body.removeChild(menu);
         document.removeEventListener('mousedown', closer, true);
+        if(isAuto && opt.val === 'cancel'){
+          /* bypass Tabulator's cellEdited (which writes _status only and would
+             be ignored while _autoSync is true) — do the atomic flip instead. */
+          cancel();
+          setManualStatus(oid, 'cancel');
+          return;
+        }
+        success(opt.val);
       };
       menu.appendChild(item);
     });
@@ -1550,19 +1610,29 @@ function _makePlanModule(opts){
     document.getElementById(ID + 'CntTotal').textContent    = all.length;
     document.getElementById(ID + 'CntShown').textContent    =
       table ? table.getRows('active').length : all.length;
+    /* v4.58 — live counter on the "PTT TODAY" bulk-print buttons (Scale Quick
+       Actions + Today Plan toolbar). Only the Today module drives it. */
+    if(ID === 'tp' && typeof PTT_EARLY !== 'undefined' && PTT_EARLY.updateTodayBadge){
+      try{ PTT_EARLY.updateTodayBadge(); }catch(_){}
+    }
   }
   /* Re-render rows when an external module (SCALE, TL) changes state.
      Call without args to refresh everything, or with a specific _oid to refresh one row.
      Pure RAM op — no Firebase reads or writes. */
   function refreshStatus(oid){
-    if(!table) return;
-    if(oid){
-      try{
-        const r = table.getRow(oid);
-        if(r){ r.reformat(); rowFmt(r); }
-      }catch(_){}
-    } else {
-      try{ table.getRows().forEach(r=>{ r.reformat(); rowFmt(r); }); }catch(_){}
+    /* v4.59 — do NOT bail out when the Tabulator isn't built yet. The default
+       view is the LEDGER; returning early here dropped every SCALE/TL push,
+       leaving the ledger stuck on stale status/actual until the operator
+       toggled the AUTO box (whose handler calls renderLedger directly). */
+    if(table){
+      if(oid){
+        try{
+          const r = table.getRow(oid);
+          if(r){ r.reformat(); rowFmt(r); }
+        }catch(_){}
+      } else {
+        try{ table.getRows().forEach(r=>{ r.reformat(); rowFmt(r); }); }catch(_){}
+      }
     }
     refreshCounts();
     renderLedger();   /* v4.35.0 — statuses changed (SCALE/TL push) → refresh ledger pills */
@@ -1576,6 +1646,11 @@ function _makePlanModule(opts){
        on a different date than the one currently being viewed. */
     const el = document.getElementById(ID + 'BadgeCount');
     if(el) el.textContent = Object.keys(PLAN).length;
+    /* v4.58 — data changed (Firebase push / paste / delete) → refresh the
+       "PTT TODAY" button counters too (refreshCounts only runs with a table). */
+    if(ID === 'tp' && typeof PTT_EARLY !== 'undefined' && PTT_EARLY.updateTodayBadge){
+      try{ PTT_EARLY.updateTodayBadge(); }catch(_){}
+    }
     /* Whenever data changes, also rebuild the toolbar date chips so they
        always reflect the actual set of dates present in PLAN. */
     _refreshDateChips();
@@ -2194,22 +2269,33 @@ function _makePlanModule(opts){
   function ledgerPickStatus(oid, td, ev){
     if(ev){ ev.stopPropagation(); }
     const row = PLAN[oid]; if(!row) return;
-    if(row._autoSync !== false){ toast('Uncheck AUTO first to set status manually', 'er'); return; }
     if(!td || td.querySelector('select')) return;
-    const cur = String(row._status||'');
+    /* v4.59 — AUTO rows are no longer blocked: the dropdown opens with every
+       computed status disabled and only CANCEL selectable (atomic flip to
+       MANUAL + cancel via setManualStatus). Manual rows keep full choice. */
+    const isAuto = row._autoSync !== false;
+    const cur = isAuto ? String(getEffectiveStatus(row)||'') : String(row._status||'');
     const sel = document.createElement('select');
     sel.className = 'pv-statsel';
     STATUS_OPTS.forEach(o=>{
       const op = document.createElement('option');
       op.value = o.val; op.textContent = o.icon + ' ' + o.label;
       if(o.val === cur) op.selected = true;
+      if(isAuto && o.val !== 'cancel' && o.val !== cur) op.disabled = true;
       sel.appendChild(op);
     });
+    if(isAuto) sel.title = 'Auto-sync ON — only 🚫 Cancelled can be picked here. Uncheck AUTO for full manual control.';
     td.innerHTML = ''; td.appendChild(sel); sel.focus();
     let done = false;
     const commit = ()=>{ if(done) return; done = true;
       const v = sel.value;
-      if(v !== cur) _ledgerCommit(oid, '_status', v); else renderLedger(); };
+      if(v === cur){ renderLedger(); return; }
+      if(isAuto){
+        if(v === 'cancel') setManualStatus(oid, 'cancel');
+        else { toast('Auto-sync ON — only Cancel can be set here','er'); renderLedger(); }
+        return;
+      }
+      _ledgerCommit(oid, '_status', v); };
     sel.addEventListener('change', commit);
     sel.addEventListener('blur', commit);
     sel.addEventListener('keydown', e=>{ if(e.key === 'Escape'){ done = true; e.stopPropagation(); renderLedger(); } });
@@ -2237,14 +2323,14 @@ function _makePlanModule(opts){
     info.forEach(i=>{ if(cnt[i.chip] !== undefined) cnt[i.chip]++; });
     const shown = (_ledgerFilter === 'all') ? info : info.filter(i => i.chip === _ledgerFilter);
 
+    /* v4.59 — Plan/Loaded/Remain theo dõi KẾ HOẠCH SALE: toàn bộ theo cột
+       qty (MT). Loaded = Σ qty đơn 'done' (KHÔNG dùng cân thực TL, KHÔNG
+       max tole); Remain = Plan − Loaded. Khớp 1:1 với PLAN card tab Scale. */
     let planMT = 0, loadedMT = 0;
     info.forEach(i=>{
       const q = parseFloat(i.r.qty) || 0;
       if(i.st !== 'cancel') planMT += q;
-      if(i.st === 'done'){
-        const akg = parseFloat(computeActualFromState(i.r));
-        loadedMT += (isFinite(akg) && akg > 0) ? akg/1000 : q;
-      }
+      if(i.st === 'done') loadedMT += q;
     });
     const remainMT = Math.max(0, planMT - loadedMT);
 
@@ -2325,8 +2411,10 @@ function _makePlanModule(opts){
           const autoOnS = r._autoSync !== false;
           const lock = autoOnS ? ' lock' : '';
           const btn = '<span class="pv-stwrap"><span class="pv-sbtn split'+scls+lock+'">'+lbl+'</span><span class="pv-sbtn arrow'+scls+lock+'">▾</span></span>';
+          /* v4.59 — AUTO cells are clickable too: the picker opens with only
+             🚫 Cancel selectable (computed statuses stay read-only). */
           stCell = autoOnS
-            ? '<td class="pv-stc" title="Auto-sync ON (computed). Uncheck AUTO to set manually.">'+btn+'</td>'
+            ? '<td class="pv-stc pv-editable" title="Auto-sync ON (computed). Click to CANCEL this order — uncheck AUTO for full manual." onclick="'+G+'.ledgerPickStatus(\''+oid+'\',this,event)">'+btn+'</td>'
             : '<td class="pv-stc pv-editable" title="Click to set status (manual)" onclick="'+G+'.ledgerPickStatus(\''+oid+'\',this,event)">'+btn+'</td>';
         }
 
@@ -2453,6 +2541,12 @@ function _makePlanModule(opts){
       refreshBadge();
       attachFirebase();
       applyView();   /* v4.35.0 — restore the saved Ledger/Table view */
+      /* v4.59 — self-healing repaint. Status/Actual are COMPUTED at render
+         time (RAM-only); if any push event is ever missed (listener race,
+         suppressed echo, tab hidden), the row froze until a manual AUTO
+         toggle. A cheap 30s reformat guarantees the view converges to the
+         real TL / station state with zero Firebase traffic. */
+      setInterval(()=>{ try{ if(!document.hidden) refreshStatus(); }catch(_){} }, 30000);
     },
     buildTable,
     rebuildTableData,
@@ -2623,7 +2717,11 @@ function tmrConfirmPromote(){
     /* drop runtime status — promoted rows start fresh (AUTO will recompute) */
     cloned._status    = '';
     cloned._actualQty = '';
-    cloned._autoSync  = (r._autoSync !== false);   /* preserve manual locks */
+    /* v4.59 — promoted rows are ALWAYS reset to AUTO. Preserving a manual lock
+       here was a trap: _status/_actualQty are wiped above, so a row promoted
+       with _autoSync:false stayed frozen on "Pending" all day (never synced
+       Loading/Done from the scale) until someone noticed the unchecked box. */
+    cloned._autoSync  = true;
     cloned.lastBy = (typeof CURRENT_USER !== 'undefined' && CURRENT_USER.name) ? CURRENT_USER.name : 'system';
     cloned.lastAt = Date.now();
     payload['plan_today/'+r._oid] = cloned;
