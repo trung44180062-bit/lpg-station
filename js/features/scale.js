@@ -373,9 +373,10 @@ const SCALE = (function(){
        • PLAN  = Σ qty (CHỈ trường qty, KHÔNG fallback contractQty — contractQty là
                  cả hợp đồng, dùng nó sẽ thổi phồng PLAN) của đơn KHÔNG cancel.
        v4.59 — LOADED/REMAIN theo dõi KẾ HOẠCH SALE, toàn bộ theo cột qty (MT):
-       • LOADED= Σ plan qty của đơn 'done' — KHÔNG dùng cân thực TL, KHÔNG
-                 max tole, KHÔNG cộng trạm đang nạp (đã bỏ vòng 2 cũ — nó làm
-                 số lệch so với thanh Plan/Loaded/Remain bên tab Today Plan).
+       • LOADED= Σ plan qty của đơn 'done' + đơn 'loading' (xe đang nạp tạm
+                 trừ khỏi REMAIN; nếu bị đẩy về queue → status về pending →
+                 REMAIN tự cộng lại). KHÔNG dùng cân thực TL, KHÔNG max tole,
+                 KHÔNG dùng station.qty (vòng 2 cũ đã bỏ — lấy qty plan row).
        • REMAIN= PLAN − LOADED. Khớp 1:1 với renderLedger (plan.js). */
     let planTotalMt = 0, planDoneLoadMt = 0;
     const hasTP = (typeof TP !== 'undefined' && TP.PLAN);
@@ -396,12 +397,10 @@ const SCALE = (function(){
         if(st === 'cancel') return;                          /* đơn huỷ: bỏ khỏi mọi tổng */
         planRowCount++;
         planTotalMt += qty;
-        if(st === 'done'){
-          planDoneCount++;                                   /* đếm số đơn complete */
-          planDoneLoadMt += qty;                             /* v4.59 — plan qty, không dùng actual */
+        if(st === 'done' || st === 'loading'){
+          planDoneCount++;                                   /* đếm đơn complete + đang nạp */
+          planDoneLoadMt += qty;                             /* v4.59 — plan qty, không actual/maxTol */
         }
-        /* v4.59 — 'loading' KHÔNG cộng: LOADED chỉ tính đơn đã complete để
-           khớp thanh thống kê Today Plan (vòng 2 station cũ đã bỏ). */
       });
     }
     const planRemainMt = Math.max(0, planTotalMt - planDoneLoadMt);
@@ -2650,6 +2649,31 @@ const SCALE = (function(){
         const found = Object.values(TP.PLAN).find(p => String(p._oid || '') === String(it._oid));
         if(found) row = found;
       }
+      /* v4.59 — STALE-SNAPSHOT RESCUE. If the queue item's _oid no longer
+         exists (its TMP DO was promoted to a real DO while the truck waited),
+         re-find today's plan row by DO, then by plate+driver, so the station
+         gets the CURRENT identity and status keeps syncing. */
+      if(!row && typeof TP !== 'undefined' && TP.PLAN){
+        const doS = String(it.doNum || '').trim();
+        if(doS){
+          row = Object.values(TP.PLAN).find(p =>
+            String(p._oid||'') === doS || String(p.doNum||'').trim() === doS) || null;
+        }
+        if(!row){
+          const pk = String(it.plate||'').replace(/[-.\s]/g,'').toUpperCase();
+          const dk = String(it.driver||'').replace(/\s+/g,'').toLowerCase();
+          const today = _scWaitIsoToday();
+          if(pk){
+            row = Object.values(TP.PLAN).find(p =>
+              String(p.plate||'').replace(/[-.\s]/g,'').toUpperCase() === pk
+              && String(p._forDate||'') === today
+              && (!dk || String(p.driver||'').replace(/\s+/g,'').toLowerCase() === dk)
+              && !['done','cancel'].includes(String((TP.getEffectiveStatus&&TP.getEffectiveStatus(p))||'').toLowerCase())
+            ) || null;
+          }
+        }
+        if(row) try{ logAudit('scale:queue:rescue', String(it._oid||it.doNum||'_'), '_relink', String(it._oid||''), String(row._oid||''), 'stale queue snapshot'); }catch(_){}
+      }
     }catch(_){}
     if(!row){
       row = {
@@ -2681,6 +2705,32 @@ const SCALE = (function(){
        no active tank), the item stays in queue for retry. Centralized in
        v4.21.3 — fixes the "lost item on failed assign" race. */
     scAssignToStation(stId, row);
+  }
+
+  /* v4.59 — relink queue items after a TMP → real-DO promotion.
+     SYNC.promotePair already relinked in-flight STATIONS but never the WAIT
+     QUEUE: a truck sitting in queue while its DO got promoted kept the stale
+     TMP _oid/doNum, so waitClickAssign couldn't find the plan row anymore,
+     assigned the STALE snapshot to the station, and the plan row never synced
+     'loading'/'done' (the Xuyên case — station showed LON26070601 while the
+     plan row was already 86692997). RAM + queue-save only. */
+  function waitRelink(oldOid, newOid){
+    const oS = String(oldOid||'').trim(), nS = String(newOid||'').trim();
+    if(!oS || !nS || oS === nS) return 0;
+    let hits = 0;
+    SC_WAIT.forEach(it=>{
+      if(String(it._oid||'').trim() === oS){
+        it._oid = nS;
+        if(String(it.doNum||'').trim() === oS || !String(it.doNum||'').trim()) it.doNum = nS;
+        hits++;
+      }
+    });
+    if(hits){
+      _scRenderWait();
+      _scWaitScheduleSave();
+      try{ logAudit('scale:queue:relink', oS, '_oid', oS, nS, 'promote relink'); }catch(_){}
+    }
+    return hits;
   }
 
   function waitDel(idx){
@@ -2809,6 +2859,7 @@ const SCALE = (function(){
     /* QUEUE (v4.21.0) */
     waitSearch, waitHideRes, waitPick, waitPopClose, waitPopAssign, waitPopQueue,
     waitClickAssign, waitDel, waitClear: scWaitClear,
+    waitRelink,   /* v4.59 — SYNC.promotePair relinks queued items TMP→real DO */
     _scWaitBackFromStation, _scWaitInit, _scWaitPositionRes
   };
 })();

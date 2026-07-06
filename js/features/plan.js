@@ -2324,13 +2324,14 @@ function _makePlanModule(opts){
     const shown = (_ledgerFilter === 'all') ? info : info.filter(i => i.chip === _ledgerFilter);
 
     /* v4.59 — Plan/Loaded/Remain theo dõi KẾ HOẠCH SALE: toàn bộ theo cột
-       qty (MT). Loaded = Σ qty đơn 'done' (KHÔNG dùng cân thực TL, KHÔNG
-       max tole); Remain = Plan − Loaded. Khớp 1:1 với PLAN card tab Scale. */
+       qty (MT). Loaded = Σ qty đơn 'done' + 'loading' (xe đang nạp tạm trừ
+       khỏi Remain; về queue thì tự cộng lại). KHÔNG cân thực TL, KHÔNG max
+       tole. Remain = Plan − Loaded. Khớp 1:1 với PLAN card tab Scale. */
     let planMT = 0, loadedMT = 0;
     info.forEach(i=>{
       const q = parseFloat(i.r.qty) || 0;
       if(i.st !== 'cancel') planMT += q;
-      if(i.st === 'done') loadedMT += q;
+      if(i.st === 'done' || i.st === 'loading') loadedMT += q;
     });
     const remainMT = Math.max(0, planMT - loadedMT);
 

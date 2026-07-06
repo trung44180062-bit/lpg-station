@@ -151,6 +151,10 @@ const SYNC = (function(){
           });
         }
       }catch(_){}
+      /* v4.59 — relink WAIT-QUEUE items too. Trucks queued while their DO got
+         promoted kept the stale TMP _oid; the later assign then carried the
+         stale identity onto the station and status never synced. */
+      try{ if(typeof SCALE !== 'undefined' && SCALE.waitRelink) SCALE.waitRelink(oid, delivId); }catch(_){}
       /* propagate the new DO to TL Data rows (Phase 3 wires TL.renameDoNo; guarded no-op until then) */
       try{ if(typeof TL !== 'undefined' && TL.renameDoNo) TL.renameDoNo(oid, delivId); }catch(_){}
       console.log('[SYNC] promoted', oid, '→', delivId);
