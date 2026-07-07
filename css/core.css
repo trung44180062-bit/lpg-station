@@ -2155,6 +2155,8 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
   font-family:'Oswald',sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;cursor:pointer;}
 .eng-edit-btn.csn{background:var(--blue);color:#fff;}
 .eng-edit-btn.csn:hover{filter:brightness(1.08);}
+.eng-edit-btn.notify{background:var(--orange);color:#fff;}   /* v4.60 — standalone NOTIFY */
+.eng-edit-btn.notify:hover{filter:brightness(1.08);}
 .eng-edit-btn.opengc{background:#7b2d8e;color:#fff;}
 .eng-edit-btn.opengc:hover{filter:brightness(1.08);}
 .eng-edit-btn.save{background:var(--green);color:#fff;padding:10px 26px;}

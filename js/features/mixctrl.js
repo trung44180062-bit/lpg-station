@@ -230,18 +230,26 @@ const MC = (function(){
     }
   }
 
-  /* ---------- Current C3 auto-fill (latest lot for that tank in ENG.ROWS) ---------- */
+  /* ---------- Current C3 auto-fill (latest lot for that tank in ENG.ROWS) ----------
+     v4.60 — MUST exclude the lot currently being mixed (mc-l). Before this
+     fix, once the current lot was SAVE-PASSed it became the "latest lot"
+     and AUTO fed the lot's OWN %C3 result back in as its initial %C3,
+     corrupting col[11] on the next save → CALC+SAVE in the edit modal
+     then reproduced wrong Filled C3/C4. Initial composition of lot N is
+     always the result of a lot < N. */
   function _autoFillCr(n){
     if(CR_MODE[n] !== 'auto') return;
     const tk = n==='1' ? '3501' : '3502';
     const crEl = _gid('mc-cr'+n), hEl = _gid('mc-h'+n);
     if(!crEl) return;
     const yr = new Date().getFullYear();
+    const curLot = parseInt(_gv('mc-l'+n)) || 0;   // lot being mixed on this panel
     let best = null;
     const rows = (typeof ENG !== 'undefined') ? ENG.ROWS : [];
     rows.forEach(r=>{
       const p = _parseLotNum(r[1]);
       if(!p || p.year !== yr) return;
+      if(curLot && p.num >= curLot) return;        // never self / future lots
       const rTk = String(r[2]||'').toUpperCase();
       if(!rTk.includes(tk)) return;
       const c3pct = parseFloat(String(r[8]||'').replace(/,/g,''));
@@ -1700,6 +1708,8 @@ const MC = (function(){
     calcFromRow, openGc,
     /* v4.55 — COQ import + spec table + quality evaluation */
     importCoqPick, coqFileChosen,
+    parseCoqWorkbook: _parseCoqWorkbook,   /* v4.61 — reused by ENG edit-modal COQ import */
+    fmtCoqDate: _fmtCoqDate,
     openSpec, closeSpec, saveSpec, resetSpec,
     evalQuality, evalRowQuality, qcRecalc
   };

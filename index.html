@@ -1597,8 +1597,10 @@
         </div>
         <div class="eng-edit-grid" id="engEditGrid"></div>
         <div class="eng-edit-foot">
-          <button class="eng-edit-btn opengc" onclick="ENG.openGc()" title="Load this lot into Mix Cal for GC entry / completion (resume Pending)">🧪 OPEN GC</button>
-          <button class="eng-edit-btn csn" onclick="ENG.calcSaveNotify()" title="Recalculate Filled C3/C4 from GC + Final Vol + Density, save and push to Scale Station">🧮 CALC + 💾 SAVE + 📢 NOTIFY</button>
+          <input type="file" id="engCoqFile" accept=".xlsx,.xls" style="display:none" onchange="ENG.coqChosen(this)">
+          <button class="eng-edit-btn opengc" onclick="ENG.importCoq()" title="Import lab COQ (.xlsx) into this row — validates Lot + Shore Tank, fills GC / COQ fields (nothing saved until you press CALC+SAVE or SAVE)">📄 IMPORT COQ</button>
+          <button class="eng-edit-btn csn" onclick="ENG.calcSaveClick()" title="DOUBLE-CLICK to recalculate Filled C3/C4 from GC + Final Vol + Density and save. A Pending/Fail row that becomes Pass auto-notifies Scale.">🧮 CALC + 💾 SAVE</button>
+          <button class="eng-edit-btn notify" onclick="ENG.notifyScale()" title="Push the CURRENT Filled C3/C4 values to the Scale Station 4-slot bar (no recalculation, no save)">📢 NOTIFY</button>
           <button class="eng-edit-btn save" onclick="ENG.saveEdit()">💾 SAVE</button>
           <button class="eng-edit-btn cancel" onclick="ENG.closeEdit()">Cancel</button>
         </div>

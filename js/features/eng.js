@@ -654,6 +654,7 @@ const ENG = (function(){
     const r = RID_MAP[_editingRid]; if(!r){ closeEdit(); return; }
     const modal = document.getElementById('engEditModal');
     if(!modal) return;
+    const qPrev = String(r[27]||'').trim().toLowerCase();   /* v4.61 — quality BEFORE this edit */
 
     /* string-preserving columns: date/time, lot/tank labels, quality, remark, COQ text cols */
     const strCols = new Set([3,4,5,1,2,27,28,34,35,36,40,41,42,44,45]);
@@ -689,13 +690,153 @@ const ENG = (function(){
     _pushRowFb(_editingRid, r);
     render();
     toast('💾 Changes saved — '+String(r[1]||'')+' '+String(r[2]||''), 'ok');
+    /* v4.61 — draft resumed to Pass (e.g. after IMPORT COQ) must reach the
+       Scale Station like every Mix-Cal Pass save does. Auto-notify ONLY on
+       the non-Pass → Pass transition; re-saving an already-Pass row stays
+       silent (use the 📢 NOTIFY button for a manual re-push). */
+    _notifyOnNewPass(r, qPrev);
     closeEdit();
+  }
+
+  /* v4.61 — push mix_notify when a row's Quality just BECAME Pass */
+  function _notifyOnNewPass(r, qPrev){
+    const qNew = String(r[27]||'').trim().toLowerCase();
+    if(qNew !== 'pass' || qPrev === 'pass') return;
+    const _n = v => { const x = parseFloat(String(v==null?'':v).replace(/,/g,'')); return isNaN(x) ? 0 : x; };
+    const fC3Kg = Math.round(Math.abs(_n(r[13])) * 1000);
+    const fC4Kg = Math.round(Math.abs(_n(r[14])) * 1000);
+    if(fC3Kg <= 0 && fC4Kg <= 0) return;
+    if(typeof MIXNOTIFY === 'undefined' || !MIXNOTIFY.pushNotify) return;
+    const tkStr = String(r[2]||'');
+    const tkName = tkStr.includes('3501') ? 'TK-3501'
+                : (tkStr.includes('3502') ? 'TK-3502' : tkStr);
+    const tkKey  = tkStr.includes('3501') ? 'tk1'
+                : (tkStr.includes('3502') ? 'tk2' : '');
+    const lotStr = String(r[1]||'');
+    try{
+      MIXNOTIFY.pushNotify(tkName, lotStr, fC3Kg, fC4Kg, tkKey);
+      toast('📢 Auto-notified Scale (Pending → Pass) · '+lotStr+' '+tkName
+          +' · C3:'+fC3Kg+' C4:'+fC4Kg+' kg','ok');
+    }catch(e){ console.warn('[ENG] _notifyOnNewPass', e); }
+  }
+
+  /* ============================================================
+     v4.61 — IMPORT COQ directly into the edit modal (replaces the
+     OPEN GC button). Reuses MC.parseCoqWorkbook (same file format as
+     the Tank Mix panel import), validates Lot + Shore Tank against
+     the row being edited, then fills the modal INPUTS only — nothing
+     is saved until the operator presses CALC+SAVE / SAVE.
+     ============================================================ */
+  function importCoq(){
+    if(!_editingRid){ toast('No row selected','warn'); return; }
+    const inp = document.getElementById('engCoqFile');
+    if(!inp){ toast('❌ File input missing','er'); return; }
+    inp.value = '';
+    inp.click();
+  }
+
+  function _coqLotParse(s){
+    const m = String(s||'').match(/(\d{4})\s*-\s*(\d+)\s*$/);
+    return m ? { year:parseInt(m[1]), num:parseInt(m[2]) } : null;
+  }
+
+  function coqChosen(inputEl){
+    const f = inputEl && inputEl.files && inputEl.files[0];
+    if(!f) return;
+    if(typeof XLSX === 'undefined'){ toast('❌ XLSX library not loaded','er'); return; }
+    if(typeof MC === 'undefined' || typeof MC.parseCoqWorkbook !== 'function'){
+      toast('❌ Mix Cal module not ready — open the Mix Cal tab once, then retry','er'); return;
+    }
+    const reader = new FileReader();
+    reader.onload = e => {
+      let coq;
+      try{
+        const wb = XLSX.read(e.target.result, {type:'array'});
+        coq = MC.parseCoqWorkbook(wb);
+      }catch(err){
+        console.warn('[ENG] COQ parse', err);
+        toast('❌ Không đọc được file COQ: '+err.message,'er');
+        return;
+      }
+      _applyCoqToModal(coq, f.name);
+    };
+    reader.onerror = ()=> toast('❌ Không đọc được file','er');
+    reader.readAsArrayBuffer(f);
+  }
+
+  function _applyCoqToModal(coq, fname){
+    if(!_editingRid){ toast('No row selected','warn'); return; }
+    const r = RID_MAP[_editingRid]; if(!r) return;
+    const modal = document.getElementById('engEditModal'); if(!modal) return;
+    /* ── 1. Lot check — mismatch → warn & ABORT (no data written) ── */
+    if(!coq.lot){
+      alert('⚠ KHÔNG TÌM THẤY SỐ LOT trong file COQ\n\nFile: '+fname+'\nKiểm tra lại file trước khi import.');
+      return;
+    }
+    const rowLotStr = String(r[1]||'');
+    const coqLot = _coqLotParse(coq.lot), rowLot = _coqLotParse(rowLotStr);
+    if(!rowLot){
+      alert('⚠ ROW CHƯA CÓ SỐ LOT HỢP LỆ\n\nRow: "'+rowLotStr+'"\nCOQ: '+coq.lot);
+      return;
+    }
+    if(!coqLot || coqLot.num !== rowLot.num || coqLot.year !== rowLot.year){
+      alert('❌ SỐ LOT KHÔNG KHỚP — DỮ LIỆU KHÔNG ĐƯỢC IMPORT\n\n'+
+            '• COQ file:  '+coq.lot+'\n'+
+            '• Row đang sửa:  '+rowLotStr+'\n\n'+
+            'Nhân viên có thể đã chọn sai file. Kiểm tra lại.');
+      toast('❌ COQ Lot '+coq.lot+' ≠ '+rowLotStr+' — không import','er');
+      return;
+    }
+    /* ── 2. Shore-tank check ── */
+    const rowTk = String(r[2]||'').replace(/[^\d]/g,'');
+    if(coq.tank){
+      const coqTk = String(coq.tank).replace(/[^\d]/g,'');
+      if(coqTk && rowTk && coqTk !== rowTk){
+        alert('❌ SAI BỒN — DỮ LIỆU KHÔNG ĐƯỢC IMPORT\n\n'+
+              '• COQ file:  TK'+coqTk+'\n'+
+              '• Row đang sửa:  TK-'+rowTk);
+        return;
+      }
+    }
+    /* ── 3. Fill modal INPUTS (not the row) — same col map as Tank Mix ── */
+    const setC = (col, v, dec)=>{
+      if(v == null || v === '') return;
+      const inp = modal.querySelector('input[data-col="'+col+'"]');
+      if(!inp) return;
+      inp.value = (typeof v === 'number')
+        ? String(parseFloat(v.toFixed(dec == null ? 4 : dec)))
+        : String(v);
+    };
+    const c = coq.comp || {};
+    const ch4Inp = modal.querySelector('input[data-col="16"]');
+    if(ch4Inp) ch4Inp.value = '';            // COQ has no CH4 line
+    setC(17, c.c2h6);  setC(18, c.c3h8);  setC(19, c.ic4);  setC(20, c.nc4);
+    setC(21, c.bd13);  setC(22, c.c5);    setC(23, c.olef);
+    setC(34, coq.no || '');
+    setC(35, coq.sampTime || '');
+    const anaFmt = (typeof MC.fmtCoqDate === 'function') ? MC.fmtCoqDate(coq.anaDate) : '';
+    setC(36, anaFmt);
+    setC(37, c.c3h6);  setC(38, coq.vp, 0);  setC(39, coq.sul, 2);
+    setC(40, coq.h2o); setC(41, coq.cu);     setC(42, coq.res);
+    setC(43, coq.mw, 2);
+    setC(44, coq.frv); setC(45, coq.frw);
+    setC(46, c.t2b);   setC(47, c.b1);   setC(48, c.ib);
+    setC(49, c.neoc5); setC(50, c.ic5);  setC(51, c.nc5);  setC(52, c.nc6);
+    /* Quantity = Final Vol · Density@15 — same as Tank Mix import */
+    if(coq.qty) setC(6,  coq.qty, 3);
+    if(coq.den) setC(33, coq.den, 4);
+    /* Finish time: only fill when EMPTY (a draft usually already has the
+       real finish time from the mix — don't clobber it with sampling time) */
+    const finInp = modal.querySelector('input[data-col="5"]');
+    if(finInp && !String(finInp.value||'').trim() && coq.sampTime) finInp.value = coq.sampTime;
+    toast('📄 Import COQ '+(coq.no||'')+' → '+rowLotStr+' — double-click 🧮 CALC + 💾 SAVE để tính Filled C3/C4','ok');
   }
 
   /* Bridge — Tank Log → Mix Cal: resume Pending lot into inline GC.
      Closes the edit modal first, then snapshots the row and calls
      MC.openGc with a defensive copy so concurrent edits can't shift
-     the live row mid-render. */
+     the live row mid-render. (Button removed from the modal in v4.61 —
+     kept as API for legacy callers.) */
   function openGc(){
     if(!_editingRid){ toast('No row selected','warn'); return; }
     const r = RID_MAP[_editingRid]; if(!r){ closeEdit(); return; }
@@ -709,16 +850,29 @@ const ENG = (function(){
     catch(e){ console.warn('[ENG] openGc', e); toast('⚠ openGc failed: '+e.message,'er'); }
   }
 
-  /* CALC + SAVE + NOTIFY — port of V406 engCalcSaveNotify (v4.24.0).
-     Reads modal inputs into the row, validates timing, calls
-     MC.calcFromRow to recompute Filled C3/C4/LPG/Qty/%C3/%C4/Odorant,
-     stamps Quality='Pass', persists to FB, and pushes mix_notify to
-     the Scale Station 4-slot bar via MIXNOTIFY.pushNotify. */
-  function calcSaveNotify(){
+  /* CALC + SAVE — port of V406 engCalcSaveNotify (v4.24.0), notify split
+     out in v4.60. Reads modal inputs into the row, validates timing,
+     calls MC.calcFromRow to recompute Filled C3/C4/LPG/Qty/%C3/%C4/
+     Odorant, stamps Quality='Pass' and persists to FB. It no longer
+     pushes mix_notify — use the separate 📢 NOTIFY button (notifyScale)
+     so a recalculation can be reviewed before the Scale Station is told. */
+  /* v4.61 — double-click gate: a single click only arms the button; the
+     recalculation runs on the second click within 600 ms. Prevents an
+     accidental tap from silently rewriting Filled C3/C4. */
+  let _csArmTs = 0;
+  function calcSaveClick(){
+    const now = Date.now();
+    if(now - _csArmTs < 600){ _csArmTs = 0; calcSave(); return; }
+    _csArmTs = now;
+    toast('🖱 Click ĐÔI để 🧮 CALC + 💾 SAVE (tránh bấm nhầm)','warn');
+  }
+
+  function calcSave(){
     if(!_editingRid){ toast('Nothing to recalculate','warn'); return; }
     const r = RID_MAP[_editingRid]; if(!r){ closeEdit(); return; }
     const modal = document.getElementById('engEditModal');
     if(!modal) return;
+    const qPrev = String(r[27]||'').trim().toLowerCase();   /* v4.61 — quality BEFORE recalc */
 
     /* 1) commit modal inputs to row (same rules as saveEdit) */
     const strCols = new Set([3,4,5,1,2,27,28]);
@@ -761,29 +915,89 @@ const ENG = (function(){
     r[9]  = parseFloat((out.rC4 * 100).toFixed(4));
     r[24] = parseFloat((out.rC3 * 100).toFixed(4));
     r[25] = parseFloat((out.rC4 * 100).toFixed(4));
+    /* v4.61 — verdict vs the COQ spec table (was a blind 'Pass' stamp,
+       V406 parity). C3-vs-target deviation stays a WARNING only. */
     r[27] = 'Pass';
+    if(typeof MC.evalRowQuality === 'function'){
+      try{
+        const ev = MC.evalRowQuality(r);
+        if(ev && ev.verdict){
+          r[27] = ev.verdict;
+          if(ev.fails.length) toast('⚠ Quality = FAIL: '+ev.fails.join(' · '),'er');
+          if(ev.warns.length) toast('⚠ '+ev.warns.join(' · '),'warn');
+        }
+      }catch(e){ console.warn('[ENG] evalRowQuality', e); }
+    }
     if(out.odoBD) r[26] = out.odoBD;
 
     _saveCache();
     _pushRowFb(_editingRid, r);
 
-    /* 5) notify the Scale Station 4-slot mix bar */
+    /* 5) refresh the modal inputs so the operator SEES the recomputed
+       values before deciding to 📢 NOTIFY */
+    const _setInp = (col, v) => {
+      const inp = modal.querySelector('input[data-col="'+col+'"]');
+      if(inp) inp.value = _fmtEditNum(v, col);
+    };
+    _setInp(13, r[13]); _setInp(14, r[14]); _setInp(15, r[15]);
+    _setInp(7,  r[7]);  _setInp(8,  r[8]);  _setInp(9,  r[9]);
+    if(out.odoBD) _setInp(26, r[26]);
+    const qInp = modal.querySelector('input[data-col="27"]');
+    if(qInp) qInp.value = String(r[27]||'');
+
     const tkStr = String(r[2]||'');
+    const tkName = tkStr.includes('3501') ? 'TK-3501'
+                : (tkStr.includes('3502') ? 'TK-3502' : tkStr);
+    const lotStr = String(r[1]||'');
+    render();
+    toast('✅ Calc+Save · '+lotStr+' '+tkName
+        +' · C3:'+_fmtEditNum(r[13],13)+' C4:'+_fmtEditNum(r[14],14)
+        +' ton — press 📢 NOTIFY to push to Scale', 'ok');
+    /* v4.61 — draft (Pending/Fail) that just became Pass auto-notifies
+       Scale, mirroring the Mix-Cal SAVE PASS behaviour. Re-calc of an
+       already-Pass row stays silent (📢 NOTIFY for manual push). */
+    _notifyOnNewPass(r, qPrev);
+  }
+
+  /* 📢 NOTIFY — v4.60, split out of CALC+SAVE+NOTIFY. Takes the CURRENT
+     modal values (no recalculation, no save) and pushes them to the
+     Scale Station 4-slot mix bar via MIXNOTIFY.pushNotify. */
+  function notifyScale(){
+    if(!_editingRid){ toast('No row selected','warn'); return; }
+    const r = RID_MAP[_editingRid]; if(!r){ closeEdit(); return; }
+    const modal = document.getElementById('engEditModal');
+    /* current value = what is in the modal input right now; fall back to row */
+    const _cur = col => {
+      const inp = modal ? modal.querySelector('input[data-col="'+col+'"]') : null;
+      const raw = inp ? inp.value : r[col];
+      const num = parseFloat(String(raw==null?'':raw).replace(/,/g,''));
+      return isNaN(num) ? 0 : num;
+    };
+    const _curS = col => {
+      const inp = modal ? modal.querySelector('input[data-col="'+col+'"]') : null;
+      return String((inp ? inp.value : r[col]) || '').trim();
+    };
+    const lotStr = _curS(1) || String(r[1]||'');
+    const tkStr  = _curS(2) || String(r[2]||'');
     const tkName = tkStr.includes('3501') ? 'TK-3501'
                 : (tkStr.includes('3502') ? 'TK-3502' : tkStr);
     const tkKey  = tkStr.includes('3501') ? 'tk1'
                 : (tkStr.includes('3502') ? 'tk2' : '');
-    const lotStr = String(r[1]||'');
-    const fC3Kg  = Math.round(Math.abs(out.fC3) * 1000);
-    const fC4Kg  = Math.round(Math.abs(out.fC4) * 1000);
-    if((fC3Kg > 0 || fC4Kg > 0) && typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.pushNotify){
-      try{ MIXNOTIFY.pushNotify(tkName, lotStr, fC3Kg, fC4Kg, tkKey); }
-      catch(e){ console.warn('[ENG] MIXNOTIFY.pushNotify', e); }
+    const fC3Kg = Math.round(Math.abs(_cur(13)) * 1000);
+    const fC4Kg = Math.round(Math.abs(_cur(14)) * 1000);
+    if(fC3Kg <= 0 && fC4Kg <= 0){
+      toast('⚠ Filled C3/C4 are both 0 — nothing to notify','er'); return;
     }
-
-    render();
-    toast('✅ Calc+Save+Notify · '+lotStr+' '+tkName+' · C3:'+fC3Kg+' C4:'+fC4Kg+' kg', 'ok');
-    closeEdit();
+    if(typeof MIXNOTIFY === 'undefined' || !MIXNOTIFY.pushNotify){
+      toast('❌ Mix-notify module not ready','er'); return;
+    }
+    try{
+      MIXNOTIFY.pushNotify(tkName, lotStr, fC3Kg, fC4Kg, tkKey);
+      toast('📢 Notified Scale · '+lotStr+' '+tkName+' · C3:'+fC3Kg+' C4:'+fC4Kg+' kg','ok');
+    }catch(e){
+      console.warn('[ENG] MIXNOTIFY.pushNotify', e);
+      toast('❌ Notify failed: '+e.message,'er');
+    }
   }
 
   function toggleLotSort(){
@@ -944,7 +1158,9 @@ const ENG = (function(){
   return {
     init, render, openPaste, closePaste, doPaste, pasteText,
     rangeDelete, deleteRow, editRow, openEdit, closeEdit, saveEdit,
-    calcSaveNotify, openGc,
+    calcSave, calcSaveClick, notifyScale, openGc,
+    importCoq, coqChosen,       /* v4.61 — COQ import in the edit modal */
+    calcSaveNotify: calcSave,   /* legacy alias (pre-v4.60 callers) */
     _timeMask: _editTimeMask, _dateMask: _editDateMask,
     toggleLotSort, exportXlsx,
     upsertRow, findRowByLotTank,
