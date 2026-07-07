@@ -1499,7 +1499,7 @@
       <button class="stab" data-eng-sub="shiplog" onclick="engSwitchTab('shiplog')">📋 Vessel Log<span class="stab-badge" id="engBadgeShiplog">0</span></button>
       <button class="stab" data-eng-sub="purelog" onclick="engSwitchTab('purelog')">🧪 Pure Log<span class="stab-badge" id="engBadgePurelog">0</span></button>
       <span class="eng-sep"></span>
-      <button class="stab" data-eng-sub="lab" onclick="engSwitchTab('lab')">🧪 Lab Data<span class="stab-badge" id="engBadgeLab">0</span></button>
+      <button class="stab" data-eng-sub="odor" onclick="engSwitchTab('odor')">🧴 Odorant<span class="stab-badge" id="engBadgeOdor">0</span></button>
     </div>
 
     <!-- TANK LOG sub-page -->
@@ -1516,6 +1516,7 @@
         <input type="text" id="engSrchDate" placeholder="DD/MM/YY" maxlength="8" style="width:90px;font-family:monospace"
           oninput="ENG.render()">
         <div class="eng-stats" id="engStats"></div>
+        <button class="eng-btn" id="engLoadAllBtn" onclick="ENG.loadAll()" title="Tải toàn bộ lot từ Firebase (mặc định chỉ tải 10 lot mới nhất)">📥 Load All</button>
         <button class="eng-btn green" onclick="ENG.openPaste()">📋 Paste Data</button>
         <button class="eng-btn blue" onclick="ENG.exportXlsx()">⬇ Export</button>
         <button class="eng-btn red" onclick="ENG.rangeDelete()" title="Delete rows by date range (downloads a CSV backup first)">🗑 Range delete</button>
@@ -2508,17 +2509,41 @@
         <div>Moved to <b>REPORTS ▸ Cavern Daily</b>.</div></div>
       </div>
     </div>
-    <!-- LAB DATA placeholder -->
-    <div class="eng-pg" id="eng-pg-lab">
-      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:13px;text-align:center;padding:40px">
-        <div>
-          <div style="font-size:48px;margin-bottom:14px">🧪</div>
-          <div style="font-family:'Oswald',sans-serif;font-size:18px;color:var(--ink-2);letter-spacing:1px;font-weight:600;margin-bottom:8px">LAB DATA</div>
-          <div>Coming in a later phase.</div>
-        </div>
+    <!-- ODORANT CONSUMPTION (v4.62) — replaces Lab Data placeholder.
+         Format mirrors sheet ODR_Consumption_Cavern of "Cavern Odorant Stock".
+         Manual inputs: Gravity · Charging · LG 21201 (mm) · Remark.
+         Everything else is computed (tank m³ from level via vessel geometry,
+         monthly Mixing Q'ty + FQ odorant summed live from the Tank Log). -->
+    <div class="eng-pg" id="eng-pg-odor">
+      <div class="eng-toolbar">
+        <span class="eng-lbl">Odorant Consumption — V-101</span>
+        <div class="eng-stats" id="odorStats"></div>
+        <button class="eng-btn green" onclick="ODOR.openPaste()">📋 Paste Data</button>
+        <button class="eng-btn blue" onclick="ODOR.exportCsv()">⬇ Export</button>
+        <button class="eng-btn" onclick="ODOR.scanAll()" title="Quét toàn bộ Tank Log → tính Mixing Q'ty (Σ Filled LPG) + FQ (Σ Odorant) mọi tháng và lưu Firebase">↻ Scan Tank Log</button>
       </div>
+      <div class="eng-table-wrap" id="odorTableWrap" style="overflow:auto"></div>
     </div>
   </section>
+
+  <!-- ODORANT paste modal (v4.62) -->
+  <div class="modal-bg" id="odorPasteModal">
+    <div class="modal">
+      <div class="modal-hdr">
+        <h3>📋 Paste Odorant Consumption Data</h3>
+        <button class="modal-close" onclick="ODOR.closePaste()">×</button>
+      </div>
+      <div class="modal-body">
+        <p>Từ file <b>Cavern Odorant Stock → sheet ODR_Consumption_Cavern</b>: có thể <b>Ctrl+A copy cả sheet</b> hoặc chỉ chọn vùng dữ liệu — dòng tiêu đề / Average / Total sẽ tự bị bỏ qua, dòng (*) đầu kỳ tự nhận diện.<br>
+          <span style="color:var(--ink-3);font-size:11.5px">Lưu các cột: Date · Mixing Q'ty · FQ · Gravity · Charging · LG 21201 · Remark. Các cột còn lại tự tính. Tháng trùng sẽ được ghi đè.</span></p>
+        <textarea id="odorPasteArea" placeholder="Paste here (Ctrl+V)…"></textarea>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" onclick="ODOR.closePaste()">Cancel</button>
+        <button class="btn btn-green" onclick="ODOR.doPaste()">Import</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ============================================================
        REPORT ENGINE PAGE — Daily Stock Report (.xlsx fill from TL Data + WMS GI + WMS ST + SAP)
@@ -3866,6 +3891,7 @@
 <script src="js/features/plan.js"></script>
 <script src="js/features/scale.js"></script>
 <script src="js/features/eng.js"></script>
+<script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>
 <script src="js/features/mthr.js"></script>
 <script src="js/features/inv.js"></script>

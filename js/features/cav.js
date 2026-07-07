@@ -1154,6 +1154,7 @@ function engSwitchTab(sub){
   else if(sub === 'shipcal'){ try{ VMIX.refresh(); }catch(_){} }
   else if(sub === 'shiplog'){ try{ VLOG.render(); }catch(_){} }
   else if(sub === 'purelog'){ try{ PLOG.render(); }catch(_){} }
+  else if(sub === 'odor'){ try{ ODOR.refresh(); }catch(_){} }   /* v4.62 */
 }
 
 /* Paste-anywhere shortcut: when Engineer/Tank Log is active and user pastes,
@@ -1170,6 +1171,21 @@ document.addEventListener('paste', e=>{
   if(!text.trim()) return;
   e.preventDefault();
   ENG.pasteText(text);
+});
+
+/* Paste-anywhere shortcut for Odorant tab (v4.62): Engineer page + Odorant
+   sub-pane on, no input focused -> clipboard goes to ODOR.pasteText. */
+document.addEventListener('paste', e=>{
+  const engPg = document.getElementById('page-engineer');
+  if(!engPg || !engPg.classList.contains('on')) return;
+  const odPg = document.getElementById('eng-pg-odor');
+  if(!odPg || !odPg.classList.contains('on')) return;
+  const ae = document.activeElement;
+  if(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+  const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+  if(!text.trim()) return;
+  e.preventDefault();
+  try{ ODOR.pasteText(text); }catch(_){}
 });
 
 /* Paste-anywhere shortcut for Pure Log: Engineer page + Pure Log sub-pane on,

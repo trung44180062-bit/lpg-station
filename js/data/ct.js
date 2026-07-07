@@ -74,10 +74,30 @@ const CT = (function(){
      Used by PTT and DN printouts where the legally-recognized Vietnamese
      company name is required. Cascades vn → wms → short → original so the
      printout is never empty if the vn field hasn't been filled yet. */
+  /* v4.64 — Branch (Chi nhánh) awareness for PTT / scale-ticket printouts.
+     A Sale-Plan customer such as "SAI GON PETRO (CHI NHANH BINH THUAN)"
+     resolves to the PARENT company's legal name, which drops the branch. Per
+     request we append the branch back, abbreviating "CHI NHANH" → "CN" and
+     keeping the source upper-case → "…(CN BINH THUAN)". Only vnName (the
+     printed name) is touched; the short-code lookup() used for reports/prices
+     is left unchanged. Covers both PTT (ptt-early / wgcheck) and the scale
+     ticket (scale.js) because both print via CT.vnName. */
+  const _CN_RE     = /CHI\s*NH[AÁÀẢÃẠÂẦẤẨẪẬaáàảãạâầấẩẫậ]NH/gi;                 // "CHI NHANH"/"CHI NHÁNH"
+  const _CN_TAG_RE = /CHI\s*NH[AÁÀẢÃẠÂẦẤẨẪẬaáàảãạâầấẩẫậ]NH\s+([^)]+)/i;         // capture branch label
+  function _cnAbbrev(s){ return String(s==null?'':s).replace(_CN_RE,'CN').replace(/\(\s+/g,'(').replace(/\s{2,}/g,' ').trim(); }
+  function _cnTag(raw){ const m=String(raw||'').match(_CN_TAG_RE); return m ? ('CN '+m[1].replace(/\)+\s*$/,'').trim()) : ''; }
   function vnName(name){
     if(!name) return name;
     const rec=_findRecord(name);
-    return rec ? (rec.vn||rec.wms||rec.short||name) : name;
+    let base = rec ? (rec.vn||rec.wms||rec.short||name) : name;
+    const tag = _cnTag(name);                                   // "" or e.g. "CN BINH THUAN"
+    if(tag){
+      const baseUp = String(base).toUpperCase();
+      const branch = tag.replace(/^CN\s+/i,'').toUpperCase();   // e.g. "BINH THUAN"
+      if(branch && !baseUp.includes(branch)) base = base + ' (' + tag + ')';   // append to parent name
+      else base = _cnAbbrev(base);                              // branch already in name → just abbreviate
+    }
+    return base;
   }
 
   /* v4.38.0 — CUSTOMER ALIAS MEMORY (ported from V406).

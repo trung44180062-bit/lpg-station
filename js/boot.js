@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', function () {
             step('P4 · WG (WMS GI)',    () => WG.init());
             step('P4 · WS (WMS ST)',    () => WS.init());
             step('P4 · ENG (Engineer)', () => ENG.init());
+            step('P4 · ODOR (Odorant)', () => ODOR.init());
             step('P4 · MC (Mix Calc)',  () => MC.init());
             step('P4 · MIXNOTIFY',      () => MIXNOTIFY.init());
             step('P4 · VMIX (Vessel)',  () => VMIX.init());

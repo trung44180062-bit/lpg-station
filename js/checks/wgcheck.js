@@ -338,9 +338,14 @@ function numToWordsEN(n){
 /* ── Product type derivation (from V406) ── */
 function _pfDeriveType(type){
   const t=(type||'').toLowerCase();if(!t)return '';
-  if(/pure.*c4|thuần.*c4|thuan.*c4|\bc4\b.*pure/i.test(type))return 'LPG (Pure Butane)';
-  if(/pure.*c3|thuần.*c3|thuan.*c3|\bc3\b.*pure/i.test(type))return 'LPG (Pure Propane)';
-  if(/pure|thuần|thuan/i.test(type))return 'LPG (Pure Propane)';
+  /* v4.63 — "pure" detection must NOT trigger on place names. The bare ASCII
+     token "thuan" was matching "Binh Thuan" (Bình Thuận), so a 50:50 cargo
+     "…DES Binh Thuan…" was wrongly printed as Pure Propane. Only the English
+     word "pure" or the diacritic Vietnamese "thuần" (≠ place-name "Thuận")
+     count as a pure indicator. C3/C4 still qualify the pure grade. */
+  if(/pure.*c4|c4.*pure|thuần.*c4|c4.*thuần|pure.*butane|butane.*pure/i.test(type))return 'LPG (Pure Butane)';
+  if(/pure.*c3|c3.*pure|thuần.*c3|c3.*thuần|pure.*propane|propane.*pure/i.test(type))return 'LPG (Pure Propane)';
+  if(/\bpure\b|thuần/i.test(type))return 'LPG (Pure Propane)';
   var rm=t.match(/c3[^0-9]*(\d{1,2})[^0-9]*c4[^0-9]*(\d{1,2})/);
   if(!rm)rm=t.match(/(\d{1,2})\s*[:/]\s*(\d{1,2})/);
   if(rm){var a=parseInt(rm[1]),b=parseInt(rm[2]);if(a+b===100||a+b===10)return 'LPG (C3:'+a+'/C4:'+b+')';}

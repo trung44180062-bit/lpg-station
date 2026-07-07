@@ -50,6 +50,16 @@ const ENG = (function(){
   let _suppressEcho = 0;            // counter of in-flight self-writes
   let _migrationDone = false;
 
+  /* v4.62 — LAZY LOAD: on boot only the INIT_LOTS most-recently-written
+     rows are fetched (orderByChild('_ts').limitToLast). The 📥 Load All
+     button (or ENG.loadAll(cb) from other modules, e.g. ODOR) fetches the
+     whole node once and switches the listeners to the full ref.
+     NOTE: firebase.rules.json needs  "eng_tkmix": { ".indexOn": ["_ts"] }
+     so the limit query is served server-side (bandwidth saving). */
+  const INIT_LOTS = 10;
+  let _allLoaded = false;
+  let _query = null;                // live limitToLast window (partial mode)
+
   /* ---------- base36 random rid (collision-safe across offline devices) ---------- */
   function _genRid(){
     /* 6 chars random + 4 chars time-tail → ~10 chars, very low collision risk */
@@ -184,7 +194,8 @@ const ENG = (function(){
     const tbl    = document.getElementById('engTbl');
     const stats  = document.getElementById('engStats');
     const badge  = document.getElementById('engBadgeTkmix');
-    if(badge) badge.textContent = ROWS.length;
+    if(badge) badge.textContent = ROWS.length + (_allLoaded ? '' : '+');
+    _updateLoadAllBtn();
     if(!tbody) return;
 
     if(!ROWS.length){
@@ -283,7 +294,26 @@ const ENG = (function(){
     }).join('');
 
     if(stats){
-      stats.innerHTML = '<b>'+filtered.length+'</b> / '+ROWS.length+' rows';
+      stats.innerHTML = '<b>'+filtered.length+'</b> / '+ROWS.length+' rows'
+        + (_allLoaded ? '' :
+           ' <span style="color:var(--orange);font-weight:600">· '+INIT_LOTS+' lot mới nhất — bấm 📥 Load All để tải toàn bộ</span>');
+    }
+  }
+
+  /* v4.62 — Load-All button state */
+  function _updateLoadAllBtn(){
+    const b = document.getElementById('engLoadAllBtn');
+    if(!b) return;
+    if(_allLoaded){
+      b.textContent = '✓ All '+ROWS.length;
+      b.disabled = true;
+      b.style.opacity = '.55';
+      b.style.cursor = 'default';
+    } else {
+      b.textContent = '📥 Load All';
+      b.disabled = false;
+      b.style.opacity = '';
+      b.style.cursor = '';
     }
   }
 
@@ -402,6 +432,7 @@ const ENG = (function(){
      path does PER-RID child deletes in ONE _fbRef.update(map) — delta-only,
      CSV backup downloaded first, rows with no parseable date never deleted. */
   function rangeDelete(){
+    if(!_allLoaded){ toast('⚠ Đang ở chế độ 10 lot mới nhất — bấm 📥 Load All trước khi Range delete','warn'); return; }
     if(!ROWS.length){ toast('Tank Log is already empty',''); return; }
     BULKOPS.openRangeDelete({
       title:'DELETE DATA — Tank Log',
@@ -1008,6 +1039,7 @@ const ENG = (function(){
   /* CSV export — light Excel-compatible, no XLSX lib dependency */
   function exportXlsx(){
     if(!ROWS.length){ toast('Tank Log is empty','er'); return; }
+    if(!_allLoaded && !confirm('Mới tải '+ROWS.length+' lot gần nhất — file export sẽ CHỈ gồm các lot này.\n\nOK = export luôn · Cancel = hủy (bấm 📥 Load All trước nếu cần đủ dữ liệu)')) return;
     const headers = ['No','Lot','Tank','Date','Start','Finish','Vol(m³)','Qty(ton)','%C3','%C4',
       'InitVol','I.%C3','I.%C4','FilledC3','FilledC4','FilledLPG','CH4','C2H6','C3H8','i-C4','n-C4','1.3-BD',
       'C5+','Olefin','(24)','(25)','Odorant','Quality','Remark','TargetC3%','TargetVol','Temp','Pres','Density',
@@ -1035,10 +1067,13 @@ const ENG = (function(){
     toast('📥 Exported Tank Log: '+ROWS.length+' rows','ok');
   }
 
-  /* ---------- Firebase init: legacy-array migration + child listeners ---------- */
-  function _attachChildListeners(){
-    if(!_fbRef) return;
-    _fbRef.on('child_added', snap=>{
+  /* ---------- Firebase init: legacy-array migration + child listeners ----------
+     v4.62 — src param: partial mode listens on the limitToLast QUERY (live
+     window of newest rows), full mode listens on the whole ref. */
+  function _attachChildListeners(src){
+    const ref = src || _fbRef;
+    if(!ref) return;
+    ref.on('child_added', snap=>{
       if(_suppressEcho > 0) return;
       const rid = snap.key;
       const v = snap.val();
@@ -1049,7 +1084,7 @@ const ENG = (function(){
       try{ render(); }catch(_){}
       try{ if(typeof SCALE!=='undefined' && SCALE.refreshLotFromTankLog) SCALE.refreshLotFromTankLog(); }catch(_){}
     });
-    _fbRef.on('child_changed', snap=>{
+    ref.on('child_changed', snap=>{
       if(_suppressEcho > 0) return;
       const rid = snap.key;
       const v = snap.val();
@@ -1058,7 +1093,7 @@ const ENG = (function(){
       _saveCache();
       try{ render(); }catch(_){}
     });
-    _fbRef.on('child_removed', snap=>{
+    ref.on('child_removed', snap=>{
       if(_suppressEcho > 0) return;
       const rid = snap.key;
       if(_removeRowLocal(rid)){
@@ -1068,10 +1103,55 @@ const ENG = (function(){
     });
   }
 
+  /* v4.62 — PARTIAL initial load: only the INIT_LOTS newest rows (by _ts).
+     Replaces the old full once('value'). Legacy-array schema is detected
+     from the window contents and falls back to loadAll() (migration path). */
   function _initialLoadAndAttach(){
     if(!_fbRef) return;
-    /* one-shot read for migration detection; child listeners afterwards
-       give incremental sync without re-reading the whole tree. */
+    _query = _fbRef.orderByChild('_ts').limitToLast(INIT_LOTS);
+    _query.once('value').then(snap=>{
+      const val = snap.val();
+      if(!val){
+        /* EMPTY FB — prune ghost cache rows (same semantics as before:
+           limitToLast on a non-empty node always returns rows). */
+        if(ROWS.length){
+          console.warn('[ENG] Reconcile: Firebase node empty — pruning '+ROWS.length+' stale local row(s)');
+          ROWS = []; RID_MAP = Object.create(null);
+          _saveCache();
+        }
+        render();
+        _attachChildListeners(_query);
+      } else {
+        /* legacy array schema? children are plain arrays (no .cells) */
+        let legacy = false;
+        for(const k in val){
+          const v = val[k];
+          if(Array.isArray(v)){ legacy = true; }
+          break;
+        }
+        if(legacy){ loadAll(); return; }
+        /* NEW SCHEMA — window replaces the local cache (partial truth) */
+        ROWS = []; RID_MAP = Object.create(null);
+        for(const rid in val){
+          const v = val[rid];
+          if(!v || !Array.isArray(v.cells)) continue;
+          _setRowLocal(rid, v.cells);
+        }
+        _saveCache();
+        render();
+        _attachChildListeners(_query);
+      }
+      /* SCALE: refresh active tank's lot from latest tank-log row */
+      try{ if(typeof SCALE!=='undefined' && SCALE.refreshLotFromTankLog) SCALE.refreshLotFromTankLog(); }catch(_){}
+    }).catch(e=> console.warn('[ENG] partial load fail', e));
+  }
+
+  /* v4.62 — LOAD ALL: one-shot full read (keeps the old migration logic),
+     then live listeners on the FULL ref. Other modules that need the whole
+     Tank Log in RAM (e.g. ODOR monthly sums) call ENG.loadAll(cb). */
+  function loadAll(done){
+    if(_allLoaded || !_fbRef){ if(typeof done==='function') done(); return; }
+    if(_query){ try{ _query.off(); }catch(_){} _query = null; }
     _fbRef.once('value').then(snap=>{
       const val = snap.val();
       if(Array.isArray(val) && val.length){
@@ -1137,9 +1217,17 @@ const ENG = (function(){
         }
         _attachChildListeners();
       }
+      _allLoaded = true;
+      _updateLoadAllBtn();
+      render();
+      toast('📥 Tank Log: đã tải toàn bộ '+ROWS.length+' lot','ok');
       /* SCALE: refresh active tank's lot from latest tank-log row */
       try{ if(typeof SCALE!=='undefined' && SCALE.refreshLotFromTankLog) SCALE.refreshLotFromTankLog(); }catch(_){}
-    }).catch(e=> console.warn('[ENG] initial load fail', e));
+      if(typeof done==='function') done();
+    }).catch(e=>{
+      console.warn('[ENG] full load fail', e);
+      toast('❌ Load All thất bại: '+(e&&e.message||e),'er');
+    });
   }
 
   function init(){
@@ -1164,6 +1252,8 @@ const ENG = (function(){
     _timeMask: _editTimeMask, _dateMask: _editDateMask,
     toggleLotSort, exportXlsx,
     upsertRow, findRowByLotTank,
+    loadAll,                          /* v4.62 — fetch full Tank Log on demand */
+    get allLoaded(){ return _allLoaded; },
     get ROWS(){ return ROWS; }
   };
 })();
