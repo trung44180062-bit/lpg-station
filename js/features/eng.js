@@ -187,6 +187,23 @@ const ENG = (function(){
     return isNaN(n) ? 0 : n;
   }
 
+  /* ---------- date → 'YYYY-MM' (tolerant: 2026-05-20 · 20-05-26 · 07-Feb-26) ---------- */
+  const _MO_ABBR = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  function _ymOf(dateStr){
+    const s = String(dateStr||'').trim();
+    if(!s) return null;
+    let m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);          // yyyy-mm-dd
+    if(m && +m[2] >= 1 && +m[2] <= 12) return m[1]+'-'+String(+m[2]).padStart(2,'0');
+    m = s.match(/^(\d{1,2})[\/\-]([A-Za-z]{3,})[\/\-](\d{2,4})$/);      // dd-Mon-yy
+    if(m){ const mo = _MO_ABBR[m[2].slice(0,3).toLowerCase()];
+      if(mo){ let y = +m[3]; if(y < 100) y += 2000; return y+'-'+String(mo).padStart(2,'0'); } }
+    m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);           // dd-mm-yy
+    if(m && +m[2] >= 1 && +m[2] <= 12){ let y = +m[3]; if(y < 100) y += 2000;
+      return y+'-'+String(+m[2]).padStart(2,'0'); }
+    return null;
+  }
+  function _ymLabelEng(ym){ const p = ym.split('-'); return p[1]+'/'+p[0]; }
+
   /* ---------- main render ---------- */
   function render(){
     const tbody  = document.getElementById('engTbody');
@@ -208,9 +225,12 @@ const ENG = (function(){
     if(tbl) tbl.style.display = '';
 
     /* filters */
+    const monthSel = document.getElementById('engSrchMonth');
+    _refreshMonthOptions(monthSel);
     const qLot  = (document.getElementById('engSrchLot')?.value || '').toLowerCase().trim();
     const qTank = (document.getElementById('engSrchTank')?.value || '').trim();
     const qDate = (document.getElementById('engSrchDate')?.value || '').trim();
+    const qMonth = (monthSel?.value || '').trim();
 
     /* sort copy of ROWS by lot (newest first by default) */
     const sorted = ROWS.slice().sort((a,b)=>{
@@ -221,6 +241,7 @@ const ENG = (function(){
       if(qLot  && !String(r[1]||'').toLowerCase().includes(qLot)) return false;
       if(qTank && !String(r[2]||'').toUpperCase().includes(qTank)) return false;
       if(qDate && !String(r[3]||'').includes(qDate)) return false;
+      if(qMonth && _ymOf(r[3]) !== qMonth) return false;
       return true;
     });
 
@@ -294,10 +315,42 @@ const ENG = (function(){
     }).join('');
 
     if(stats){
-      stats.innerHTML = '<b>'+filtered.length+'</b> / '+ROWS.length+' rows'
-        + (_allLoaded ? '' :
+      let html = '<b>'+filtered.length+'</b> / '+ROWS.length+' rows';
+      if(qMonth){
+        const s = _monthSummary(qMonth);
+        html += ' <span style="color:var(--blue,#2f80ed);font-weight:600">· Tháng '+_ymLabelEng(qMonth)+': '
+          + '<b>'+s.lots+'</b> lượt mix · Filled LPG <b>'+_fmtNum(s.lpg,3)+'</b> MT · Odorant <b>'
+          + _fmtNum(s.odo,2)+'</b> kg</span>';
+      }
+      html += (_allLoaded ? '' :
            ' <span style="color:var(--orange);font-weight:600">· '+INIT_LOTS+' lot mới nhất — bấm 📥 Load All để tải toàn bộ</span>');
+      stats.innerHTML = html;
     }
+  }
+
+  /* v4.63 — populate month dropdown from ROWS (giữ nguyên lựa chọn hiện tại) */
+  function _refreshMonthOptions(sel){
+    if(!sel) return;
+    const months = Array.from(new Set(ROWS.map(r=>_ymOf(r[3])).filter(Boolean))).sort().reverse();
+    const cur = sel.value;
+    const sig = months.join('|');
+    if(sel.dataset.sig === sig) return;      // không đổi → khỏi dựng lại
+    sel.dataset.sig = sig;
+    sel.innerHTML = ['<option value="">All months</option>']
+      .concat(months.map(m=>'<option value="'+m+'">'+_ymLabelEng(m)+'</option>')).join('');
+    if(months.indexOf(cur) >= 0) sel.value = cur;
+  }
+
+  /* v4.63 — tổng hợp tháng: số lượt mix · Σ Filled LPG (MT) · Σ Odorant (kg) */
+  function _monthSummary(ym){
+    let lots = 0, lpg = 0, odo = 0;
+    ROWS.forEach(r=>{
+      if(_ymOf(r[3]) !== ym) return;
+      lots++;
+      const q = parseFloat(String(r[15]||'').replace(/,/g,'')); if(!isNaN(q)) lpg += q;
+      const o = parseFloat(String(r[26]||'').replace(/,/g,'')); if(!isNaN(o)) odo += o;
+    });
+    return { lots, lpg, odo };
   }
 
   /* v4.62 — Load-All button state */
@@ -1046,7 +1099,9 @@ const ENG = (function(){
       'COQNo','SampTime','AnalysisDate','C3H6','VP','Sulfur','FreeWater','CuCorr','Residue','MW',
       'ProBu%Vol','ProBu%Wt','t2Butene','1Butene','iButene','neoPentane','iPentane','nPentane','nHexane'];
     const csvLines = [headers.join(',')];
-    ROWS.forEach(r=>{
+    /* v4.63 — export theo thứ tự lot MỚI NHẤT → CŨ NHẤT (khớp bảng) */
+    const ordered = ROWS.slice().sort((a,b)=> _lotKey(b[1]) - _lotKey(a[1]));
+    ordered.forEach(r=>{
       const cells = [];
       for(let i=0;i<ROW_W;i++){
         let v = String(r[i] == null ? '' : r[i]);

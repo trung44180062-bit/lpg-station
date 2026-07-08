@@ -1515,6 +1515,9 @@
         </select>
         <input type="text" id="engSrchDate" placeholder="DD/MM/YY" maxlength="8" style="width:90px;font-family:monospace"
           oninput="ENG.render()">
+        <select id="engSrchMonth" onchange="ENG.render()" style="width:120px" title="Lọc theo tháng — hiện tổng lượt mix, Filled LPG, Odorant">
+          <option value="">All months</option>
+        </select>
         <div class="eng-stats" id="engStats"></div>
         <button class="eng-btn" id="engLoadAllBtn" onclick="ENG.loadAll()" title="Tải toàn bộ lot từ Firebase (mặc định chỉ tải 10 lot mới nhất)">📥 Load All</button>
         <button class="eng-btn green" onclick="ENG.openPaste()">📋 Paste Data</button>
@@ -2518,6 +2521,7 @@
       <div class="eng-toolbar">
         <span class="eng-lbl">Odorant Consumption — V-101</span>
         <div class="eng-stats" id="odorStats"></div>
+        <button class="eng-btn" onclick="ODOR.addMonth()" title="Thêm một tháng mới vào bảng — chọn tháng ở cột Date">➕ Thêm tháng</button>
         <button class="eng-btn green" onclick="ODOR.openPaste()">📋 Paste Data</button>
         <button class="eng-btn blue" onclick="ODOR.exportCsv()">⬇ Export</button>
         <button class="eng-btn" onclick="ODOR.scanAll()" title="Quét toàn bộ Tank Log → tính Mixing Q'ty (Σ Filled LPG) + FQ (Σ Odorant) mọi tháng và lưu Firebase">↻ Scan Tank Log</button>

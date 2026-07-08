@@ -1,5 +1,8 @@
 /* ============================================================
- * ODOR — odor.js (v4.62.1)
+ * ODOR — odor.js (v4.62.2)
+ * v4.62.2: Dòng (*) đầu kỳ — cho NHẬP TAY Inventory (KG) ghi đè giá trị
+ *   tính từ mức mm (m3 hiển thị back-calc theo KG). Để trống → tự tính từ
+ *   mm như cũ. Giá trị này là tồn đầu kỳ cho Cal. Consumption tháng kế.
  * ------------------------------------------------------------
  * Tab "🧴 Odorant" (Engineer ▸ eng-pg-odor) — thay placeholder Lab Data.
  * Tái tạo sheet ODR_Consumption_Cavern của file "Cavern Odorant Stock".
@@ -46,6 +49,7 @@ const ODOR = (function(){
   let D = {};
   let _fbRef = null;
   let _suppressEcho = 0;
+  let _newRow = false;   /* v4.63 — đang hiện dòng chọn tháng mới */
 
   /* ================= geometry: level mm → m³ ================= */
   function mmToM3(h){
@@ -55,6 +59,9 @@ const ODOR = (function(){
     const heads = (a/R) * Math.PI * h*h * (3*R - h) / 3;
     return (cyl + heads) / 1e9;
   }
+  /* v4.63 — Excel lấy H (m3) đã LÀM TRÒN 4 SỐ LẺ rồi mới tính KG:
+     I = ROUND(H·E·1000, 2). Làm tròn 4dp ở đây để cột Inventory khớp Excel. */
+  function _hLevel(g){ return Math.round(mmToM3(g)*1e4)/1e4; }
 
   /* ================= helpers ================= */
   function _n(v){ const x = parseFloat(String(v==null?'':v).replace(/,/g,'')); return isNaN(x) ? null : x; }
@@ -79,7 +86,7 @@ const ODOR = (function(){
       let y = +m[3]; if(y < 100) y += 2000;
       return { y, mo:+m[2], d:+m[1] };
     }
-    m = s.match(/^(\d{1,2})[-\s]([A-Za-z]{3,})[-\s,]*(\d{2,4})$/);             // 31-Dec-24
+    m = s.match(/^(\d{1,2})[-\s\/\.]([A-Za-z]{3,})[-\s,\/\.]*(\d{2,4})$/);      // 31-Dec-24 · 28/Jun/26 · 28.Jun.26
     if(m){
       const mo = _MONTHS[m[2].slice(0,3).toLowerCase()];
       if(mo){ let y = +m[3]; if(y < 100) y += 2000; return { y, mo, d:+m[1] }; }
@@ -107,6 +114,21 @@ const ODOR = (function(){
   function _nowYm(){
     const d = new Date();
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+  }
+  function _todayISO(){ const d=new Date(), p=n=>String(n).padStart(2,'0');
+    return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+  function _lastDayOfYm(ym){ return new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate(); }
+  /* v4.63.1 — tháng hiển thị bằng CHỮ (Jan…Dec) để tránh nhầm ngày/tháng */
+  const _MON_EN = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  /* v4.63 — Date hiển thị: tháng đã qua → ngày CUỐI tháng; tháng hiện tại →
+     ngày nhập dữ liệu mới nhất (ud) hoặc hôm nay nếu chưa có. */
+  function _rowDateLabel(ym, ud){
+    if(ym === _nowYm()){
+      const s = (ud && /^\d{4}-\d{2}-\d{2}$/.test(ud)) ? ud : _todayISO();
+      const p = s.split('-'); return p[2]+'-'+_MON_EN[+p[1]]+'-'+p[0].slice(2);
+    }
+    const dd = String(_lastDayOfYm(ym)).padStart(2,'0'), p = ym.split('-');
+    return dd+'-'+_MON_EN[+p[1]]+'-'+p[0].slice(2);
   }
 
   /* ================= cache / firebase ================= */
@@ -173,14 +195,25 @@ const ODOR = (function(){
   /* ================= compute rows (ascending — chain I/J) ================= */
   function _compute(){
     const init = D.init || null;
-    let initRow = null, prevI = null, prevE = DEF_GRAV;
+    let initRow = null, prevI = null, prevE = DEF_GRAV, prevL = PRICE;
     if(init){
       const ge = _n(init.e) != null ? _n(init.e) : DEF_GRAV;
       const gg = _n(init.g);
-      const h  = gg != null ? mmToM3(gg) : null;
-      const i  = h != null ? Math.round(h*ge*1000*100)/100 : null;
-      initRow = { d:init.d||'', e:ge, f:_n(init.f), g:gg, h, i, l:(gg!=null?PRICE:null), rm:init.rm||'' };
-      prevI = i; prevE = ge;
+      const hAuto = gg != null ? _hLevel(gg) : null;
+      const iAuto = hAuto != null ? Math.round(hAuto*ge*1000*100)/100 : null;
+      const iov = _n(init.i);            /* v4.62.2 — Inventory KG nhập tay (ghi đè mm) */
+      let h, i;
+      if(iov != null){
+        i = Math.round(iov*100)/100;
+        h = ge ? Math.round(i/(ge*1000)*1e4)/1e4 : hAuto;   /* back-calc m3 cho khớp KG */
+      } else {
+        h = hAuto; i = iAuto;
+      }
+      const glp = _n(init.l);            /* v4.63.2 — đơn giá nhập tay ở dòng đầu kỳ */
+      const il = glp != null ? glp : PRICE;
+      initRow = { d:init.d||'', e:ge, f:_n(init.f), g:gg, h, i, iAuto,
+                  manualI:(iov!=null), l:(i!=null?il:null), lSet:(glp!=null), rm:init.rm||'' };
+      prevI = i; prevE = ge; prevL = il;
     }
     const rows = [];
     _monthList().forEach(ym=>{
@@ -189,11 +222,12 @@ const ODOR = (function(){
       const e = _n(st.e) != null ? _n(st.e) : prevE;
       const f = _n(st.f);
       const g = _n(st.g);
-      let h = null, i = null, j = null, k = null, l = null, mcost = null, ratio = null, ppm = null, avail = null;
+      const lStored = _n(st.l);                    /* v4.63.2 — đơn giá override */
+      if(lStored != null) prevL = lStored;         /* áp dụng từ tháng này trở đi */
+      let h = null, i = null, j = null, k = null, l = prevL, mcost = null, ratio = null, ppm = null, avail = null;
       if(g != null){
-        h = mmToM3(g);
+        h = _hLevel(g);
         i = Math.round(h*e*1000*100)/100;
-        l = PRICE;
         if(prevI != null){
           j = Math.round((prevI + (f||0) - i)*100)/100;
           k = d != null ? Math.round((j - d)*100)/100 : null;
@@ -205,7 +239,7 @@ const ODOR = (function(){
         prevI = i;                            /* chain */
       }
       prevE = e;
-      rows.push({ ym, c, d, e, f, g, h, i, j, k, l, mcost, ratio, ppm, avail, rm: st.rm||'' });
+      rows.push({ ym, c, d, e, f, g, h, i, j, k, l, mcost, ratio, ppm, avail, lSet:(lStored!=null), rm: st.rm||'', ud: st.ud||'' });
     });
     return { initRow, rows };
   }
@@ -224,6 +258,7 @@ const ODOR = (function(){
       if(!D[ym]) D[ym] = {};
       D[ym].c = s ? Math.round(s.qty*1000)/1000 : 0;
       D[ym].d = s ? Math.round(s.odo*100)/100  : 0;
+      D[ym].ud = _todayISO();                 /* v4.63 — ngày nhập dữ liệu mới nhất */
       _saveCache();
       _fbSet(ym, D[ym]);
       render();
@@ -243,6 +278,7 @@ const ODOR = (function(){
         if(!D[ym]) D[ym] = {};
         D[ym].c = Math.round(s.qty*1000)/1000;
         D[ym].d = Math.round(s.odo*100)/100;
+        D[ym].ud = _todayISO();               /* v4.63 — ngày nhập mới nhất */
         fb[ym] = D[ym];
         n++;
       });
@@ -268,10 +304,22 @@ const ODOR = (function(){
     '.odor-inp:focus{border-color:var(--blue,#2f80ed);background:#fff;outline:none}' +
     '.odor-inp.rm{width:130px;text-align:left}' +
     '.odor-inp.lvl{background:#fff8e6;border-color:#eadfbc;font-weight:700}' +
+    '.odor-inp.price{width:92px}' +
+    '.odor-inp.price.set{background:#eef7ee;border-color:#cfe6cf}' +   /* giá đã sửa tay */
+    '.odor-inp.grav{width:100px}' +                                   /* focus hiện đủ số */
     '.odor-scan{border:1px solid var(--line,#ccd);border-radius:4px;background:#fff;cursor:pointer;' +
       'font-size:12px;line-height:1;padding:3px 6px;color:var(--blue,#2f80ed)}' +
     '.odor-scan:hover{background:var(--blue,#2f80ed);color:#fff}' +
-    '.odor-low{color:var(--red,#d33);font-weight:700}';
+    '.odor-low{color:var(--red,#d33);font-weight:700}' +
+    /* tháng hiện tại — nổi bật rõ: nền đậm, chữ đậm, viền xanh trên/dưới + vạch trái */
+    '.odor-tbl tr.cur td{background:#cfe4ff;font-weight:700;' +
+      'border-top:2px solid var(--blue,#2f80ed);border-bottom:2px solid var(--blue,#2f80ed)}' +
+    '.odor-tbl tr.cur td:first-child{box-shadow:inset 5px 0 0 var(--blue,#2f80ed)}' +
+    '.odor-tbl tr.cur .odor-inp{font-weight:700}' +
+    '.odor-avg-ppm{font-weight:800;color:var(--blue,#2f80ed);background:#eaf3ff;font-size:12.5px}' +
+    '.odor-del{border:none;background:transparent;cursor:pointer;color:var(--ink-3,#aaa);' +
+      'font-size:12px;line-height:1;padding:0 2px}' +
+    '.odor-del:hover{color:var(--red,#d33)}';
 
   function render(){
     const wrap = document.getElementById('odorTableWrap');
@@ -286,6 +334,7 @@ const ODOR = (function(){
     const sum = a => { const v = a.filter(x=>x!=null); return v.length ? v.reduce((s,x)=>s+x,0) : null; };
     const aC = avg(rows.map(r=>r.c)), aD = avg(rows.map(r=>r.d)), aE = avg(rows.map(r=>r.e));
     const aJ = avg(rows.map(r=>r.j)), aK = avg(rows.map(r=>r.k)), aM = avg(rows.map(r=>r.mcost));
+    const aL = avg(rows.map(r=>r.l));
     const tC = sum(rows.map(r=>r.c)), tD = sum(rows.map(r=>r.d));
     const tJ = sum(rows.map(r=>r.j)), tK = sum(rows.map(r=>r.k));
     const tO = (tJ != null && tC) ? tJ*1000/tC : null;
@@ -294,6 +343,20 @@ const ODOR = (function(){
       const shown = (val==null||val==='') ? '' : (dec!=null ? String(+(+val).toFixed(dec)) : String(val));
       return '<input class="odor-inp '+(cls||'')+'" value="'+_esc(shown)+'" placeholder="'+_esc(ph||'')+'"'+
         ' onchange="ODOR.cellEdit(\''+key+'\',\''+field+'\',this.value)">';
+    };
+    /* v4.63.3 — Gravity: hiển thị 3 số lẻ (KHÔNG làm tròn giá trị lưu),
+       click/focus → hiện đầy đủ; blur (không sửa) → thu về 3 số lẻ. */
+    const grav = (key, stored, effVal)=>{
+      const full = (effVal==null) ? '' : String(effVal);
+      const d3   = (effVal==null) ? '' : (+effVal).toFixed(3);
+      const value = stored ? d3 : '';
+      const ph    = stored ? '' : d3;                 /* chưa lưu → 3dp làm placeholder */
+      const dataFull = stored ? full : '';            /* chỉ populate khi đã lưu */
+      return '<input class="odor-inp grav" value="'+_esc(value)+'" placeholder="'+_esc(ph)+'"'+
+        ' data-full="'+_esc(dataFull)+'"'+
+        ' onfocus="if(this.dataset.full){this.value=this.dataset.full;}this.select()"'+
+        ' onblur="ODOR.gravBlur(this)"'+
+        ' onchange="ODOR.cellEdit(\''+key+'\',\'e\',this.value)">';
     };
 
     let html = '<style>'+_CSS+'</style><table class="odor-tbl"><thead>'+
@@ -311,31 +374,49 @@ const ODOR = (function(){
 
     /* Average row */
     html += '<tr class="avg"><td></td><td class="c" colspan="2">Average</td>'+
-      '<td class="r">'+_fmt(aC,2)+'</td><td class="r">'+_fmt(aD,2)+'</td><td class="r">'+_fmt(aE,5)+'</td>'+
+      '<td class="r">'+_fmt(aC,2)+'</td><td class="r">'+_fmt(aD,2)+'</td><td class="r">'+_fmt(aE,3)+'</td>'+
       '<td class="c">-</td><td class="c">-</td><td class="c">-</td><td class="c">-</td>'+
       '<td class="r">'+_fmt(aJ,2)+'</td><td class="r">'+_fmt(aK,2)+'</td>'+
-      '<td class="r">'+_fmt(PRICE,2)+'</td><td class="r">'+_fmt(aM,0)+'</td>'+
-      '<td class="c">-</td><td class="c">-</td><td class="c">-</td><td></td></tr>';
+      '<td class="r">'+_fmt(aL!=null?aL:PRICE,2)+'</td><td class="r">'+_fmt(aM,0)+'</td>'+
+      '<td class="c">-</td>'+
+      '<td class="r odor-avg-ppm" title="Nồng độ odorant trung bình = ΣConsumption·10⁶ / (ΣMixing·1000)">'+_fmt(tO,2)+'</td>'+
+      '<td class="c">-</td><td></td></tr>';
+
+    /* dòng thêm tháng mới (v4.63) — chọn tháng ở cột Date */
+    if(_newRow){
+      html += '<tr class="ini"><td></td>'+
+        '<td class="c" style="font-weight:700;color:var(--blue,#2f80ed)">＋</td>'+
+        '<td class="c"><input type="month" id="odorNewMonth" style="font:inherit;padding:1px 3px"'+
+          ' onchange="ODOR.commitNewMonth(this.value)"></td>'+
+        '<td colspan="15" style="text-align:left;color:var(--ink-3,#888)">'+
+          'Chọn tháng để thêm dòng mới · '+
+          '<a href="javascript:void(0)" onclick="ODOR.cancelNewMonth()" style="color:var(--red,#d33)">Hủy</a>'+
+        '</td></tr>';
+    }
 
     /* month rows — NEWEST FIRST (v4.62.1) */
     const desc = rows.slice().reverse();
     desc.forEach(r=>{
       const noAsc = rows.indexOf(r) + 1;            /* số thứ tự theo thời gian như Excel */
       const lowCls = (r.i != null && r.i < ALARM.l) ? ' odor-low' : '';
-      html += '<tr>'+
-        '<td class="c"><button class="odor-scan" title="Quét Tank Log tháng '+_ymLabel(r.ym)+' → tính C/D và lưu"'+
-          ' onclick="ODOR.scanMonth(\''+r.ym+'\')">↻</button></td>'+
-        '<td class="c">'+noAsc+'</td><td class="c">'+_ymLabel(r.ym)+'</td>'+
+      const curCls = (r.ym === _nowYm()) ? ' class="cur"' : '';
+      html += '<tr'+curCls+'>'+
+        '<td class="c" style="white-space:nowrap">'+
+          '<button class="odor-scan" title="Quét Tank Log tháng '+_ymLabel(r.ym)+' → tính C/D và lưu"'+
+          ' onclick="ODOR.scanMonth(\''+r.ym+'\')">↻</button>'+
+          '<button class="odor-del" title="Xóa dòng tháng '+_ymLabel(r.ym)+'"'+
+          ' onclick="ODOR.deleteRow(\''+r.ym+'\')">✕</button></td>'+
+        '<td class="c">'+noAsc+'</td><td class="c">'+_rowDateLabel(r.ym, r.ud)+'</td>'+
         '<td class="r">'+inp(r.ym,'c', r.c, '', '↻ để quét', 3)+'</td>'+
         '<td class="r">'+inp(r.ym,'d', r.d, '', '↻ để quét', 2)+'</td>'+
-        '<td class="r">'+inp(r.ym,'e', (D[r.ym]&&D[r.ym].e!==''&&D[r.ym].e!=null)?r.e:null, '', String(+r.e.toFixed(5)), 11)+'</td>'+
+        '<td class="r">'+grav(r.ym, (D[r.ym]&&D[r.ym].e!==''&&D[r.ym].e!=null), r.e)+'</td>'+
         '<td class="r">'+inp(r.ym,'f', r.f, '', '0', 2)+'</td>'+
         '<td class="r">'+inp(r.ym,'g', r.g, 'lvl', 'mm ?', 0)+'</td>'+
         '<td class="r">'+_fmt(r.h,4)+'</td>'+
         '<td class="r'+lowCls+'">'+_fmt(r.i,2)+'</td>'+
         '<td class="r" style="font-weight:700;color:var(--green,#1a7f37)">'+_fmt(r.j,2)+'</td>'+
         '<td class="r" style="color:'+(r.k!=null&&Math.abs(r.k)>((r.d||0)*0.1+1)?'var(--red,#d33)':'inherit')+'">'+_fmt(r.k,2)+'</td>'+
-        '<td class="r">'+_fmt(r.l,2)+'</td>'+
+        '<td class="r">'+inp(r.ym,'l', r.l, 'price'+(r.lSet?' set':''), String(PRICE), 2)+'</td>'+
         '<td class="r">'+_fmt(r.mcost,0)+'</td>'+
         '<td class="r">'+_fmt(r.ratio,2)+'</td>'+
         '<td class="r" style="font-weight:600">'+_fmt(r.ppm,2)+'</td>'+
@@ -345,16 +426,20 @@ const ODOR = (function(){
     });
 
     /* Initial (*) row — dưới cùng (tháng cũ nhất) */
-    const ir = initRow || { d:'', e:DEF_GRAV, f:null, g:null, h:null, i:null, l:null, rm:'' };
+    const ir = initRow || { d:'', e:DEF_GRAV, f:null, g:null, h:null, i:null, iAuto:null, manualI:false, l:null, lSet:false, rm:'' };
     html += '<tr class="ini"><td></td><td class="c">(*)</td>'+
       '<td class="c"><input class="odor-inp" style="width:76px;text-align:center" value="'+_esc(ir.d?String(ir.d):'')+'"'+
         ' placeholder="31/12/24" onchange="ODOR.cellEdit(\'init\',\'d\',this.value)"></td>'+
       '<td></td><td class="r">0</td>'+
-      '<td class="r">'+inp('init','e', ir.e, '', String(DEF_GRAV), 11)+'</td>'+
+      '<td class="r">'+grav('init', (D.init&&D.init.e!==''&&D.init.e!=null), ir.e)+'</td>'+
       '<td class="r">'+inp('init','f', ir.f, '', '0', 2)+'</td>'+
       '<td class="r">'+inp('init','g', ir.g, 'lvl', 'mm', 0)+'</td>'+
-      '<td class="r">'+_fmt(ir.h,4)+'</td><td class="r">'+_fmt(ir.i,2)+'</td>'+
-      '<td class="c">-</td><td class="c">-</td><td class="r">'+_fmt(ir.l,2)+'</td><td></td><td></td><td></td><td></td>'+
+      '<td class="r">'+_fmt(ir.h,4)+'</td>'+
+      '<td class="r">'+inp('init','i', ir.manualI?ir.i:null, ir.manualI?'lvl':'',
+          (ir.iAuto!=null?String(+ir.iAuto.toFixed(2)):'auto'), 2)+'</td>'+
+      '<td class="c">-</td><td class="c">-</td>'+
+      '<td class="r">'+inp('init','l', ir.l, 'price'+(ir.lSet?' set':''), String(PRICE), 2)+'</td>'+
+      '<td></td><td></td><td></td><td></td>'+
       '<td><input class="odor-inp rm" value="'+_esc(ir.rm||'')+'" placeholder="Initial Import Q\'ty"'+
         ' onchange="ODOR.cellEdit(\'init\',\'rm\',this.value)"></td></tr>';
 
@@ -373,6 +458,60 @@ const ODOR = (function(){
     }
   }
 
+  /* ================= thêm tháng mới (v4.63) ================= */
+  function addMonth(){
+    _newRow = true;
+    render();
+    /* focus vào ô chọn tháng vừa hiện */
+    setTimeout(()=>{ document.getElementById('odorNewMonth')?.focus(); }, 60);
+  }
+  function cancelNewMonth(){ _newRow = false; render(); }
+  function commitNewMonth(v){
+    const ym = String(v||'').trim();
+    if(!/^\d{4}-\d{2}$/.test(ym)){ toast('⚠ Hãy chọn một tháng hợp lệ','er'); return; }
+    if(D[ym]){ toast('⚠ Tháng '+_ymLabel(ym)+' đã có trong bảng','warn'); _newRow = false; render(); return; }
+    D[ym] = { c:'', d:'', e:'', f:'', g:'', rm:'' };
+    _newRow = false;
+    _saveCache();
+    _fbSet(ym, D[ym]);
+    render();
+    toast('➕ Đã thêm tháng '+_ymLabel(ym)+' — bấm ↻ để quét Tank Log','ok');
+  }
+
+  /* ================= xóa dòng tháng (v4.63) ================= */
+  function deleteRow(ym){
+    if(!/^\d{4}-\d{2}$/.test(ym) || !D[ym]) return;
+    const note = (ym < _nowYm() && _isAutoMonth(ym))
+      ? '\n\n(Đây là tháng trong khoảng từ đầu kỳ → hiện tại nên dòng sẽ hiện lại dạng trống sau khi xóa dữ liệu.)'
+      : '';
+    if(!confirm('Xóa dòng tháng '+_ymLabel(ym)+'?'+note)) return;
+    delete D[ym];
+    _saveCache();
+    if(_fbRef){
+      _suppressEcho++;
+      _fbRef.child(ym).remove()
+        .catch(e=>console.warn('[ODOR] fb remove', e))
+        .finally(()=> setTimeout(()=>{ _suppressEcho = Math.max(0,_suppressEcho-1); }, 400));
+    }
+    render();
+    toast('🗑 Đã xóa dòng tháng '+_ymLabel(ym),'ok');
+  }
+  /* tháng thuộc khoảng tự sinh (đầu kỳ+1 → hiện tại) sẽ tái tạo dạng trống */
+  function _isAutoMonth(ym){
+    let start = null;
+    if(D.init && D.init.d){ const iym = _ym(D.init.d); if(iym) start = _ymNext(iym); }
+    if(!start) return false;
+    return ym >= start && ym <= _nowYm();
+  }
+
+  /* v4.63.3 — blur ô Gravity: nếu KHÔNG sửa gì thì thu hiển thị về 3 số lẻ
+     (giá trị lưu vẫn đầy đủ). Nếu đã sửa → cellEdit lo (render vẽ lại). */
+  function gravBlur(el){
+    const full = el.dataset.full;
+    if(!full || el.value === '') return;
+    if(parseFloat(el.value) === parseFloat(full)) el.value = (+full).toFixed(3);
+  }
+
   /* ================= edits ================= */
   function cellEdit(key, field, value){
     const v = String(value==null?'':value).trim();
@@ -380,6 +519,8 @@ const ODOR = (function(){
     if(field === 'd' && key === 'init'){ D[key].d = v; }         /* init date = text */
     else if(field === 'rm'){ D[key].rm = v; }
     else { D[key][field] = v === '' ? '' : (_n(v) != null ? _n(v) : v); }
+    /* v4.63 — sửa dữ liệu 1 tháng → ghi nhận ngày nhập mới nhất */
+    if(/^\d{4}-\d{2}$/.test(key) && 'cdefg'.includes(field)){ D[key].ud = _todayISO(); }
     _saveCache();
     _fbSet(key, D[key]);
     /* v4.62.1 — nhập lại mức LG 21201 của 1 tháng → tự quét Tank Log
@@ -528,6 +669,8 @@ const ODOR = (function(){
 
   return { init, render, refresh, cellEdit,
            scanMonth, scanAll,               /* v4.62.1 — quét Tank Log + lưu */
+           addMonth, cancelNewMonth, commitNewMonth, deleteRow,  /* v4.63 — thêm/xóa tháng */
+           gravBlur,                          /* v4.63.3 — Gravity 3dp + focus đầy đủ */
            openPaste, closePaste, doPaste, pasteText,
            exportCsv, mmToM3 };
 })();
