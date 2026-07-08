@@ -826,7 +826,7 @@ function _ktBuildOneForm(v, pageNum){
       +'<td class="kt-sig-lbl">Người kiểm tra:</td>'
       +'<td class="kt-sig-name">'+escapeHtml(v.eng)+'</td>'
       +'<td class="kt-sig-lbl">Ký tên:</td>'
-      +'<td></td>'
+      +'<td class="kt-sig-sign"></td>'
     +'</tr></table>'
   +'</div>';
 }
@@ -861,7 +861,8 @@ html, body { margin:0; padding:0; background:#fff; font-family:"Barlow",sans-ser
 .kt-ck-yn { text-align:center; font-size:13pt; font-weight:700; vertical-align:middle; min-width:14mm; }\
 .kt-sig td { padding:5pt 6pt; }\
 .kt-sig-lbl { background:#e0e0e0; font-size:9pt; font-weight:800; white-space:nowrap; }\
-.kt-sig-name { font-size:10.5pt; font-weight:700; text-align:center; min-width:60mm; }\
+.kt-sig-name { font-size:10.5pt; font-weight:700; text-align:center; min-width:32mm; white-space:nowrap; }\
+.kt-sig-sign { min-width:78mm; }\
 ';
 
 function ktPrint(){

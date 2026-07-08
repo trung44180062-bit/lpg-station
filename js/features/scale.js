@@ -2069,10 +2069,9 @@ const SCALE = (function(){
     const s = DB_SC.stations[stId];
     if(!s||s.status==='empty'){toast('⚠ Station empty','er');return;}
     if(!s.qty||parseFloat(s.qty)<=0){toast('⛔ No Loading Qty — check Sale Plan','er');return;}
-    /* Staff-on-duty gate — the printed slip carries the Engineer/Check Booth
-       signatures, so it cannot be issued while either is unset (e.g. cleared
-       after assign, or a manual re-print of an already-loading station). */
-    if(!_requireStaffOnDuty()) return;
+    /* Staff-on-duty gate removed for PTT print (per request): the slip may be
+       issued with the Engineer/Check Booth signature lines left blank to be
+       filled by hand. The gate still applies on assign (scAssignToStation). */
     /* Build data object and call external overlay */
     const tk = tkGetActive();
     const turn = getDisplayTurn(stId);

@@ -523,10 +523,16 @@ const ODOR = (function(){
     if(/^\d{4}-\d{2}$/.test(key) && 'cdefg'.includes(field)){ D[key].ud = _todayISO(); }
     _saveCache();
     _fbSet(key, D[key]);
-    /* v4.62.1 — nhập lại mức LG 21201 của 1 tháng → tự quét Tank Log
-       tháng đó, tính lại C/D và lưu (scanMonth cũng render + fbSet). */
-    if(field === 'g' && key !== 'init' && v !== ''){
-      scanMonth(key);
+    /* v4.63.x — Khi NHẬP GIÁ TRỊ LEVEL (LG 21201, cột g) phải kiểm tra Tank Log
+       đã tải ĐẦY ĐỦ chưa (mặc định chỉ tải 10 lot mới nhất). Nếu chưa full →
+       gọi ENG.loadAll rồi mới tính toán/thống kê; nếu đã full → tính ngay.
+       Cả hai nhánh dưới đây đều đi qua _withFullTankLog (trực tiếp hoặc gián
+       tiếp qua scanMonth) nên không bao giờ tính trên dữ liệu thiếu:
+         • Dòng tháng  : scanMonth() đã tự bọc _withFullTankLog (quét C/D + lưu).
+         • Dòng đầu kỳ : chỉ cần đảm bảo full rồi render lại chuỗi I/J. */
+    if(field === 'g' && v !== ''){
+      if(key !== 'init') scanMonth(key);
+      else _withFullTankLog(render);
       return;
     }
     render();
