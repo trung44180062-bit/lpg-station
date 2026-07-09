@@ -51,19 +51,26 @@ const MIXNOTIFY = (function(){
       tkName: String(tkName),
       key:    String(key||''),
       _ts:    Date.now()
-    }).catch(e=>console.warn('[MIXNOTIFY] push', e));
+    }).catch(e=>{ if(typeof fbErr==='function') fbErr(e,'Notify Scale'); else console.warn('[MIXNOTIFY] push', e); });
   }
 
+  /* v4.62 — confirm/cancel now DELETE the node outright (was: mark
+     confirmed/cancelled=true, which left the record on Firebase forever).
+     A notify is a live prompt only: once the operator has acted on it there
+     is nothing left to keep, so we remove it → no residual data buildup on
+     /mix_notify. The confirmed/cancelled filter in _onValue is kept so any
+     legacy flagged records already on Firebase still stay hidden. */
   function confirm(pk){
     if(!_fbRef) return;
-    _fbRef.child(pk).update({ confirmed:true, _confirmTs:Date.now() })
-      .catch(e => console.warn('[MIXNOTIFY] confirm', e));
+    _fbRef.child(pk).remove()
+      .then(()=>{ try{ if(typeof toast==='function') toast('✓ Mix confirmed','ok'); }catch(_){} })
+      .catch(e => { if(typeof fbErr==='function') fbErr(e,'Confirm mix'); else console.warn('[MIXNOTIFY] confirm', e); });
   }
 
   function cancel(pk){
     if(!_fbRef) return;
-    _fbRef.child(pk).update({ cancelled:true, _cancelTs:Date.now() })
-      .catch(e => console.warn('[MIXNOTIFY] cancel', e));
+    _fbRef.child(pk).remove()
+      .catch(e => { if(typeof fbErr==='function') fbErr(e,'Cancel mix'); else console.warn('[MIXNOTIFY] cancel', e); });
   }
 
   function _onValue(snap){
@@ -135,7 +142,7 @@ const MIXNOTIFY = (function(){
         console.warn('[MIXNOTIFY] firebase not loaded'); return;
       }
       _fbRef = firebase.database().ref(FB_PATH);
-      _fbRef.on('value', _onValue, e => console.warn('[MIXNOTIFY] listener', e));
+      _fbRef.on('value', _onValue, e => { if(typeof fbErr==='function') fbErr(e,'Load mix notifications'); else console.warn('[MIXNOTIFY] listener', e); });
       _attached = true;
       console.log('[MIXNOTIFY] ✅ Init OK · path /'+FB_PATH);
     }catch(e){ console.warn('[MIXNOTIFY] init', e); }
@@ -147,6 +154,7 @@ const MIXNOTIFY = (function(){
   };
 })();
 window.MIXNOTIFY = MIXNOTIFY;
+/* v4.62: fbErr() wired into confirm/cancel/push + listener (see globals.js) */
 
 
 /* ============================================================

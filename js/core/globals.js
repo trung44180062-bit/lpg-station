@@ -463,6 +463,57 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){closePaste();
   closeDelConfirm();}});
 
 /* ============================================================
+   FIREBASE PERMISSION-DENIED WARNING  (v4.62)
+   ------------------------------------------------------------
+   RTDB rules only allow read/write when the user is SIGNED IN
+   AND present in the active whitelist. When the auth token drops
+   (session expired / offline / tab left idle overnight) the rule
+   fails and Firebase throws PERMISSION_DENIED. Before this, writes
+   failed silently (console.warn only) and reads just showed blank —
+   so staff "saved" opening stock / %wt / notify confirms that never
+   landed, with no warning. This surfaces the error loudly and bounces
+   the operator to the sign-in screen so nothing is lost silently.
+
+   Usage:
+     .catch(e => fbErr(e, 'Opening stock'))     // writes
+     ref.on('value', ok, e => fbErr(e, 'Load')) // reads
+   Returns true if the error was a permission denial.
+   ============================================================ */
+function isFbPermissionDenied(e){
+  if(!e) return false;
+  var c = String(e.code || '').toUpperCase();
+  var m = String(e.message || e || '').toLowerCase();
+  return c.indexOf('PERMISSION_DENIED') >= 0
+      || m.indexOf('permission_denied') >= 0
+      || m.indexOf('permission denied') >= 0;
+}
+var _fbDeniedAt = 0;
+function fbErr(e, ctx){
+  console.warn('[FB] error' + (ctx ? ' · ' + ctx : ''), e);
+  if(isFbPermissionDenied(e)){
+    var where = ctx ? (ctx + ' — ') : '';
+    try{ toast('⛔ ' + where + 'blocked: your session expired or you are not authorized. Please sign in again.', 'er'); }catch(_){}
+    /* Throttle so a burst of failures doesn't repeatedly force a sign-out. */
+    var now = Date.now();
+    if(now - _fbDeniedAt > 5000){
+      _fbDeniedAt = now;
+      /* If the session is actually gone, send them back to the login screen
+         to re-authenticate (onAuthStateChanged will re-show it on sign-out). */
+      var noSession = !(window.firebase && firebase.auth && firebase.auth().currentUser);
+      if(noSession && window.AUTH && typeof AUTH.logout === 'function'){
+        setTimeout(function(){ try{ AUTH.logout(); }catch(_){} }, 1800);
+      }
+    }
+    return true;
+  }
+  /* Any other failure (network, etc.) — still tell the user, don't fail silent. */
+  try{ toast((ctx ? ctx + ': ' : '') + 'save failed — check your connection and try again.', 'er'); }catch(_){}
+  return false;
+}
+window.isFbPermissionDenied = isFbPermissionDenied;
+window.fbErr = fbErr;
+
+/* ============================================================
    USER CHIP (top-right) reflects CURRENT_USER
    ============================================================ */
 (function paintUser(){

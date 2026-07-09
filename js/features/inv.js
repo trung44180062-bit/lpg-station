@@ -96,7 +96,7 @@ const INV = (function(){
         }
       });
       if(changed){ saveCache(); render(); }
-    }, err=>console.warn('[INV] fb listen', err));
+    }, err=>{ if(typeof fbErr==='function') fbErr(err,'Load inventory'); else console.warn('[INV] fb listen', err); });
   }
 
   /* ── GI sold-today from TL Data (read-only, guarded) ──
@@ -422,7 +422,7 @@ const INV = (function(){
     updates['inv_daily/'+d+'/'+sloc+'/_ver']=ts;   // version bump → listeners re-sync + recompute
     h.ref().update(updates)
       .then(()=>{ toast('✓ Initial stock saved · '+TKNAME[sloc],'ok'); sel=sloc; closeAll(); })
-      .catch(e=>{ console.warn('[INV] saveInit',e); toast('Failed to save initial stock','er'); });
+      .catch(e=>{ if(typeof fbErr==='function') fbErr(e,'Opening stock'); else { console.warn('[INV] saveInit',e); toast('Failed to save initial stock','er'); } });
   }
 
   /* %wt C3 — standalone update (v4.22.14)
@@ -460,7 +460,7 @@ const INV = (function(){
     updates['inv_daily/'+d+'/'+sloc+'/_ver']=ts;
     h.ref().update(updates)
       .then(()=>{ toast('✓ %wt C3 updated · '+TKNAME[sloc]+' = '+wt,'ok'); sel=sloc; closeAll(); })
-      .catch(e=>{ console.warn('[INV] saveWt',e); toast('Failed to save %wt','er'); });
+      .catch(e=>{ if(typeof fbErr==='function') fbErr(e,'%wt C3'); else { console.warn('[INV] saveWt',e); toast('Failed to save %wt','er'); } });
   }
 
   /* Cavern */
