@@ -868,7 +868,12 @@ const RPT = (function(){
     // Group TL rows + Vessel rows (vessel → gi.ship)
     const tlRows = collectTL(giDateISO);
     const vsRows = collectVS(giDateISO);
-    if(!tlRows.length && !vsRows.length){ log('ℹ Summary: 0 rows (TL+Vessel) for '+giDateISO,'info'); return; }
+    /* v4-fix: ngày KHÔNG xuất hàng vẫn phải chạy tiếp với danh sách rỗng để
+       XÓA dữ liệu cũ của template (báo cáo hôm trước) — nếu return sớm ở đây
+       thì bảng Summary giữ nguyên số liệu ngày cũ → báo cáo sai. */
+    if(!tlRows.length && !vsRows.length){
+      log('ℹ Summary: 0 rows (TL+Vessel) for '+giDateISO+' — clearing old template data','info');
+    }
     const groups={};
     tlRows.forEach(r=>{
       const nw = parseFloat(String(r.lpgQty||'').replace(/,/g,''))||0;
