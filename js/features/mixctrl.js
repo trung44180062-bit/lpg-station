@@ -390,6 +390,145 @@ const MC = (function(){
       lbl.title = '';
     }
   }
+  /* ── v4.68 — SPECIAL-RATIO MIX PLANNER ──────────────────────────────
+     Question it answers: "mix BAO NHIÊU m³ hàng đặc biệt (tỷ lệ s) để sau
+     khi bán xong, chỉ cần bơm C3 (hoặc C4) vào là tank quay về tỷ lệ
+     thường t (~53–54%) với volume càng sát tank-max (570) càng tốt — và
+     vẫn an toàn nếu khách hủy bớt xe?"
+
+     Toán (thể tích, bỏ qua pha hơi — đủ chính xác để lên kế hoạch):
+       • Phần còn lại Vr @ s, bơm A m³ C3 nguyên chất về tỷ lệ t:
+           A  = Vr·(t−s)/(1−t)     (s < t; nếu s > t thì bơm C4: A = Vr·(s−t)/t)
+           Vf = Vr·k,  k = (1−s)/(1−t)   (C4: k = s/t)
+       • Vf ≤ tankMax  ⇒  Vr_max = tankMax/k
+       • Bán chắc chắn Vs_min = (KH bán − dự phòng hủy) đổi ra m³
+       • MIX AN TOÀN TỐI ĐA:  V0 = min(tankMax, Vs_min + Vr_max)
+     Dự phòng hủy = phần plan có thể KHÔNG lấy — kể cả hủy hết phần đó,
+     leftover V0−Vs_min vẫn đưa về t được trong giới hạn tank. */
+  /* v4.69 — planner lives in its OWN modal (#spp-modal, shared by both
+     tanks) so the engineer can review it carefully. All text in English.
+     New in v4.69:
+       • MIX-FAIL RESERVE (ton): headroom kept free in the tank so a failed
+         mix (ratio came out off-spec) can still be corrected by pumping
+         extra C3 or C4. Suggested 12 t (typical 10–15), user-adjustable.
+         Constraint: V0 ≤ tankMax − Vfail  (Vfail sized with C3 density —
+         worst-case volume per ton).
+       • Option B — DUAL top-up: when reserves are big the C3-only recovery
+         lands far below tankMax. Pump BOTH components to reach EXACTLY
+         tankMax @ normal ratio t:  x(C3) = t·M − s·Vr ;  y(C4) = (1−t)·M − (1−s)·Vr.
+       • Direction-aware: special 70:30 (s > t) recovers by pumping C4. */
+  let _sppTank = null;
+  function spPlanOpen(n){
+    _sppTank = n;
+    const m = _gid('spp-modal'); if(!m) return;
+    const ttl = _gid('spp-title');
+    if(ttl) ttl.textContent = '★ SPECIAL RATIO MIX PLANNER — TK-'+(n==='1'?'3501':'3502');
+    const se = _gid('spp-special');
+    const tr = _gnum('mc-tr'+n);
+    if(se && tr > 0) se.value = tr.toFixed(2);
+    const f = _gid('spp-fail');
+    if(f && String(f.value).trim()==='') f.value = '12';     /* suggested, editable */
+    m.classList.add('on');
+    spPlanCalc();
+  }
+  function spPlanClose(){
+    const m = _gid('spp-modal'); if(m) m.classList.remove('on');
+    _sppTank = null;
+  }
+  function spPlanCalc(){
+    const res = _gid('spp-res'); if(!res) return;
+    const pf = id => { const v = parseFloat(String(_gv(id)||'').replace(/,/g,'')); return isNaN(v)?0:v; };
+    const s = pf('spp-special')/100;         // special ratio C3 (from FINAL TARGET C3 %)
+    const t = pf('spp-norm')/100;            // normal ratio to return to
+    const sellT = pf('spp-sell');            // sale plan (ton)
+    const resvT = pf('spp-resv');            // cancel reserve (ton)
+    const failT = pf('spp-fail');            // mix-fail reserve (ton)
+    const M = pf('spp-max') || 570;          // tank max mix volume
+    if(!(s>0 && s<1) || !(t>0 && t<1) || !(sellT>0)){
+      res.innerHTML = '<div class="spp-dim">Enter the SALE PLAN (ton). Special ratio is pre-filled from FINAL TARGET C3 %.</div>';
+      delete res.dataset.v0;
+      return;
+    }
+    const rho  = s*MC_D.c3l + (1-s)*MC_D.c4l;          // ton/m³ of special product
+    const Vs   = sellT/rho;                             // full plan volume
+    const Vrsv = Math.min((resvT>0?resvT:0)/rho, Vs);
+    const VsMin= Vs - Vrsv;                             // guaranteed sales
+    const same = Math.abs(s-t) < 1e-6;
+    const addC3 = s < t;
+    const comp  = addC3 ? 'C3' : 'C4';
+    const compRho = addC3 ? MC_D.c3l : MC_D.c4l;
+    const k = same ? 1 : (addC3 ? (1-s)/(1-t) : s/t);   // recovery volume factor
+    const VrMax = M/k;                                  // max recoverable leftover
+    const Vfail = failT > 0 ? failT/MC_D.c3l : 0;       // worst-case correction volume (C3 density)
+    const capHead = M - Vfail;                          // mix headroom limit
+    const capRec  = VsMin + VrMax;                      // recovery limit
+    const V0 = Math.max(0, Math.min(capHead, capRec));
+    const binding = capHead < capRec ? 'MIX-FAIL headroom (tank max − '+_fmt(Vfail,1)+' m³)' : 'recovery-to-normal limit';
+    const _td = v => '<td>'+v+'</td>';
+    const _scen = (label, sold, soldT)=>{
+      const Vr = V0 - sold;
+      if(Vr < -0.05){
+        return '<tr class="spp-tr-er"><td>'+label+'</td>'+_td(_fmt(sold,1)+' m³ / '+_fmt(soldT,1)+' t')
+             + '<td colspan="3">✗ Mix '+_fmt(V0,1)+' m³ &lt; volume to sell — NOT enough product</td></tr>';
+      }
+      /* Option A — single component */
+      const addA = same ? 0 : (addC3 ? Vr*(t-s)/(1-t) : Vr*(s-t)/t);
+      const VfA  = Vr + addA;
+      const okA  = VfA <= M + 0.05;
+      const gapA = M - VfA;
+      const optA = same ? '—'
+        : '<b>'+_fmt(addA,1)+'</b> m³ '+comp+' ('+_fmt(addA*compRho,1)+' t)<br>→ '+_fmt(VfA,1)+' m³ @ '+(t*100).toFixed(1)+'% '
+          +(okA ? (gapA > 5 ? '<span class="spp-gap">('+_fmt(gapA,1)+' m³ below max)</span>' : '✓')
+                : '<span class="spp-er">✗ exceeds '+_fmt(M,0)+' m³</span>');
+      /* Option B — dual top-up to EXACTLY M @ t */
+      const x = t*M - s*Vr;            // C3 volume
+      const y = (1-t)*M - (1-s)*Vr;    // C4 volume
+      const okB = x >= -0.05 && y >= -0.05;
+      const optB = okB
+        ? '<b>'+_fmt(Math.max(0,x),1)+'</b> m³ C3 ('+_fmt(Math.max(0,x)*MC_D.c3l,1)+' t)<br>+ <b>'+_fmt(Math.max(0,y),1)+'</b> m³ C4 ('+_fmt(Math.max(0,y)*MC_D.c4l,1)+' t)<br>→ '+_fmt(M,0)+' m³ @ '+(t*100).toFixed(1)+'% ✓'
+        : '<span class="spp-er">✗ not reachable (leftover too large)</span>';
+      return '<tr><td>'+label+'</td>'+_td(_fmt(sold,1)+' m³ / '+_fmt(soldT,1)+' t')
+           + _td('<b>'+_fmt(Vr,1)+'</b> m³ @ '+(s*100).toFixed(0)+'%')
+           + _td(optA) + _td(optB) + '</tr>';
+    };
+    let h = '';
+    h += '<div class="spp-sum">'
+       + '<div class="spp-sum-main">🎯 MAX SAFE MIX <b>'+_fmt(V0,1)+'</b> m³ <span class="spp-sum-sub">≈ '+_fmt(V0*rho,1)+' t @ C3 '+(s*100).toFixed(0)+'%</span></div>'
+       + '<div class="spp-sum-note">Limited by: '+binding+'</div>'
+       + (V0 >= Vs-0.05
+           ? '<div class="spp-sum-ok">✓ Covers the full sale plan ('+_fmt(sellT,1)+' t = '+_fmt(Vs,1)+' m³)</div>'
+           : '<div class="spp-sum-er">⚠ Covers only '+_fmt(V0,1)+' m³ ≈ '+_fmt(V0*rho,1)+' t — reserves are limiting the plan</div>')
+       + '</div>';
+    h += '<div class="spp-facts">'
+       + '<span>Special product density: <b>'+rho.toFixed(3)+'</b> t/m³</span>'
+       + '<span>Recovery factor: <b>'+k.toFixed(3)+'×</b> (pump '+comp+' → '+(t*100).toFixed(1)+'%)</span>'
+       + '<span>Max recoverable leftover: <b>'+_fmt(VrMax,1)+'</b> m³</span>'
+       + (Vfail>0 ? '<span>Mix-fail headroom: <b>'+_fmt(Vfail,1)+'</b> m³ ('+_fmt(failT,0)+' t as C3, worst case)</span>' : '')
+       + '</div>';
+    h += '<table class="spp-tbl"><thead><tr>'
+       + '<th>SCENARIO</th><th>SOLD</th><th>LEFTOVER</th>'
+       + '<th>OPTION A · pump '+comp+' only</th>'
+       + '<th>OPTION B · top-up to '+_fmt(M,0)+' m³ (C3 + C4)</th>'
+       + '</tr></thead><tbody>';
+    h += _scen('Full plan sold', Vs, sellT);
+    if(Vrsv > 0.05) h += _scen('Worst case — cancel reserve NOT sold', VsMin, VsMin*rho);
+    h += '</tbody></table>';
+    h += '<div class="spp-foot-note">Volume-phase model (vapor ignored) — planning accuracy. Option B lands EXACTLY on tank max at the normal ratio; use it when reserves leave the C3-only recovery far below '+_fmt(M,0)+' m³.</div>';
+    res.innerHTML = h;
+    res.dataset.v0 = V0.toFixed(1);
+  }
+  function spPlanApply(){
+    const n = _sppTank;
+    const res = _gid('spp-res');
+    const v0 = res ? parseFloat(res.dataset.v0) : NaN;
+    if(!n || isNaN(v0) || v0<=0){ toast('⚠ Enter the sale plan first','er'); return; }
+    const tvEl = _gid('mc-tv'+n);
+    if(tvEl){ tvEl.value = v0.toFixed(1); }
+    toast('🎯 TARGET VOL = '+v0.toFixed(1)+' m³ (max safe mix)','ok');
+    spPlanClose();
+    autoCalc(n);
+  }
+
   /* v4.67 — SPECIAL RATIO toggle (exclusive with LOW PRESSURE) */
   function toggleSP(n){
     SP[n] = !SP[n];
@@ -441,6 +580,13 @@ const MC = (function(){
         if(trEl) trEl.value = (trEff*100).toFixed(2);
         trC3 = trEff;
       }
+      /* v4.69 — keep the planner modal in sync with the FINAL TARGET input */
+      try{
+        if(_sppTank===n && _gid('spp-modal')?.classList.contains('on')){
+          const se=_gid('spp-special'); if(se) se.value=(spDesired*100).toFixed(2);
+          spPlanCalc();
+        }
+      }catch(_){}
     }
     const iC3 = crC3*iv, iC4 = (1-crC3)*iv;
     let aC3 = trC3*tv - iC3;
@@ -1797,6 +1943,7 @@ const MC = (function(){
     activate, calcOne, autoCalc, resetCalc,
     toggleOrder, toggleLP, toggleSP, togglePC, toggleCrMode,
     modeClick, modeDbl,   /* v4.67 — double-click guard for mode buttons */
+    spPlanOpen, spPlanClose, spPlanCalc, spPlanApply,   /* v4.69 — special-ratio mix planner modal */
     startClick, startDblClick, finishMix,
     fmtTime, fmtDate, fmtDateBlur,
     updateLotNames, checkDupLot,

@@ -10,7 +10,7 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css">
+<link rel="stylesheet" href="css/core.css?v=470">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
@@ -1736,6 +1736,7 @@
                   <span class="mc-lp-hint">m³</span>
                   <span class="mc-lp-hint" title="Tỷ lệ C3 phải mix TRONG TANK — TRƯỚC khi tuần hoàn đường ống. Sau khi tuần hoàn xong, tank sẽ về đúng Final Target C3 % (after circulate) bạn đã nhập ở ô trên.">Blend target C3 (before circulate):</span>
                   <input class="mc-lp-inp" id="mc-sptr1" type="text" placeholder="auto" readonly title="Tỷ lệ C3 mix trong tank TRƯỚC tuần hoàn — KHÔNG phải kết quả cuối">
+                  <button type="button" class="mc-spp-btn" onclick="MC.spPlanOpen('1')" title="Open the SPECIAL RATIO MIX PLANNER — max safe mix volume with cancel reserve + mix-fail reserve, C3/C4 recovery options">📋 PLAN</button>
                 </div>
               </div>
               <div class="mc-pc-box" id="mc-pc-box1">
@@ -1955,6 +1956,7 @@
                   <span class="mc-lp-hint">m³</span>
                   <span class="mc-lp-hint" title="Tỷ lệ C3 phải mix TRONG TANK — TRƯỚC khi tuần hoàn đường ống. Sau khi tuần hoàn xong, tank sẽ về đúng Final Target C3 % (after circulate) bạn đã nhập ở ô trên.">Blend target C3 (before circulate):</span>
                   <input class="mc-lp-inp" id="mc-sptr2" type="text" placeholder="auto" readonly title="Tỷ lệ C3 mix trong tank TRƯỚC tuần hoàn — KHÔNG phải kết quả cuối">
+                  <button type="button" class="mc-spp-btn" onclick="MC.spPlanOpen('2')" title="Open the SPECIAL RATIO MIX PLANNER — max safe mix volume with cancel reserve + mix-fail reserve, C3/C4 recovery options">📋 PLAN</button>
                 </div>
               </div>
               <div class="mc-pc-box" id="mc-pc-box2">
@@ -2082,6 +2084,52 @@
               <div class="mc-qc" id="mc-qc2"></div>
               <div class="mc-gc-result" id="mc-gcres2"></div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- v4.69 SPECIAL RATIO MIX PLANNER modal (shared TK-3501/3502, opened
+           from the ★ MIX TỈ LỆ ĐẶC BIỆT box → 📋 PLAN button). Lives INSIDE
+           the mixcal page (next to the settings modal) so it renders in the
+           Tank tab context — NOT inside #sub-scale where it was invisible. -->
+      <div class="spp-modal-bg" id="spp-modal" onclick="if(event.target===this)MC.spPlanClose()">
+        <div class="spp-modal">
+          <div class="spp-hdr">
+            <span class="spp-ttl" id="spp-title">★ SPECIAL RATIO MIX PLANNER</span>
+            <button class="spp-x" onclick="MC.spPlanClose()" title="Close">✕</button>
+          </div>
+          <div class="spp-body">
+            <div class="spp-inputs">
+              <div class="spp-fld">
+                <div class="spp-lbl" title="Pre-filled from FINAL TARGET C3 % of the panel — the special ratio being mixed (e.g. 30 for 30:70, 70 for 70:30)">SPECIAL RATIO C3 %</div>
+                <input class="spp-inp" id="spp-special" type="text" inputmode="decimal" oninput="MC.spPlanCalc()">
+              </div>
+              <div class="spp-fld">
+                <div class="spp-lbl" title="The normal commercial ratio the tank must return to after the special sale (typically 53–54)">NORMAL RATIO C3 %</div>
+                <input class="spp-inp" id="spp-norm" type="text" inputmode="decimal" value="53.5" oninput="MC.spPlanCalc()">
+              </div>
+              <div class="spp-fld">
+                <div class="spp-lbl" title="Planned special-product sales in tons">SALE PLAN (ton)</div>
+                <input class="spp-inp" id="spp-sell" type="text" inputmode="decimal" oninput="MC.spPlanCalc()">
+              </div>
+              <div class="spp-fld">
+                <div class="spp-lbl" title="Part of the plan that customers might cancel (trucks not showing up). The planner guarantees recovery even if ALL of this is cancelled.">CANCEL RESERVE (ton)</div>
+                <input class="spp-inp" id="spp-resv" type="text" inputmode="decimal" value="0" oninput="MC.spPlanCalc()">
+              </div>
+              <div class="spp-fld">
+                <div class="spp-lbl" title="Headroom kept free so a FAILED mix (off-spec ratio) can still be corrected by pumping extra C3 or C4. Typical 10–15 t — suggested 12, adjust as needed.">MIX-FAIL RESERVE (ton)</div>
+                <input class="spp-inp" id="spp-fail" type="text" inputmode="decimal" value="12" oninput="MC.spPlanCalc()">
+              </div>
+              <div class="spp-fld">
+                <div class="spp-lbl" title="Maximum mix volume of one tank">TANK MAX (m³)</div>
+                <input class="spp-inp" id="spp-max" type="text" inputmode="decimal" value="570" oninput="MC.spPlanCalc()">
+              </div>
+            </div>
+            <div class="spp-res" id="spp-res"></div>
+          </div>
+          <div class="spp-footbar">
+            <button type="button" class="spp-btn" onclick="MC.spPlanClose()">Close</button>
+            <button type="button" class="spp-btn spp-btn-apply" onclick="MC.spPlanApply()" title="Write MAX SAFE MIX into the panel's TARGET VOL input">→ SET TARGET VOL</button>
           </div>
         </div>
       </div>
@@ -3965,7 +4013,7 @@
 <script src="js/features/vlog.js"></script>
 <script src="js/features/plog.js"></script>
 <script src="js/features/staff.js"></script>
-<script src="js/features/mixctrl.js"></script>
+<script src="js/features/mixctrl.js?v=469"></script>
 <script src="js/features/vmix.js"></script>
 <script src="js/features/mixnotify.js"></script>
 <script src="js/features/cav.js"></script>
