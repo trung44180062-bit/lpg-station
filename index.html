@@ -1650,13 +1650,17 @@
           <div id="mc-hdr1" class="mc-hdr mc-tk-1" onclick="MC.activate('1')">
             <div class="mc-tk-name">TK-3501</div>
             <button type="button" class="mc-btn mc-btn-c4" id="mc-ord1"
-              onclick="event.stopPropagation();MC.toggleOrder('1')" title="Pump order">➊C4 ➋C3</button>
+              onclick="event.stopPropagation();MC.modeClick('1','ord')"
+              ondblclick="event.stopPropagation();MC.modeDbl('1','ord')" title="Pump order — NHẤP ĐÔI để chuyển">➊C4 ➋C3</button>
             <button type="button" class="mc-btn mc-btn-lp" id="mc-lp1"
-              onclick="event.stopPropagation();MC.toggleLP('1')" title="Low Pressure">📐 LOW PRESSURE</button>
+              onclick="event.stopPropagation();MC.modeClick('1','lp')"
+              ondblclick="event.stopPropagation();MC.modeDbl('1','lp')" title="Low Pressure — NHẤP ĐÔI để bật/tắt">📐 LOW PRESSURE</button>
             <button type="button" class="mc-btn mc-btn-sp" id="mc-sp1"
-              onclick="event.stopPropagation();MC.toggleSP('1')" title="Mix tỉ lệ đặc biệt — TARGET C3 % nhập vào CHÍNH LÀ kết quả cuối sau khi tuần hoàn thể tích đường ống; phần mềm tự giải ngược blend target trong tank">★ SPECIAL RATIO</button>
+              onclick="event.stopPropagation();MC.modeClick('1','sp')"
+              ondblclick="event.stopPropagation();MC.modeDbl('1','sp')" title="Mix tỉ lệ đặc biệt — NHẤP ĐÔI để bật/tắt. TARGET C3 % nhập vào CHÍNH LÀ kết quả cuối sau khi tuần hoàn thể tích đường ống; phần mềm tự giải ngược blend target trong tank">★ SPECIAL RATIO</button>
             <button type="button" class="mc-btn mc-btn-pc" id="mc-pc1"
-              onclick="event.stopPropagation();MC.togglePC('1')" title="Receive C3 before mixing">📥 RECEIVE C3</button>
+              onclick="event.stopPropagation();MC.modeClick('1','pc')"
+              ondblclick="event.stopPropagation();MC.modeDbl('1','pc')" title="Receive C3 before mixing — NHẤP ĐÔI để bật/tắt">📥 RECEIVE C3</button>
             <div class="mc-spacer">
               <button type="button" class="mc-btn mc-btn-calc-1"
                 onclick="event.stopPropagation();MC.calcOne('1')"
@@ -1702,7 +1706,7 @@
                   <input class="mc-inp" id="mc-tv1" type="text" inputmode="decimal" value="570" oninput="MC.autoCalc('1')">
                 </div>
                 <div class="mc-fld">
-                  <div class="mc-lbl">TARGET C3 %</div>
+                  <div class="mc-lbl" id="mc-trlbl1">TARGET C3 %</div>
                   <input class="mc-inp" id="mc-tr1" type="text" inputmode="decimal" value="55" oninput="MC.autoCalc('1')">
                 </div>
                 <div class="mc-fld">
@@ -1730,8 +1734,8 @@
                   <span class="mc-lp-hint">Pipe</span>
                   <input class="mc-lp-inp" id="mc-spvpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')">
                   <span class="mc-lp-hint">m³</span>
-                  <span class="mc-lp-hint" title="TARGET C3 % bạn nhập = kết quả CUỐI. Đây là tỷ lệ phải mix trong tank để sau tuần hoàn ống ra đúng kết quả đó.">Blend target C3:</span>
-                  <input class="mc-lp-inp" id="mc-sptr1" type="text" placeholder="auto" readonly>
+                  <span class="mc-lp-hint" title="Tỷ lệ C3 phải mix TRONG TANK — TRƯỚC khi tuần hoàn đường ống. Sau khi tuần hoàn xong, tank sẽ về đúng Final Target C3 % (after circulate) bạn đã nhập ở ô trên.">Blend target C3 (before circulate):</span>
+                  <input class="mc-lp-inp" id="mc-sptr1" type="text" placeholder="auto" readonly title="Tỷ lệ C3 mix trong tank TRƯỚC tuần hoàn — KHÔNG phải kết quả cuối">
                 </div>
               </div>
               <div class="mc-pc-box" id="mc-pc-box1">
@@ -1869,13 +1873,17 @@
           <div id="mc-hdr2" class="mc-hdr mc-tk-2" onclick="MC.activate('2')">
             <div class="mc-tk-name">TK-3502</div>
             <button type="button" class="mc-btn mc-btn-c4" id="mc-ord2"
-              onclick="event.stopPropagation();MC.toggleOrder('2')" title="Pump order">➊C4 ➋C3</button>
+              onclick="event.stopPropagation();MC.modeClick('2','ord')"
+              ondblclick="event.stopPropagation();MC.modeDbl('2','ord')" title="Pump order — NHẤP ĐÔI để chuyển">➊C4 ➋C3</button>
             <button type="button" class="mc-btn mc-btn-lp" id="mc-lp2"
-              onclick="event.stopPropagation();MC.toggleLP('2')" title="Low Pressure">📐 LOW PRESSURE</button>
+              onclick="event.stopPropagation();MC.modeClick('2','lp')"
+              ondblclick="event.stopPropagation();MC.modeDbl('2','lp')" title="Low Pressure — NHẤP ĐÔI để bật/tắt">📐 LOW PRESSURE</button>
             <button type="button" class="mc-btn mc-btn-sp" id="mc-sp2"
-              onclick="event.stopPropagation();MC.toggleSP('2')" title="Mix tỉ lệ đặc biệt — TARGET C3 % nhập vào CHÍNH LÀ kết quả cuối sau khi tuần hoàn thể tích đường ống; phần mềm tự giải ngược blend target trong tank">★ SPECIAL RATIO</button>
+              onclick="event.stopPropagation();MC.modeClick('2','sp')"
+              ondblclick="event.stopPropagation();MC.modeDbl('2','sp')" title="Mix tỉ lệ đặc biệt — NHẤP ĐÔI để bật/tắt. TARGET C3 % nhập vào CHÍNH LÀ kết quả cuối sau khi tuần hoàn thể tích đường ống; phần mềm tự giải ngược blend target trong tank">★ SPECIAL RATIO</button>
             <button type="button" class="mc-btn mc-btn-pc" id="mc-pc2"
-              onclick="event.stopPropagation();MC.togglePC('2')" title="Receive C3 before mixing">📥 RECEIVE C3</button>
+              onclick="event.stopPropagation();MC.modeClick('2','pc')"
+              ondblclick="event.stopPropagation();MC.modeDbl('2','pc')" title="Receive C3 before mixing — NHẤP ĐÔI để bật/tắt">📥 RECEIVE C3</button>
             <div class="mc-spacer">
               <button type="button" class="mc-btn mc-btn-calc-2"
                 onclick="event.stopPropagation();MC.calcOne('2')"
@@ -1917,7 +1925,7 @@
                   <input class="mc-inp" id="mc-tv2" type="text" inputmode="decimal" value="570" oninput="MC.autoCalc('2')">
                 </div>
                 <div class="mc-fld">
-                  <div class="mc-lbl">TARGET C3 %</div>
+                  <div class="mc-lbl" id="mc-trlbl2">TARGET C3 %</div>
                   <input class="mc-inp" id="mc-tr2" type="text" inputmode="decimal" value="55" oninput="MC.autoCalc('2')">
                 </div>
                 <div class="mc-fld">
@@ -1945,8 +1953,8 @@
                   <span class="mc-lp-hint">Pipe</span>
                   <input class="mc-lp-inp" id="mc-spvpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')">
                   <span class="mc-lp-hint">m³</span>
-                  <span class="mc-lp-hint" title="TARGET C3 % bạn nhập = kết quả CUỐI. Đây là tỷ lệ phải mix trong tank để sau tuần hoàn ống ra đúng kết quả đó.">Blend target C3:</span>
-                  <input class="mc-lp-inp" id="mc-sptr2" type="text" placeholder="auto" readonly>
+                  <span class="mc-lp-hint" title="Tỷ lệ C3 phải mix TRONG TANK — TRƯỚC khi tuần hoàn đường ống. Sau khi tuần hoàn xong, tank sẽ về đúng Final Target C3 % (after circulate) bạn đã nhập ở ô trên.">Blend target C3 (before circulate):</span>
+                  <input class="mc-lp-inp" id="mc-sptr2" type="text" placeholder="auto" readonly title="Tỷ lệ C3 mix trong tank TRƯỚC tuần hoàn — KHÔNG phải kết quả cuối">
                 </div>
               </div>
               <div class="mc-pc-box" id="mc-pc-box2">

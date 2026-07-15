@@ -331,6 +331,28 @@ const MC = (function(){
     if(ST[n] !== 'idle') _autoFillCr(n);
   }
 
+  /* ---------- v4.67 — double-click guard for mode buttons ----------
+     Pump order / LOW PRESSURE / SPECIAL RATIO / RECEIVE C3 flip the whole
+     calculation model, and a stray single click was too easy to miss.
+     Single click now only shows a hint; DOUBLE-click performs the toggle
+     (same timer pattern as startClick/startDblClick). */
+  const _modeTimer = {};
+  const _MODE_LBL = { ord:'thứ tự bơm ➊➋', lp:'LOW PRESSURE', sp:'SPECIAL RATIO', pc:'RECEIVE C3' };
+  function modeClick(n, kind){
+    const key = kind + n;
+    clearTimeout(_modeTimer[key]);
+    _modeTimer[key] = setTimeout(()=>{
+      toast('👆👆 Nhấp ĐÔI để chuyển '+(_MODE_LBL[kind]||kind)+' (tránh bấm nhầm)','warn');
+    }, 260);
+  }
+  function modeDbl(n, kind){
+    clearTimeout(_modeTimer[kind + n]);
+    if(kind==='ord')      toggleOrder(n);
+    else if(kind==='lp')  toggleLP(n);
+    else if(kind==='sp')  toggleSP(n);
+    else if(kind==='pc')  togglePC(n);
+  }
+
   /* ---------- toggles ---------- */
   function toggleOrder(n){
     const btn = _gid('mc-ord'+n);
@@ -353,13 +375,29 @@ const MC = (function(){
     _gid('mc-lp-box'+n)?.classList.toggle('on', LP[n]);
     autoCalc(n);
   }
+  /* v4.67 — TARGET C3 % label follows the SP mode so the operator always
+     knows WHICH number the input represents:
+       SP off → "TARGET C3 %"                            (blend target, classic)
+       SP on  → "FINAL TARGET C3 % (AFTER CIRCULATE)"    (final result wanted) */
+  function _updateTrLabel(n){
+    const lbl = _gid('mc-trlbl'+n);
+    if(!lbl) return;
+    if(SP[n]){
+      lbl.innerHTML = 'FINAL TARGET C3 % <span style="color:#047857;font-weight:800">(AFTER CIRCULATE)</span>';
+      lbl.title = 'Kết quả C3 % CUỐI CÙNG mong muốn — SAU khi tuần hoàn đường ống. Phần mềm tự tính Blend target C3 (before circulate) ở ô bên dưới.';
+    } else {
+      lbl.textContent = 'TARGET C3 %';
+      lbl.title = '';
+    }
+  }
   /* v4.67 — SPECIAL RATIO toggle (exclusive with LOW PRESSURE) */
   function toggleSP(n){
     SP[n] = !SP[n];
     if(SP[n] && LP[n]){ LP[n] = false; _gid('mc-lp'+n)?.classList.remove('on'); _gid('mc-lp-box'+n)?.classList.remove('on'); }
     _gid('mc-sp'+n)?.classList.toggle('on', SP[n]);
     _gid('mc-sp-box'+n)?.classList.toggle('on', SP[n]);
-    if(SP[n]) toast('★ TK-'+(n==='1'?'3501':'3502')+': SPECIAL RATIO — TARGET C3 % bạn nhập = kết quả CUỐI sau tuần hoàn ống','warn');
+    _updateTrLabel(n);
+    if(SP[n]) toast('★ TK-'+(n==='1'?'3501':'3502')+': SPECIAL RATIO — ô FINAL TARGET C3 % = kết quả CUỐI sau tuần hoàn ống','warn');
     autoCalc(n);
   }
   function togglePC(n){
@@ -459,8 +497,8 @@ const MC = (function(){
       lpHTML += '<div style="margin-top:4px;padding:4px 10px;background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
         '<span style="font-family:Oswald;font-size:10px;letter-spacing:1px;color:#047857;font-weight:700">★ MIX TỈ LỆ ĐẶC BIỆT</span>'+
         '<span style="font-size:10px;color:#047857">Pipe '+_fmt(spVPipe,1)+' m³ · Prev C3 '+_fmt(crC3*100,1)+'%</span>'+
-        '<span style="padding:2px 8px;border-radius:4px;background:var(--green-soft);color:#15803d;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">✔ FINAL C3 = <span style="font-family:monospace;font-size:14px">'+(spDesired*100).toFixed(2)+'%</span> (đúng số đã nhập)</span>'+
-        '<span style="padding:2px 8px;border-radius:4px;background:#fef3c7;color:#92400e;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">🎯 BLEND TARGET TRONG TANK <span style="font-family:monospace;font-size:14px">'+(trC3*100).toFixed(2)+'%</span></span>'+
+        '<span style="padding:2px 8px;border-radius:4px;background:var(--green-soft);color:#15803d;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">✔ FINAL C3 (AFTER CIRCULATE) = <span style="font-family:monospace;font-size:14px">'+(spDesired*100).toFixed(2)+'%</span> (đúng số đã nhập)</span>'+
+        '<span style="padding:2px 8px;border-radius:4px;background:#fef3c7;color:#92400e;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">🎯 BLEND TARGET (BEFORE CIRCULATE) <span style="font-family:monospace;font-size:14px">'+(trC3*100).toFixed(2)+'%</span></span>'+
       '</div>';
     }
     /* Odorant (BDSET) — based on pre-PC amounts for stable formula */
@@ -566,6 +604,7 @@ const MC = (function(){
     SP[n] = false; _gid('mc-sp'+n)?.classList.remove('on'); _gid('mc-sp-box'+n)?.classList.remove('on');
     const spvEl = _gid('mc-spvpipe'+n); if(spvEl) spvEl.value = '74';
     const sptEl = _gid('mc-sptr'+n);   if(sptEl) sptEl.value = '';
+    _updateTrLabel(n);
     PC[n] = false; _gid('mc-pc'+n)?.classList.remove('on'); _gid('mc-pc-box'+n)?.classList.remove('on');
     MIXING_LOT[n] = 0;
     GCR[n] = null;
@@ -626,7 +665,7 @@ const MC = (function(){
         if(v.cr){ const cr = _gid('mc-cr'+n); if(cr){ cr.value = v.cr; cr.readOnly = false; } CR_MODE[n] = v.crMode || 'manual'; }
         set('mc-sd'+n, v.sd); set('mc-s'+n, v.st);
         if(v.lp){ LP[n] = true; _gid('mc-lp'+n)?.classList.add('on'); _gid('mc-lp-box'+n)?.classList.add('on'); }
-        if(v.sp){ SP[n] = true; _gid('mc-sp'+n)?.classList.add('on'); _gid('mc-sp-box'+n)?.classList.add('on'); }
+        if(v.sp){ SP[n] = true; _gid('mc-sp'+n)?.classList.add('on'); _gid('mc-sp-box'+n)?.classList.add('on'); _updateTrLabel(n); }
         if(v.pc){ PC[n] = true; _gid('mc-pc'+n)?.classList.add('on'); _gid('mc-pc-box'+n)?.classList.add('on'); }
         if(v.vpipe){ const e = _gid('mc-vpipe'+n); if(e) e.value = v.vpipe; }
         if(v.spvpipe){ const e = _gid('mc-spvpipe'+n); if(e) e.value = v.spvpipe; }
@@ -1757,6 +1796,7 @@ const MC = (function(){
     init, refresh,
     activate, calcOne, autoCalc, resetCalc,
     toggleOrder, toggleLP, toggleSP, togglePC, toggleCrMode,
+    modeClick, modeDbl,   /* v4.67 — double-click guard for mode buttons */
     startClick, startDblClick, finishMix,
     fmtTime, fmtDate, fmtDateBlur,
     updateLotNames, checkDupLot,

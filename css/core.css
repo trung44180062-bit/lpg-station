@@ -1960,9 +1960,20 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
   display:inline-flex;align-items:center;gap:3px;}
 .mc-btn:hover{background:var(--line-2);}
 .mc-btn.mc-btn-c4{background:var(--orange-soft);border-color:var(--orange);color:var(--orange);}
-.mc-btn.mc-btn-c3{background:var(--blue-soft);border-color:var(--blue);color:var(--blue);}
-.mc-btn.mc-btn-lp.on{background:#f3e8ff;border-color:#d4b5f0;color:#7b2d8e;font-weight:700;}
-.mc-btn.mc-btn-pc.on{background:#fef3c7;border-color:#f59e0b;color:#92400e;font-weight:700;}
+/* v4.67 — NON-DEFAULT states get a solid fill + pulsing glow so a changed
+   mode is unmissable at a glance (default states stay soft/pastel).
+   Toggling now requires a DOUBLE-click (MC.modeClick/modeDbl). */
+.mc-btn.mc-btn-c3{background:var(--blue);border-color:#1d4ed8;color:#fff;font-weight:800;
+  animation:mcModePulse 1.4s infinite;}
+.mc-btn.mc-btn-lp.on{background:#7b2d8e;border-color:#5b1f6b;color:#fff;font-weight:800;
+  animation:mcModePulse 1.4s infinite;}
+.mc-btn.mc-btn-pc.on{background:#d97706;border-color:#92400e;color:#fff;font-weight:800;
+  animation:mcModePulse 1.4s infinite;}
+@keyframes mcModePulse{
+  0%   {box-shadow:0 0 0 0 rgba(220,38,38,.55);}
+  70%  {box-shadow:0 0 0 7px rgba(220,38,38,0);}
+  100% {box-shadow:0 0 0 0 rgba(220,38,38,0);}
+}
 .mc-btn.mc-btn-calc-1{background:var(--blue);border-color:var(--blue);color:#fff;font-size:9px;padding:2px 8px;}
 .mc-btn.mc-btn-calc-2{background:var(--orange);border-color:var(--orange);color:#fff;font-size:9px;padding:2px 8px;}
 .mc-btn.mc-btn-cfg{font-size:9px;padding:2px 6px;}
@@ -2037,7 +2048,8 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .mc-lp-box .mc-lp-inp[readonly]{background:#f0e6fa;font-weight:700;color:#7b2d8e;}
 
 /* v4.67 — Special-Ratio sub-box (mix tỉ lệ đặc biệt) — green/emerald theme */
-.mc-btn.mc-btn-sp.on{background:#ecfdf5;border-color:#6ee7b7;color:#047857;font-weight:700;}
+.mc-btn.mc-btn-sp.on{background:#047857;border-color:#065f46;color:#fff;font-weight:800;
+  animation:mcModePulse 1.4s infinite;}
 .mc-sp-box{display:none;margin-top:6px;padding:6px 10px;background:#ecfdf5;
   border:1.5px solid #6ee7b7;border-radius:6px;}
 .mc-sp-box.on{display:block;}
