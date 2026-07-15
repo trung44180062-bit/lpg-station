@@ -233,7 +233,8 @@ const CAV = (function(){
   }
   function _tlDir(r){ return _dir(r.trade) || _dir(r.dest) || _dir(r.type); }
   function _isPure(r){
-    if(/pure|순수|thuan|thuần/i.test(String(r.type||''))) return true;
+    /* v4.67 — no ASCII "thuan": matches place-name "Binh Thuan"/"Ninh Thuan" */
+    if(/pure|순수|thuần/i.test(String(r.type||''))) return true;
     const c3=_n(r.c3Kg), c4=_n(r.c4Kg);
     return (c3>0&&c4===0)||(c4>0&&c3===0);
   }

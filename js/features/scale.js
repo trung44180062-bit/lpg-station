@@ -82,10 +82,15 @@ const SCALE = (function(){
 
   /* Classify a plan-row type string as a Pure product. Returns 'C3', 'C4',
      or '' (not pure). Mirrors WGCHECK's pure detection; a bare "pure" with no
-     C3/C4 token defaults to C3 (propane), matching the rest of the app. */
+     C3/C4 token defaults to C3 (propane), matching the rest of the app.
+     v4.67 — dropped the ASCII token "thuan": it matched the place-name in
+     "CN BINH THUAN" / "Ninh Thuan" contracts, so a 50:50 cargo was classed
+     Pure and wrongly assigned TK-3301/3401 + a Pure-Log lot. Only "pure",
+     the diacritic "thuần", or Korean "순수" mean Pure (same fix as
+     _pfDeriveType in v4.63). */
   function _scPureType(type){
     const t = String(type||'').toLowerCase();
-    if(!/pure|thuần|thuan|순수/.test(t)) return '';
+    if(!/pure|thuần|순수/.test(t)) return '';
     if(/c4|butane|부탄/.test(t)) return 'C4';
     if(/c3|propane|프로판/.test(t)) return 'C3';
     return 'C3';
@@ -1615,7 +1620,8 @@ const SCALE = (function(){
     const shortCust = (typeof CT!=='undefined' && CT.lookup)   ? CT.lookup(fullCust)   : fullCust;
     const wmsCust   = (typeof CT!=='undefined' && CT.wmsName)  ? CT.wmsName(fullCust)  : fullCust;
     const isExport  = /export/i.test(fullCust);
-    const isPure    = /pure|thuần|thuan/i.test(contract);
+    /* v4.67 — no ASCII "thuan": matches place-name "Binh Thuan"/"Ninh Thuan" */
+    const isPure    = /pure|thuần/i.test(contract);
     const trade     = (isExport ? 'Export' : 'Domestic') + (isPure ? ' (Pure)' : '');
     const prodType  = (typeof _pfDeriveType==='function') ? _pfDeriveType(contract) : contract;
     /* Price ($/ton): same lookup the Today Plan price preview uses
@@ -1740,7 +1746,8 @@ const SCALE = (function(){
     const shortCust = (typeof CT!=='undefined' && CT.lookup)  ? CT.lookup(fullCust)  : fullCust;
     const wmsCust   = (typeof CT!=='undefined' && CT.wmsName) ? CT.wmsName(fullCust) : fullCust;
     const isExport  = /export/i.test(fullCust);
-    const isPure    = /pure|thuần|thuan/i.test(contract);
+    /* v4.67 — no ASCII "thuan": matches place-name "Binh Thuan"/"Ninh Thuan" */
+    const isPure    = /pure|thuần/i.test(contract);
     const trade     = (isExport ? 'Export' : 'Domestic') + (isPure ? ' (Pure)' : '');
     const prodType  = (typeof _pfDeriveType==='function') ? _pfDeriveType(contract) : contract;
     /* Price ($/ton) per linked DO — same PP lookup as Today Plan. */

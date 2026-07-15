@@ -7,7 +7,7 @@
  *         rptSwitchTab, cavToggle (gọi từ markup onclick).
  * Nạp: CORE, sau auth, trước data. (Lịch sử phiên bản → docs/VERSION-HISTORY.md)
  * ============================================================ */
-const APP_VERSION='v4.65', APP_BUILD_ID='p37-rpt-summary-clear-empty-day';
+const APP_VERSION='v4.67', APP_BUILD_ID='p38-pure-lot-thuan-placename-fix';
 
 
 /* ---------- main nav (Fleet active; others stubs) ---------- */

@@ -81,6 +81,14 @@ const MC = (function(){
   const ST = { '1':'idle', '2':'idle' };
   const ORD = { '1':'C4', '2':'C4' };
   const LP  = { '1':false, '2':false };
+  /* v4.67 — SPECIAL RATIO mix (mix tỉ lệ đặc biệt). Inverse of LOW PRESSURE:
+     the operator's TARGET C3 % input IS the desired FINAL C3 after the pipe
+     volume (74 m³ of previous-lot product) recirculates back into the tank.
+     The calculator back-solves the in-tank blend target:
+        trEff = (desired·(TV+Vpipe) − crC3·Vpipe) / TV
+     and every volume/stop-level below uses trEff. Used when the new ratio
+     differs a lot from the current lot's ratio. Mutually exclusive with LP. */
+  const SP  = { '1':false, '2':false };
   const PC  = { '1':false, '2':false };
   const CR_MODE = { '1':'auto', '2':'auto' };
   const MIXING_LOT = { '1':0, '2':0 };
@@ -340,8 +348,18 @@ const MC = (function(){
   function toggleLP(n){
     LP[n] = !LP[n];
     if(LP[n] && PC[n]){ PC[n] = false; _gid('mc-pc'+n)?.classList.remove('on'); _gid('mc-pc-box'+n)?.classList.remove('on'); }
+    if(LP[n] && SP[n]){ SP[n] = false; _gid('mc-sp'+n)?.classList.remove('on'); _gid('mc-sp-box'+n)?.classList.remove('on'); }
     _gid('mc-lp'+n)?.classList.toggle('on', LP[n]);
     _gid('mc-lp-box'+n)?.classList.toggle('on', LP[n]);
+    autoCalc(n);
+  }
+  /* v4.67 — SPECIAL RATIO toggle (exclusive with LOW PRESSURE) */
+  function toggleSP(n){
+    SP[n] = !SP[n];
+    if(SP[n] && LP[n]){ LP[n] = false; _gid('mc-lp'+n)?.classList.remove('on'); _gid('mc-lp-box'+n)?.classList.remove('on'); }
+    _gid('mc-sp'+n)?.classList.toggle('on', SP[n]);
+    _gid('mc-sp-box'+n)?.classList.toggle('on', SP[n]);
+    if(SP[n]) toast('★ TK-'+(n==='1'?'3501':'3502')+': SPECIAL RATIO — TARGET C3 % bạn nhập = kết quả CUỐI sau tuần hoàn ống','warn');
     autoCalc(n);
   }
   function togglePC(n){
@@ -357,7 +375,7 @@ const MC = (function(){
     const tk = n==='1' ? '3501' : '3502';
     const iv = _gnum('mc-iv'+n);
     const tv = _gnum('mc-tv'+n);
-    const trC3 = _gnum('mc-tr'+n) / 100;
+    let   trC3 = _gnum('mc-tr'+n) / 100;
     const crC3 = _gnum('mc-cr'+n) / 100;
     const resEl = _gid('mc-r'+n);
     if(!resEl) return;
@@ -365,6 +383,26 @@ const MC = (function(){
       if(!_calcSilent) toast('⚠ TK-'+tk+': fill all four inputs','er');
       resEl.classList.remove('on');
       return;
+    }
+    /* v4.67 — SPECIAL RATIO: user input = desired FINAL C3 after the pipe
+       volume mixes back in. Back-solve the in-tank blend target and use it
+       for every volume below. spDesired stays for display. */
+    let spDesired = 0, spVPipe = 0;
+    if(SP[n]){
+      spVPipe = _gnum('mc-spvpipe'+n);
+      if(spVPipe > 0){
+        spDesired = trC3;
+        const trEff = (spDesired*(tv + spVPipe) - crC3*spVPipe) / tv;
+        const trEl = _gid('mc-sptr'+n);
+        if(trEff <= 0 || trEff >= 1){
+          if(trEl) trEl.value = 'impossible';
+          if(!_calcSilent) toast('⚠ TK-'+tk+': FINAL C3 '+(spDesired*100).toFixed(1)+'% không thể đạt với pipe '+spVPipe+' m³ (blend target ra ngoài 0–100%)','er');
+          resEl.classList.remove('on');
+          return;
+        }
+        if(trEl) trEl.value = (trEff*100).toFixed(2);
+        trC3 = trEff;
+      }
     }
     const iC3 = crC3*iv, iC4 = (1-crC3)*iv;
     let aC3 = trC3*tv - iC3;
@@ -415,6 +453,16 @@ const MC = (function(){
         '</div>';
       }
     }
+    /* v4.67 — SPECIAL RATIO banner: user's input = FINAL result; the banner
+       shows the back-solved in-tank blend target the STOP volumes achieve. */
+    if(SP[n] && spVPipe > 0){
+      lpHTML += '<div style="margin-top:4px;padding:4px 10px;background:#ecfdf5;border:1.5px solid #6ee7b7;border-radius:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+        '<span style="font-family:Oswald;font-size:10px;letter-spacing:1px;color:#047857;font-weight:700">★ MIX TỈ LỆ ĐẶC BIỆT</span>'+
+        '<span style="font-size:10px;color:#047857">Pipe '+_fmt(spVPipe,1)+' m³ · Prev C3 '+_fmt(crC3*100,1)+'%</span>'+
+        '<span style="padding:2px 8px;border-radius:4px;background:var(--green-soft);color:#15803d;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">✔ FINAL C3 = <span style="font-family:monospace;font-size:14px">'+(spDesired*100).toFixed(2)+'%</span> (đúng số đã nhập)</span>'+
+        '<span style="padding:2px 8px;border-radius:4px;background:#fef3c7;color:#92400e;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">🎯 BLEND TARGET TRONG TANK <span style="font-family:monospace;font-size:14px">'+(trC3*100).toFixed(2)+'%</span></span>'+
+      '</div>';
+    }
     /* Odorant (BDSET) — based on pre-PC amounts for stable formula */
     const odoSET = Math.round((aC3 + aC4) / MC_ODO.ref * 100) * 1000;
     const odoBD  = MC_ODO.bd * odoSET;
@@ -422,7 +470,11 @@ const MC = (function(){
     const col2 = second === 'C4' ? 'var(--orange)' : 'var(--blue)';
     resEl.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;margin-bottom:4px;border-bottom:1.5px solid rgba(0,0,0,.08);flex-wrap:wrap;gap:4px">'+
-        '<span style="font-family:Oswald;font-size:14px;letter-spacing:1px;color:var(--ink-2)">TARGET <span style="font-weight:700;color:var(--blue)">C3 '+(trC3*100).toFixed(0)+'%</span> · <span style="font-weight:700;color:var(--orange)">C4 '+((1-trC3)*100).toFixed(0)+'%</span></span>'+
+        '<span style="font-family:Oswald;font-size:14px;letter-spacing:1px;color:var(--ink-2)">'+
+          ((SP[n] && spVPipe > 0)
+            ? 'FINAL <span style="font-weight:700;color:var(--blue)">C3 '+(spDesired*100).toFixed(0)+'%</span> · <span style="font-weight:700;color:var(--orange)">C4 '+((1-spDesired)*100).toFixed(0)+'%</span> <span style="font-size:11px;color:#047857;font-weight:700">★ mix trong tank tới C3 '+(trC3*100).toFixed(2)+'%</span>'
+            : 'TARGET <span style="font-weight:700;color:var(--blue)">C3 '+(trC3*100).toFixed(0)+'%</span> · <span style="font-weight:700;color:var(--orange)">C4 '+((1-trC3)*100).toFixed(0)+'%</span>')+
+        '</span>'+
         '<span style="display:flex;align-items:center;gap:8px">'+
           '<span style="font-family:monospace;font-size:15px;font-weight:700">'+_fmt(tv,0)+' m³</span>'+
           '<span style="font-family:Oswald;font-size:10px;color:#7b2d8e;font-weight:600;letter-spacing:1px">💨 ODO SET <span style="font-family:monospace;font-size:15px;font-weight:800">'+_fmt(odoSET,0)+'</span> BD <span style="font-family:monospace;font-size:15px;font-weight:800">'+_fmt(odoBD,2)+'</span></span>'+
@@ -511,6 +563,9 @@ const MC = (function(){
     const sumEl = _gid('mc-gcsum'+n);
     if(sumEl){ sumEl.textContent = 'Sum: —'; sumEl.className = 'mc-gc-sum'; }
     LP[n] = false; _gid('mc-lp'+n)?.classList.remove('on'); _gid('mc-lp-box'+n)?.classList.remove('on');
+    SP[n] = false; _gid('mc-sp'+n)?.classList.remove('on'); _gid('mc-sp-box'+n)?.classList.remove('on');
+    const spvEl = _gid('mc-spvpipe'+n); if(spvEl) spvEl.value = '74';
+    const sptEl = _gid('mc-sptr'+n);   if(sptEl) sptEl.value = '';
     PC[n] = false; _gid('mc-pc'+n)?.classList.remove('on'); _gid('mc-pc-box'+n)?.classList.remove('on');
     MIXING_LOT[n] = 0;
     GCR[n] = null;
@@ -526,8 +581,8 @@ const MC = (function(){
       iv: _gv('mc-iv'+n), tv: _gv('mc-tv'+n),
       tr: _gv('mc-tr'+n), cr: _gv('mc-cr'+n),
       sd: _gv('mc-sd'+n), st: _gv('mc-s'+n),
-      lp: LP[n], pc: PC[n], ord: ORD[n],
-      vpipe: _gv('mc-vpipe'+n), prec3: _gv('mc-prec3'+n),
+      lp: LP[n], sp: SP[n], pc: PC[n], ord: ORD[n],
+      vpipe: _gv('mc-vpipe'+n), spvpipe: _gv('mc-spvpipe'+n), prec3: _gv('mc-prec3'+n),
       crMode: CR_MODE[n],
       by: (typeof CURRENT_USER !== 'undefined' ? CURRENT_USER.name : ''),
       _ts: Date.now()
@@ -571,8 +626,10 @@ const MC = (function(){
         if(v.cr){ const cr = _gid('mc-cr'+n); if(cr){ cr.value = v.cr; cr.readOnly = false; } CR_MODE[n] = v.crMode || 'manual'; }
         set('mc-sd'+n, v.sd); set('mc-s'+n, v.st);
         if(v.lp){ LP[n] = true; _gid('mc-lp'+n)?.classList.add('on'); _gid('mc-lp-box'+n)?.classList.add('on'); }
+        if(v.sp){ SP[n] = true; _gid('mc-sp'+n)?.classList.add('on'); _gid('mc-sp-box'+n)?.classList.add('on'); }
         if(v.pc){ PC[n] = true; _gid('mc-pc'+n)?.classList.add('on'); _gid('mc-pc-box'+n)?.classList.add('on'); }
         if(v.vpipe){ const e = _gid('mc-vpipe'+n); if(e) e.value = v.vpipe; }
+        if(v.spvpipe){ const e = _gid('mc-spvpipe'+n); if(e) e.value = v.spvpipe; }
         if(v.prec3){ const e = _gid('mc-prec3'+n); if(e) e.value = v.prec3; }
         if(v.ord){
           ORD[n] = v.ord;
@@ -1699,7 +1756,7 @@ const MC = (function(){
   return {
     init, refresh,
     activate, calcOne, autoCalc, resetCalc,
-    toggleOrder, toggleLP, togglePC, toggleCrMode,
+    toggleOrder, toggleLP, toggleSP, togglePC, toggleCrMode,
     startClick, startDblClick, finishMix,
     fmtTime, fmtDate, fmtDateBlur,
     updateLotNames, checkDupLot,

@@ -559,6 +559,12 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .tl-search{display:flex;align-items:center;gap:4px;background:var(--panel);border:1.5px solid var(--line);border-radius:6px;padding:0 8px;height:32px}
 .tl-search input{border:none;outline:none;background:none;font-size:12px;width:220px}
 .tl-datefilter{display:flex;align-items:center;gap:3px;font-size:11px}
+/* v4.66 — TL quick filters (Tank / Trade / Product type) */
+.tl-ffilter{font-family:'Barlow',sans-serif;font-size:11.5px;font-weight:600;height:32px;
+  padding:0 6px;border:1.5px solid var(--line);border-radius:6px;background:var(--panel);
+  color:var(--ink);cursor:pointer;max-width:150px;}
+.tl-ffilter:focus{outline:none;border-color:#0077b6;}
+.tl-ffilter:not([value=""]):focus{border-color:#0077b6;}
 .tl-datefilter input[type="text"]{width:96px;height:28px;border:1.5px solid var(--line);border-radius:5px;padding:0 6px;font-size:11px}
 .tl-datefilter input[type="date"]{display:none}
 .tl-datefilter button{padding:3px 6px;border:1px solid var(--line);border-radius:4px;cursor:pointer;font-size:11px;background:var(--panel)}
@@ -1669,6 +1675,15 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .tkv-tb-cnt{font-family:'Oswald',sans-serif;font-size:11px;font-weight:700;color:var(--muted);margin-left:auto;letter-spacing:.5px;}
 .tkv-tb-btn-full{background:#0077b6;color:#fff;border-color:#0077b6;}
 .tkv-tb-btn-full:hover{background:#005d8a;color:#fff;border-color:#005d8a;}
+/* v4.66 — summary strip (tổng xe / LPG / C3 / C4) above the table */
+.tkv-stats{display:flex;align-items:center;gap:22px;flex-wrap:wrap;
+  padding:6px 18px;border-bottom:1px solid var(--border);
+  background:linear-gradient(90deg,#f0f7ff,#fafbfc);}
+.tkv-st{display:flex;align-items:baseline;gap:5px;}
+.tkv-st-lbl{font-family:'Oswald',sans-serif;font-size:9.5px;font-weight:700;letter-spacing:1.2px;color:var(--muted);}
+.tkv-st-val{font-family:'Oswald',sans-serif;font-size:14px;font-weight:700;color:var(--navy);}
+.tkv-st-unit{font-family:'Oswald',sans-serif;font-size:9.5px;font-weight:600;color:var(--muted);}
+.tkv-st-ton{font-family:'Barlow',sans-serif;font-size:11px;font-weight:600;color:#0077b6;}
 .tkv-body{flex:1;overflow:hidden;padding:0;}
 #tkv-tbl{height:100%;width:100%;font-size:11px;}
 /* re-use the TL tank-row tinting on the viewer too */
@@ -2020,6 +2035,19 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .mc-lp-box .mc-lp-inp{font-family:monospace;font-size:12px;border:1.5px solid #d4b5f0;
   background:#faf5ff;width:60px;padding:3px 4px;text-align:center;border-radius:4px;color:var(--ink);}
 .mc-lp-box .mc-lp-inp[readonly]{background:#f0e6fa;font-weight:700;color:#7b2d8e;}
+
+/* v4.67 — Special-Ratio sub-box (mix tỉ lệ đặc biệt) — green/emerald theme */
+.mc-btn.mc-btn-sp.on{background:#ecfdf5;border-color:#6ee7b7;color:#047857;font-weight:700;}
+.mc-sp-box{display:none;margin-top:6px;padding:6px 10px;background:#ecfdf5;
+  border:1.5px solid #6ee7b7;border-radius:6px;}
+.mc-sp-box.on{display:block;}
+.mc-sp-box .mc-lp-row{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;}
+.mc-sp-box .mc-sp-ttl{font-family:'Oswald',sans-serif;font-size:10px;letter-spacing:1px;
+  color:#047857;font-weight:700;white-space:nowrap;}
+.mc-sp-box .mc-lp-hint{font-size:9px;color:#047857;white-space:nowrap;}
+.mc-sp-box .mc-lp-inp{font-family:monospace;font-size:12px;border:1.5px solid #6ee7b7;
+  background:#f0fdf9;width:60px;padding:3px 4px;text-align:center;border-radius:4px;color:var(--ink);}
+.mc-sp-box .mc-lp-inp[readonly]{background:#d1fae5;font-weight:700;color:#047857;}
 
 /* Pre-C3 sub-box */
 .mc-pc-box{display:none;margin-top:6px;padding:6px 10px;background:#fef3c7;
@@ -2654,6 +2682,12 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .pv-cust .pv-gfull{font-size:10px;color:#6b8299;margin-left:4px;}
 .pv-cust .pv-noshort{font-size:9px;font-weight:700;color:#d62839;background:#fdecea;padding:1px 6px;border-radius:3px;margin-left:6px;}
 .pv-cust .pv-type{font-size:9px;font-weight:700;color:#0077b6;background:#e8f4fd;border:1px solid #90caf9;padding:1px 6px;border-radius:3px;letter-spacing:.5px;margin-left:6px;}
+/* v4.66 — non-50:50 product-type warning (Today/Tmr plan, table + ledger) */
+.pv-cust .pv-type.pv-type-warn{color:#b91c1c;background:#fee2e2;border-color:#fca5a5;}
+.tp-type-badge{display:inline-block;font-size:9px;font-weight:800;color:#fff;background:#dc2626;
+  border-radius:3px;padding:1px 6px;margin-left:6px;letter-spacing:.4px;white-space:nowrap;
+  animation:tpTypeBlink 1.2s ease-in-out infinite;vertical-align:middle;font-style:normal;}
+@keyframes tpTypeBlink{0%,100%{opacity:1}50%{opacity:.45}}
 .pv-cust .pv-gqty{font-family:'Oswald',sans-serif;font-size:12px;color:#e76f00;font-weight:600;margin-left:10px;letter-spacing:.5px;}
 .pv-cust .pv-gact{font-size:11px;font-weight:700;color:#2d8a4e;margin-left:8px;}
 /* ── Sub-group divider (V406 .tr-sg-divider) ── */

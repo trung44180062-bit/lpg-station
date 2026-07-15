@@ -477,6 +477,13 @@
           <button class="tkv-tb-btn tkv-tb-btn-save" id="tkv-save-btn" onclick="TKV.save()" disabled title="Save staged edits to Firebase (raw_data) — TL Data picks them up automatically">💾 SAVE</button>
           <button class="tkv-tb-btn tkv-tb-btn-full" onclick="TKV.openInTl()" title="Open full TL Data tab (all 37 columns + delete + show/hide columns)">Full TL Data →</button>
         </div>
+        <!-- v4.66 — summary strip: totals for the rows currently shown -->
+        <div class="tkv-stats" id="tkv-stats">
+          <span class="tkv-st"><span class="tkv-st-lbl">🚛 XE</span><span class="tkv-st-val" id="tkv-st-trucks">0</span></span>
+          <span class="tkv-st"><span class="tkv-st-lbl">LPG</span><span class="tkv-st-val" id="tkv-st-lpg">0</span><span class="tkv-st-unit">kg</span><span class="tkv-st-ton" id="tkv-st-lpg-t">(0 tấn)</span></span>
+          <span class="tkv-st"><span class="tkv-st-lbl">C3</span><span class="tkv-st-val" id="tkv-st-c3">0</span><span class="tkv-st-unit">kg</span><span class="tkv-st-ton" id="tkv-st-c3-t">(0 tấn)</span></span>
+          <span class="tkv-st"><span class="tkv-st-lbl">C4</span><span class="tkv-st-val" id="tkv-st-c4">0</span><span class="tkv-st-unit">kg</span><span class="tkv-st-ton" id="tkv-st-c4-t">(0 tấn)</span></span>
+        </div>
         <div class="tkv-body"><div id="tkv-tbl"></div></div>
       </div>
     </div>
@@ -925,6 +932,29 @@
             <button class="pick" onclick="tlOpenPicker()" title="Pick date">📅</button>
             <button class="clr" id="tlDateClear" onclick="tlClearDate()" title="Clear date">✕</button>
           </div>
+          <!-- v4.66 — quick filters: Tank / Trade / Product Type -->
+          <select id="tlTankFilter" class="tl-ffilter" title="Filter theo Tank">
+            <option value="">🛢 All tanks</option>
+            <option value="3501">TK-3501</option>
+            <option value="3502">TK-3502</option>
+          </select>
+          <select id="tlTradeFilter" class="tl-ffilter" title="Filter theo Trade type">
+            <option value="">All trades</option>
+          </select>
+          <select id="tlTypeFilter" class="tl-ffilter" title="Filter theo Product type (tỷ lệ C3:C4)">
+            <option value="">All types</option>
+            <option value="10:90">C3:10 / C4:90</option>
+            <option value="20:80">C3:20 / C4:80</option>
+            <option value="30:70">C3:30 / C4:70</option>
+            <option value="40:60">C3:40 / C4:60</option>
+            <option value="50:50">C3:50 / C4:50</option>
+            <option value="60:40">C3:60 / C4:40</option>
+            <option value="70:30">C3:70 / C4:30</option>
+            <option value="80:20">C3:80 / C4:20</option>
+            <option value="90:10">C3:90 / C4:10</option>
+            <option value="Pure Propane">Pure Propane</option>
+            <option value="Pure Butane">Pure Butane</option>
+          </select>
           <span class="tl-sync-dot" id="tlSyncDot" title="Firebase sync status">●</span>
         </div>
         <div class="tl-right">
@@ -1623,6 +1653,8 @@
               onclick="event.stopPropagation();MC.toggleOrder('1')" title="Pump order">➊C4 ➋C3</button>
             <button type="button" class="mc-btn mc-btn-lp" id="mc-lp1"
               onclick="event.stopPropagation();MC.toggleLP('1')" title="Low Pressure">📐 LOW PRESSURE</button>
+            <button type="button" class="mc-btn mc-btn-sp" id="mc-sp1"
+              onclick="event.stopPropagation();MC.toggleSP('1')" title="Mix tỉ lệ đặc biệt — TARGET C3 % nhập vào CHÍNH LÀ kết quả cuối sau khi tuần hoàn thể tích đường ống; phần mềm tự giải ngược blend target trong tank">★ SPECIAL RATIO</button>
             <button type="button" class="mc-btn mc-btn-pc" id="mc-pc1"
               onclick="event.stopPropagation();MC.togglePC('1')" title="Receive C3 before mixing">📥 RECEIVE C3</button>
             <div class="mc-spacer">
@@ -1690,6 +1722,16 @@
                   <span class="mc-lp-hint">m³</span>
                   <span class="mc-lp-hint">Expected C3:</span>
                   <input class="mc-lp-inp" id="mc-expc31" type="text" placeholder="auto" readonly>
+                </div>
+              </div>
+              <div class="mc-sp-box" id="mc-sp-box1">
+                <div class="mc-lp-row">
+                  <span class="mc-sp-ttl">★ MIX TỈ LỆ ĐẶC BIỆT</span>
+                  <span class="mc-lp-hint">Pipe</span>
+                  <input class="mc-lp-inp" id="mc-spvpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')">
+                  <span class="mc-lp-hint">m³</span>
+                  <span class="mc-lp-hint" title="TARGET C3 % bạn nhập = kết quả CUỐI. Đây là tỷ lệ phải mix trong tank để sau tuần hoàn ống ra đúng kết quả đó.">Blend target C3:</span>
+                  <input class="mc-lp-inp" id="mc-sptr1" type="text" placeholder="auto" readonly>
                 </div>
               </div>
               <div class="mc-pc-box" id="mc-pc-box1">
@@ -1830,6 +1872,8 @@
               onclick="event.stopPropagation();MC.toggleOrder('2')" title="Pump order">➊C4 ➋C3</button>
             <button type="button" class="mc-btn mc-btn-lp" id="mc-lp2"
               onclick="event.stopPropagation();MC.toggleLP('2')" title="Low Pressure">📐 LOW PRESSURE</button>
+            <button type="button" class="mc-btn mc-btn-sp" id="mc-sp2"
+              onclick="event.stopPropagation();MC.toggleSP('2')" title="Mix tỉ lệ đặc biệt — TARGET C3 % nhập vào CHÍNH LÀ kết quả cuối sau khi tuần hoàn thể tích đường ống; phần mềm tự giải ngược blend target trong tank">★ SPECIAL RATIO</button>
             <button type="button" class="mc-btn mc-btn-pc" id="mc-pc2"
               onclick="event.stopPropagation();MC.togglePC('2')" title="Receive C3 before mixing">📥 RECEIVE C3</button>
             <div class="mc-spacer">
@@ -1893,6 +1937,16 @@
                   <span class="mc-lp-hint">m³</span>
                   <span class="mc-lp-hint">Expected C3:</span>
                   <input class="mc-lp-inp" id="mc-expc32" type="text" placeholder="auto" readonly>
+                </div>
+              </div>
+              <div class="mc-sp-box" id="mc-sp-box2">
+                <div class="mc-lp-row">
+                  <span class="mc-sp-ttl">★ MIX TỈ LỆ ĐẶC BIỆT</span>
+                  <span class="mc-lp-hint">Pipe</span>
+                  <input class="mc-lp-inp" id="mc-spvpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')">
+                  <span class="mc-lp-hint">m³</span>
+                  <span class="mc-lp-hint" title="TARGET C3 % bạn nhập = kết quả CUỐI. Đây là tỷ lệ phải mix trong tank để sau tuần hoàn ống ra đúng kết quả đó.">Blend target C3:</span>
+                  <input class="mc-lp-inp" id="mc-sptr2" type="text" placeholder="auto" readonly>
                 </div>
               </div>
               <div class="mc-pc-box" id="mc-pc-box2">

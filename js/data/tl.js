@@ -332,10 +332,53 @@ const TL = (function(){
     updateStatus();
   }
 
+  /* ---- v4.66 — quick-filter helpers (Tank / Trade / Product Type) ---- */
+  function _selVal(id){ const e=document.getElementById(id); return e ? String(e.value||'').trim() : ''; }
+
+  /* Product-type match: normalize the row's free-text type through
+     _pfDeriveType (handles "30:70", "C3:30/C4:70", "LPG (C3:30/C4:70)",
+     pure grades, place-name quirks…) then compare against the selected
+     ratio "a:b" or pure grade. Rows with no ratio derive to 50:50 —
+     same fallback the PTT/DN printers use. */
+  function _typeMatches(rowType, sel){
+    if(!sel) return true;
+    const norm = (typeof _pfDeriveType==='function') ? _pfDeriveType(rowType||'') : String(rowType||'');
+    if(sel==='Pure Propane') return /pure\s*propane/i.test(norm);
+    if(sel==='Pure Butane')  return /pure\s*butane/i.test(norm);
+    const m = sel.match(/^(\d{1,2}):(\d{1,2})$/);
+    if(!m) return norm.toLowerCase().includes(sel.toLowerCase());
+    const rm = norm.match(/C3:(\d{1,3})\/C4:(\d{1,3})/i);
+    if(!rm) return false;
+    return parseInt(rm[1],10)===parseInt(m[1],10) && parseInt(rm[2],10)===parseInt(m[2],10);
+  }
+
+  /* Repopulate the Trade dropdown from the distinct trade values actually
+     present in ROWS (keeps whatever the operator had selected). */
+  let _tradeOptsKey = '';
+  function _fillTradeOptions(){
+    const sel = document.getElementById('tlTradeFilter');
+    if(!sel) return;
+    const set = new Set();
+    Object.values(ROWS).forEach(r=>{ if(r){ const t=String(r.trade||'').trim(); if(t) set.add(t); } });
+    const opts = Array.from(set).sort();
+    const key = opts.join('|');
+    if(key === _tradeOptsKey) return;           /* no change → don't rebuild */
+    _tradeOptsKey = key;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">All trades</option>' +
+      opts.map(t=>'<option value="'+t.replace(/"/g,'&quot;')+'">'+t+'</option>').join('');
+    if(opts.includes(cur)) sel.value = cur; else sel.value = '';
+  }
+
   /* ---- Build data array from ROWS ---- */
   function buildTableData(){
     const search = (document.getElementById('tlSearch')||{}).value||'';
     const sLow = search.toLowerCase();
+    /* v4.66 — quick filters */
+    _fillTradeOptions();
+    const fTank  = _selVal('tlTankFilter');
+    const fTrade = _selVal('tlTradeFilter');
+    const fType  = _selVal('tlTypeFilter');
     const arr = [];
     Object.keys(ROWS).forEach(rid=>{
       const r = ROWS[rid];
@@ -345,6 +388,10 @@ const TL = (function(){
         const rd = parseDate(r.date);
         if(rd !== dateFilter) return;
       }
+      /* v4.66 — tank / trade / product-type filters */
+      if(fTank  && !String(r.ltank||'').toUpperCase().includes(fTank)) return;
+      if(fTrade && String(r.trade||'').trim().toLowerCase() !== fTrade.toLowerCase()) return;
+      if(fType  && !_typeMatches(r.type, fType)) return;
       /* search filter */
       if(sLow){
         const hay = [r.doNo, r.cust, r.truck, r.rmooc, r.driver, r.custFull, r.date, r.ltank, r.eng, r.dest].join(' ').toLowerCase();
@@ -1080,6 +1127,11 @@ function tlMatchWmsDo(){ TL.matchWmsDo(); }   /* v4.56 — manual WMS GI match *
 document.getElementById('tlSearch').addEventListener('input', ()=>{ if(TL.table) TL.rebuildTableData(); });
 document.getElementById('tlDateFilter').addEventListener('change', ()=>{ TL.applyTextFilter(); });
 document.getElementById('tlDatePick').addEventListener('change', ()=>{ TL.pickerChange(); });
+/* v4.66 — Tank / Trade / Product-type quick filters */
+['tlTankFilter','tlTradeFilter','tlTypeFilter'].forEach(id=>{
+  const el = document.getElementById(id);
+  if(el) el.addEventListener('change', ()=>{ TL.rebuildTableData(); });
+});
 
 /* ============================================================
    SAP MODULE  (build p3.0-sap)

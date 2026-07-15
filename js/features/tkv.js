@@ -278,6 +278,30 @@ const TKV = (function(){
     }
     const cnt = document.getElementById('tkv-count');
     if(cnt) cnt.textContent = rows.length + ' row' + (rows.length===1?'':'s');
+    _renderStats(rows);
+  }
+
+  /* v4.66 — summary strip above the table: truck count + LPG/C3/C4
+     totals for the rows currently shown (same filter set as the table).
+     "Xe" counts unique trucks (fallback: row count when truck blank). */
+  function _renderStats(rows){
+    let lpg=0, c3=0, c4=0;
+    const trucks = new Set();
+    let noTruck = 0;
+    rows.forEach(r => {
+      lpg += Number(r.lpgQty)||0;
+      c3  += Number(r.c3Kg)||0;
+      c4  += Number(r.c4Kg)||0;
+      const t = String(r.truck||'').trim().toUpperCase();
+      if(t) trucks.add(t); else noTruck++;
+    });
+    const fmt = n => Math.round(n).toLocaleString('en-US');
+    const ton = n => (n/1000).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    const set = (id,v)=>{ const el=document.getElementById(id); if(el) el.textContent=v; };
+    set('tkv-st-trucks', String(trucks.size + noTruck));
+    set('tkv-st-lpg',   fmt(lpg)); set('tkv-st-lpg-t', '('+ton(lpg)+' tấn)');
+    set('tkv-st-c3',    fmt(c3));  set('tkv-st-c3-t',  '('+ton(c3)+' tấn)');
+    set('tkv-st-c4',    fmt(c4));  set('tkv-st-c4-t',  '('+ton(c4)+' tấn)');
   }
 
   function open(tk){

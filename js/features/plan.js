@@ -1414,6 +1414,33 @@ function _makePlanModule(opts){
     return `<span class="tp-fordate-stale" title="Stale plan from ${escapeHtml(isoLabel(fd))} — cannot be assigned">${escapeHtml(isoLabel(fd))}</span>`;
   }
 
+  /* ── v4.66 — product-type ratio helpers ──────────────────────────
+     Plan col[2] carries free text ("50:50", "C3:20/C4:80", "30:70 Cargo
+     July SPOT", "Pure Propane"…). Normalize through _pfDeriveType, which
+     accepts the FULL ratio range (any a:b with a+b=100 → 10:90 … 90:10)
+     plus the pure grades. Rows with no ratio derive to 50:50 (hàng bán
+     phổ thông) — same fallback the PTT/DN printers use.
+     Any ratio ≠ 50:50 (or a pure grade) is flagged with a warning badge
+     so the operator double-checks tank/lot before selling. */
+  function prodRatio(t){
+    const norm = (typeof _pfDeriveType==='function') ? _pfDeriveType(t||'') : String(t||'');
+    const m = norm.match(/C3:(\d{1,3})\/C4:(\d{1,3})/i);
+    if(m) return parseInt(m[1],10)+':'+parseInt(m[2],10);
+    if(/pure\s*propane/i.test(norm)) return 'Pure C3';
+    if(/pure\s*butane/i.test(norm))  return 'Pure C4';
+    return '';
+  }
+  function isSpecialType(t){
+    const r = prodRatio(t);
+    return r !== '' && r !== '50:50';
+  }
+  function typeBadgeHtml(t){
+    if(!isSpecialType(t)) return '';
+    const r = prodRatio(t);
+    return '<span class="tp-type-badge" title="Product type '+r
+         + ' — KHÁC hàng phổ thông 50:50. Kiểm tra tank/lot/COQ trước khi cân!">⚠ '+r+'</span>';
+  }
+
   function buildColumns(){
     return [
       {title:'#', field:'no', width:50, hozAlign:'center', headerSort:false, sorter:'number',
@@ -1427,7 +1454,13 @@ function _makePlanModule(opts){
         headerTooltip:'Plan date for this row. Rows whose date is not today cannot be assigned to a station — they are a future plan staged in advance.'},
       {title:'Status', field:'_status', width:130, hozAlign:'center', headerSort:false,
         formatter:statusFormatter, editor:statusEditor},
-      {title:'Customer', field:'customer', minWidth:170, editor:'input', cssClass:'tp-customer'},
+      {title:'Customer', field:'customer', minWidth:170, editor:'input', cssClass:'tp-customer',
+        /* v4.66 — append a warning badge when the order's product type
+           (full C3:C4 ratio range) is NOT the common 50:50 grade */
+        formatter:function(cell){
+          const d = cell.getRow().getData();
+          return escapeHtml(String(cell.getValue()||'')) + typeBadgeHtml(d.type);
+        }},
       {title:'Plate', field:'plate', width:115, editor:'input', cssClass:'tp-plate', formatter:plateFormatter},
       {title:'Rmooc', field:'rmooc', width:100, editor:'input', cssClass:'tp-rmooc', formatter:rmoocFormatter},
       {title:'Driver', field:'driver', minWidth:140, editor:'input', cssClass:'tp-driver', formatter:driverFormatter},
@@ -2471,6 +2504,7 @@ function _makePlanModule(opts){
 
         const noteRaw = String(r.note||'');
         let noteH = '';
+        noteH += typeBadgeHtml(r.type);   /* v4.66 — non-50:50 product-type warning */
         if(/8\s*h|trước\s*8|truoc\s*8|before\s*8/i.test(noteRaw)) noteH += '<span class="pv-h8">8H</span>';
         const warn = _ledWarn(r);
         if(warn && warn.hasWarn){ const tip=warn.badges.map(b=>b.text).join(' · '); noteH += '<span class="pv-cw" title="'+escapeHtml(tip)+'">⚠</span>'; }
@@ -2522,7 +2556,17 @@ function _makePlanModule(opts){
       const gName = hasShort
         ? '<b class="pv-gname">'+escapeHtml(short)+'</b><span class="pv-gfull">('+escapeHtml(g.cust)+')</span>'
         : '<b class="pv-gname">'+escapeHtml(g.cust)+'</b><span class="pv-noshort">⚠ NO SHORT</span>';
-      const typeChip = (g.items[0] && g.items[0].r.type) ? '<span class="pv-type">'+escapeHtml(String(g.items[0].r.type))+'</span>' : '';
+      /* v4.66 — group type chip: highlight + badge when ANY order in the
+         group carries a non-50:50 product type (full C3:C4 ratio range) */
+      const gTypeRaw = (g.items[0] && g.items[0].r.type) ? String(g.items[0].r.type) : '';
+      const gSpecials = Array.from(new Set(
+        g.items.map(it=>prodRatio(it.r.type)).filter(rt=>rt && rt!=='50:50')
+      ));
+      let typeChip = gTypeRaw ? '<span class="pv-type'+(gSpecials.length?' pv-type-warn':'')+'">'+escapeHtml(gTypeRaw)+'</span>' : '';
+      if(gSpecials.length){
+        typeChip += '<span class="tp-type-badge" title="Nhóm có đơn hàng product type '+gSpecials.join(', ')
+                  + ' — KHÁC hàng phổ thông 50:50. Kiểm tra tank/lot/COQ trước khi cân!">⚠ '+gSpecials.join(' · ')+'</span>';
+      }
       const actChip  = (!isTmr && gAct>0) ? '<span class="pv-gact">✅ '+_fmtMT(gAct)+' MT</span>' : '';
       const cntChip  = '<span class="pv-gmeta" style="font-size:10px;color:#6b8299;margin-left:8px">'+g.items.length+' order'+(g.items.length>1?'s':'')+'</span>';
       const custCell = gName + typeChip + cntChip + '<span class="pv-gqty">'+_fmtMT(gQty)+' MT</span>' + actChip;
