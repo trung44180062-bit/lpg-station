@@ -1651,16 +1651,23 @@
             <div class="mc-tk-name">TK-3501</div>
             <button type="button" class="mc-btn mc-btn-c4" id="mc-ord1"
               onclick="event.stopPropagation();MC.modeClick('1','ord')"
-              ondblclick="event.stopPropagation();MC.modeDbl('1','ord')" title="Pump order — NHẤP ĐÔI để chuyển">➊C4 ➋C3</button>
+              ondblclick="event.stopPropagation();MC.modeDbl('1','ord')" title="Pump order — DOUBLE-CLICK to switch">➊C4 ➋C3</button>
             <button type="button" class="mc-btn mc-btn-lp" id="mc-lp1"
               onclick="event.stopPropagation();MC.modeClick('1','lp')"
-              ondblclick="event.stopPropagation();MC.modeDbl('1','lp')" title="Low Pressure — NHẤP ĐÔI để bật/tắt">📐 LOW PRESSURE</button>
+              ondblclick="event.stopPropagation();MC.modeDbl('1','lp')" title="Low Pressure — DOUBLE-CLICK to toggle">📐 LOW PRESSURE</button>
             <button type="button" class="mc-btn mc-btn-sp" id="mc-sp1"
               onclick="event.stopPropagation();MC.modeClick('1','sp')"
-              ondblclick="event.stopPropagation();MC.modeDbl('1','sp')" title="Mix tỉ lệ đặc biệt — NHẤP ĐÔI để bật/tắt. TARGET C3 % nhập vào CHÍNH LÀ kết quả cuối sau khi tuần hoàn thể tích đường ống; phần mềm tự giải ngược blend target trong tank">★ SPECIAL RATIO</button>
+              ondblclick="event.stopPropagation();MC.modeDbl('1','sp')" title="Special ratio mix — DOUBLE-CLICK to toggle. The TARGET C3 % you enter IS the final result after circulating the pipe volume; the software back-solves the in-tank blend target">★ SPECIAL RATIO</button>
             <button type="button" class="mc-btn mc-btn-pc" id="mc-pc1"
               onclick="event.stopPropagation();MC.modeClick('1','pc')"
-              ondblclick="event.stopPropagation();MC.modeDbl('1','pc')" title="Receive C3 before mixing — NHẤP ĐÔI để bật/tắt">📥 RECEIVE C3</button>
+              ondblclick="event.stopPropagation();MC.modeDbl('1','pc')" title="Receive C3 before mixing — DOUBLE-CLICK to toggle">📥 RECEIVE C3</button>
+            <!-- v4.72: single-product fill — TARGET VOL auto-calculated -->
+            <button type="button" class="mc-btn mc-btn-fc4" id="mc-fc41"
+              onclick="event.stopPropagation();MC.modeClick('1','fc4')"
+              ondblclick="event.stopPropagation();MC.modeDbl('1','fc4')" title="FILL C4 ONLY (lower %C3) — DOUBLE-CLICK to toggle. Enter INIT VOL + TARGET C3 %, TARGET VOL is auto-calculated">⬆ C4 ONLY</button>
+            <button type="button" class="mc-btn mc-btn-fc3" id="mc-fc31"
+              onclick="event.stopPropagation();MC.modeClick('1','fc3')"
+              ondblclick="event.stopPropagation();MC.modeDbl('1','fc3')" title="FILL C3 ONLY (raise %C3) — DOUBLE-CLICK to toggle. Enter INIT VOL + TARGET C3 %, TARGET VOL is auto-calculated">⬆ C3 ONLY</button>
             <div class="mc-spacer">
               <button type="button" class="mc-btn mc-btn-calc-1"
                 onclick="event.stopPropagation();MC.calcOne('1')"
@@ -1734,8 +1741,8 @@
                   <span class="mc-lp-hint">Pipe</span>
                   <input class="mc-lp-inp" id="mc-spvpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')">
                   <span class="mc-lp-hint">m³</span>
-                  <span class="mc-lp-hint" title="Tỷ lệ C3 phải mix TRONG TANK — TRƯỚC khi tuần hoàn đường ống. Sau khi tuần hoàn xong, tank sẽ về đúng Final Target C3 % (after circulate) bạn đã nhập ở ô trên.">Blend target C3 (before circulate):</span>
-                  <input class="mc-lp-inp" id="mc-sptr1" type="text" placeholder="auto" readonly title="Tỷ lệ C3 mix trong tank TRƯỚC tuần hoàn — KHÔNG phải kết quả cuối">
+                  <span class="mc-lp-hint" title="C3 ratio to mix IN-TANK — BEFORE pipe circulation. After circulating, the tank ends at exactly the Final Target C3 % (after circulate) entered above.">Blend target C3 (before circulate):</span>
+                  <input class="mc-lp-inp" id="mc-sptr1" type="text" placeholder="auto" readonly title="C3 ratio mixed in-tank BEFORE circulation — NOT the final result">
                   <button type="button" class="mc-spp-btn" onclick="MC.spPlanOpen('1')" title="Open the SPECIAL RATIO MIX PLANNER — max safe mix volume with cancel reserve + mix-fail reserve, C3/C4 recovery options">📋 PLAN</button>
                 </div>
               </div>
@@ -1748,6 +1755,18 @@
                   <input class="mc-pc-inp" id="mc-newcr1" type="text" placeholder="auto" readonly>
                 </div>
               </div>
+              <!-- v4.74 — single-product fill: circulate back (default ON, pipe holds old ratio) -->
+              <div class="mc-fc-box" id="mc-fc-box1">
+                <div class="mc-lp-row">
+                  <span class="mc-fc-ttl">⬆ SINGLE-PRODUCT FILL</span>
+                  <label class="mc-fc-circ" title="DEFAULT ON: pipeline holding the OLD RATIO circulates back to the tank, same as SPECIAL RATIO. Untick for no circulation — target reached in-tank">
+                    <input type="checkbox" id="mc-fccirc1" checked onchange="MC.fillCircChange('1')"> 🔁 Circulate back
+                  </label>
+                  <span class="mc-lp-hint">Pipe</span>
+                  <input class="mc-lp-inp" id="mc-fcpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')">
+                  <span class="mc-lp-hint">m³ (old ratio in pipe)</span>
+                </div>
+              </div>
             </div>
             <!-- Calc result -->
             <div class="mc-result" id="mc-r1"></div>
@@ -1758,7 +1777,7 @@
                 <span id="mc-gcsum1" class="mc-gc-sum">Sum: —</span>
                 <span style="flex:1;min-width:4px"></span>
                 <button type="button" class="mc-coq-btn mc-coq-btn-imp" onclick="MC.importCoqPick('1')"
-                  title="Import file COQ (.xlsx) từ lab — tự kiểm tra Lot/bồn rồi điền dữ liệu">📄 IMPORT COQ</button>
+                  title="Import COQ file (.xlsx) from the lab — validates Lot/tank then fills the data">📄 IMPORT COQ</button>
                 <button type="button" class="mc-coq-btn mc-coq-btn-spec" onclick="MC.openSpec()"
                   title="Bảng tiêu chuẩn chất lượng LPG — chỉnh sửa được, đồng bộ mọi máy">📋 SPEC</button>
                 <input type="file" id="mc-coqfile1" accept=".xlsx,.xls" style="display:none"
@@ -1875,16 +1894,23 @@
             <div class="mc-tk-name">TK-3502</div>
             <button type="button" class="mc-btn mc-btn-c4" id="mc-ord2"
               onclick="event.stopPropagation();MC.modeClick('2','ord')"
-              ondblclick="event.stopPropagation();MC.modeDbl('2','ord')" title="Pump order — NHẤP ĐÔI để chuyển">➊C4 ➋C3</button>
+              ondblclick="event.stopPropagation();MC.modeDbl('2','ord')" title="Pump order — DOUBLE-CLICK to switch">➊C4 ➋C3</button>
             <button type="button" class="mc-btn mc-btn-lp" id="mc-lp2"
               onclick="event.stopPropagation();MC.modeClick('2','lp')"
-              ondblclick="event.stopPropagation();MC.modeDbl('2','lp')" title="Low Pressure — NHẤP ĐÔI để bật/tắt">📐 LOW PRESSURE</button>
+              ondblclick="event.stopPropagation();MC.modeDbl('2','lp')" title="Low Pressure — DOUBLE-CLICK to toggle">📐 LOW PRESSURE</button>
             <button type="button" class="mc-btn mc-btn-sp" id="mc-sp2"
               onclick="event.stopPropagation();MC.modeClick('2','sp')"
-              ondblclick="event.stopPropagation();MC.modeDbl('2','sp')" title="Mix tỉ lệ đặc biệt — NHẤP ĐÔI để bật/tắt. TARGET C3 % nhập vào CHÍNH LÀ kết quả cuối sau khi tuần hoàn thể tích đường ống; phần mềm tự giải ngược blend target trong tank">★ SPECIAL RATIO</button>
+              ondblclick="event.stopPropagation();MC.modeDbl('2','sp')" title="Special ratio mix — DOUBLE-CLICK to toggle. The TARGET C3 % you enter IS the final result after circulating the pipe volume; the software back-solves the in-tank blend target">★ SPECIAL RATIO</button>
             <button type="button" class="mc-btn mc-btn-pc" id="mc-pc2"
               onclick="event.stopPropagation();MC.modeClick('2','pc')"
-              ondblclick="event.stopPropagation();MC.modeDbl('2','pc')" title="Receive C3 before mixing — NHẤP ĐÔI để bật/tắt">📥 RECEIVE C3</button>
+              ondblclick="event.stopPropagation();MC.modeDbl('2','pc')" title="Receive C3 before mixing — DOUBLE-CLICK to toggle">📥 RECEIVE C3</button>
+            <!-- v4.72: single-product fill — TARGET VOL auto-calculated -->
+            <button type="button" class="mc-btn mc-btn-fc4" id="mc-fc42"
+              onclick="event.stopPropagation();MC.modeClick('2','fc4')"
+              ondblclick="event.stopPropagation();MC.modeDbl('2','fc4')" title="FILL C4 ONLY (lower %C3) — DOUBLE-CLICK to toggle. Enter INIT VOL + TARGET C3 %, TARGET VOL is auto-calculated">⬆ C4 ONLY</button>
+            <button type="button" class="mc-btn mc-btn-fc3" id="mc-fc32"
+              onclick="event.stopPropagation();MC.modeClick('2','fc3')"
+              ondblclick="event.stopPropagation();MC.modeDbl('2','fc3')" title="FILL C3 ONLY (raise %C3) — DOUBLE-CLICK to toggle. Enter INIT VOL + TARGET C3 %, TARGET VOL is auto-calculated">⬆ C3 ONLY</button>
             <div class="mc-spacer">
               <button type="button" class="mc-btn mc-btn-calc-2"
                 onclick="event.stopPropagation();MC.calcOne('2')"
@@ -1954,8 +1980,8 @@
                   <span class="mc-lp-hint">Pipe</span>
                   <input class="mc-lp-inp" id="mc-spvpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')">
                   <span class="mc-lp-hint">m³</span>
-                  <span class="mc-lp-hint" title="Tỷ lệ C3 phải mix TRONG TANK — TRƯỚC khi tuần hoàn đường ống. Sau khi tuần hoàn xong, tank sẽ về đúng Final Target C3 % (after circulate) bạn đã nhập ở ô trên.">Blend target C3 (before circulate):</span>
-                  <input class="mc-lp-inp" id="mc-sptr2" type="text" placeholder="auto" readonly title="Tỷ lệ C3 mix trong tank TRƯỚC tuần hoàn — KHÔNG phải kết quả cuối">
+                  <span class="mc-lp-hint" title="C3 ratio to mix IN-TANK — BEFORE pipe circulation. After circulating, the tank ends at exactly the Final Target C3 % (after circulate) entered above.">Blend target C3 (before circulate):</span>
+                  <input class="mc-lp-inp" id="mc-sptr2" type="text" placeholder="auto" readonly title="C3 ratio mixed in-tank BEFORE circulation — NOT the final result">
                   <button type="button" class="mc-spp-btn" onclick="MC.spPlanOpen('2')" title="Open the SPECIAL RATIO MIX PLANNER — max safe mix volume with cancel reserve + mix-fail reserve, C3/C4 recovery options">📋 PLAN</button>
                 </div>
               </div>
@@ -1968,6 +1994,18 @@
                   <input class="mc-pc-inp" id="mc-newcr2" type="text" placeholder="auto" readonly>
                 </div>
               </div>
+              <!-- v4.74 — single-product fill: circulate back (default ON, pipe holds old ratio) -->
+              <div class="mc-fc-box" id="mc-fc-box2">
+                <div class="mc-lp-row">
+                  <span class="mc-fc-ttl">⬆ SINGLE-PRODUCT FILL</span>
+                  <label class="mc-fc-circ" title="DEFAULT ON: pipeline holding the OLD RATIO circulates back to the tank, same as SPECIAL RATIO. Untick for no circulation — target reached in-tank">
+                    <input type="checkbox" id="mc-fccirc2" checked onchange="MC.fillCircChange('2')"> 🔁 Circulate back
+                  </label>
+                  <span class="mc-lp-hint">Pipe</span>
+                  <input class="mc-lp-inp" id="mc-fcpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')">
+                  <span class="mc-lp-hint">m³ (old ratio in pipe)</span>
+                </div>
+              </div>
             </div>
             <div class="mc-result" id="mc-r2"></div>
             <div class="mc-gc-inline" id="mc-gc-inline2">
@@ -1976,7 +2014,7 @@
                 <span id="mc-gcsum2" class="mc-gc-sum">Sum: —</span>
                 <span style="flex:1;min-width:4px"></span>
                 <button type="button" class="mc-coq-btn mc-coq-btn-imp" onclick="MC.importCoqPick('2')"
-                  title="Import file COQ (.xlsx) từ lab — tự kiểm tra Lot/bồn rồi điền dữ liệu">📄 IMPORT COQ</button>
+                  title="Import COQ file (.xlsx) from the lab — validates Lot/tank then fills the data">📄 IMPORT COQ</button>
                 <button type="button" class="mc-coq-btn mc-coq-btn-spec" onclick="MC.openSpec()"
                   title="Bảng tiêu chuẩn chất lượng LPG — chỉnh sửa được, đồng bộ mọi máy">📋 SPEC</button>
                 <input type="file" id="mc-coqfile2" accept=".xlsx,.xls" style="display:none"
@@ -2226,7 +2264,9 @@
             </div>
           </div>
           <div class="vsmix-fld vsmix-fld-cust"><label class="vsmix-lbl">CUSTOMER</label>
-            <input type="text" id="vs-cust" class="vsmix-inp" autocomplete="off" placeholder="Customer name">
+            <!-- v4.70: autocomplete từ bảng Customer (VMIX.custSearch) -->
+            <input type="text" id="vs-cust" class="vsmix-inp" autocomplete="off" placeholder="Customer name"
+              oninput="VMIX.custSearch()" onfocus="VMIX.custSearch()">
           </div>
           <div class="vsmix-fld"><label class="vsmix-lbl">DATE</label>
             <input type="text" id="vs-date" class="vsmix-inp vsmix-w-date" placeholder="DD/MM/YY"
@@ -2236,14 +2276,16 @@
             <div class="vsmix-time-wrap">
               <input type="text" id="vs-stime" class="vsmix-inp vsmix-w-time" placeholder="HH:MM"
                 inputmode="numeric" maxlength="5" onfocus="this.select()" oninput="MC.fmtTime(this)">
-              <button type="button" class="vsmix-mini-btn vsmix-mini-start" onclick="VMIX.startMix()">▶</button>
+              <button type="button" class="vsmix-mini-btn" onclick="VMIX.now('vs-stime')" title="Điền giờ hiện tại">⏱</button>
+              <button type="button" class="vsmix-mini-btn vsmix-mini-start" onclick="VMIX.startMix()" title="Bắt đầu trộn — khóa input, đồng bộ phiên. Double-click để hủy MIXING">▶</button>
             </div>
           </div>
           <div class="vsmix-fld"><label class="vsmix-lbl">FINISH</label>
             <div class="vsmix-time-wrap">
               <input type="text" id="vs-ftime" class="vsmix-inp vsmix-w-time" placeholder="HH:MM"
                 inputmode="numeric" maxlength="5" onfocus="this.select()" oninput="MC.fmtTime(this)">
-              <button type="button" class="vsmix-mini-btn vsmix-mini-finish" onclick="VMIX.finishMix()">⏹</button>
+              <button type="button" class="vsmix-mini-btn" onclick="VMIX.now('vs-ftime')" title="Điền giờ hiện tại">⏱</button>
+              <button type="button" class="vsmix-mini-btn vsmix-mini-finish" onclick="VMIX.finishMix()" title="Kết thúc trộn — mở khóa input">⏹</button>
             </div>
           </div>
           <div class="vsmix-fld"><label class="vsmix-lbl">C3 FQ</label>
@@ -2255,6 +2297,7 @@
           </div>
 
           <div class="vsmix-hdr-actions">
+            <button type="button" class="vsmix-act-btn" id="vs-btn-after" onclick="VMIX.toggleAfter()" title="Thu gọn/mở phần AFTER LOADING">🧪 AFTER ▲</button>
             <button type="button" class="vsmix-act-btn vsmix-act-vessel" onclick="VMIX.openShipEdit()" title="Manage vessels (name + tank volumes)">⚙ VESSEL</button>
             <button type="button" class="vsmix-act-btn vsmix-act-density" onclick="VMIX.openDensityEdit()" title="Edit density constants">ρ</button>
             <button type="button" class="vsmix-act-btn vsmix-act-reset" onclick="VMIX.reset()" title="Reset all inputs">🔄</button>
@@ -2435,8 +2478,14 @@
           <input type="text" id="vlog-q-wt"  class="vsmix-inp vslog-search-tight" placeholder="🔍 %Wt C3"
             oninput="VLOG.render()" inputmode="decimal">
           <span class="vslog-stats" id="vlog-stats">—</span>
+          <!-- v4.70: toggle nhóm cột (V406 SL_GRP) -->
+          <button type="button" class="vsmix-act-btn vslog-grp-btn" data-grp="plan"  onclick="VLOG.toggleGrp('plan')"  title="Hiện/ẩn cột Plan (LPG Mix · Tgt · Min · Max)">📐 PLAN</button>
+          <button type="button" class="vsmix-act-btn vslog-grp-btn" data-grp="gc1"   onclick="VLOG.toggleGrp('gc1')"   title="Hiện/ẩn GC Tank 1">🧪 GC1</button>
+          <button type="button" class="vsmix-act-btn vslog-grp-btn" data-grp="gc2"   onclick="VLOG.toggleGrp('gc2')"   title="Hiện/ẩn GC Tank 2">🧪 GC2</button>
+          <button type="button" class="vsmix-act-btn vslog-grp-btn" data-grp="extra" onclick="VLOG.toggleGrp('extra')" title="Hiện/ẩn cột FQ C3/C4 · Odo T1/T2">➕ EXTRA</button>
           <button type="button" class="vsmix-act-btn vsmix-act-vessel" onclick="VLOG.openImport()" title="Import rows by pasting from the Vessel Log Excel">⬆ IMPORT</button>
-          <button type="button" class="vsmix-act-btn vsmix-act-density" onclick="VLOG.exportCsv()" title="Export visible rows to CSV">⬇ EXPORT</button>
+          <button type="button" class="vsmix-act-btn vsmix-act-density" onclick="VLOG.exportXlsx()" title="Export FULL 44 cột ra Excel (theo filter/sort hiện tại)">📥 XLSX</button>
+          <button type="button" class="vsmix-act-btn vsmix-act-density" onclick="VLOG.exportCsv()" title="Export visible rows to CSV">⬇ CSV</button>
           <button type="button" class="vsmix-act-btn vsmix-act-reset" onclick="VLOG.rangeDelete()" title="Delete rows by date range (downloads a CSV backup first)">🗑 Range delete</button>
         </div>
 
@@ -2448,27 +2497,8 @@
             <div class="vslog-empty-hint">Press 💾 SAVE on the Vessel Mix tab to add the first entry.</div>
           </div>
           <table class="vslog-tbl" id="vlogTbl" style="display:none">
-            <thead><tr>
-              <th style="width:48px"></th>
-              <th style="width:36px">No</th>
-              <th style="width:130px">Lot</th>
-              <th style="width:74px">Tank</th>
-              <th style="width:120px">Ship</th>
-              <th>Customer</th>
-              <th style="width:70px">Date</th>
-              <th style="width:50px">Start</th>
-              <th style="width:50px">Finish</th>
-              <th style="width:64px;text-align:right">Qty</th>
-              <th style="width:58px;text-align:right;color:var(--blue)">%Vol C3</th>
-              <th style="width:58px;text-align:right;color:var(--orange)">%Vol C4</th>
-              <th style="width:54px;text-align:right;color:var(--blue)">%Wt C3</th>
-              <th style="width:54px;text-align:right;color:var(--orange)">%Wt C4</th>
-              <th style="width:64px;text-align:right;color:var(--blue);background:rgba(0,119,182,.08)">C3 Wt</th>
-              <th style="width:64px;text-align:right;color:var(--orange);background:rgba(231,111,0,.08)">C4 Wt</th>
-              <th style="width:64px;text-align:right;color:var(--red);background:rgba(214,40,57,.08)">LPG Wt</th>
-              <th style="width:58px">Qual.</th>
-              <th style="min-width:90px">Remark</th>
-            </tr></thead>
+            <!-- v4.70: thead render động theo nhóm cột (VLOG.render) -->
+            <thead id="vlogThead"></thead>
             <tbody id="vlogTbody"></tbody>
           </table>
         </div>

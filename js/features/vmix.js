@@ -162,20 +162,48 @@ const VMIX = (function(){
 
   /* ---------- GC sum visual check ---------- */
   function gcSum(i){
-    let sum = 0;
+    let sum = 0, hasVal = false;
     document.querySelectorAll('.vs-gc-'+i).forEach(el=>{
-      const v = parseFloat(el.value); if(!isNaN(v)) sum += v;
+      const v = parseFloat(el.value); if(!isNaN(v)){ sum += v; hasVal = true; }
     });
-    const el = _gid('vs-gcsum-'+i); if(!el) return;
-    if(sum === 0){ el.textContent = 'Σ —'; el.className = 'vsmix-gc-sum'; return; }
-    const fmt = sum.toFixed(2);
-    if(Math.abs(sum - 100) < 0.5){
-      el.textContent = 'Σ '+fmt+'% ✓'; el.className = 'vsmix-gc-sum s-ok';
-    } else if(Math.abs(sum - 100) < 2){
-      el.textContent = 'Σ '+fmt+'% ⚠'; el.className = 'vsmix-gc-sum s-warn';
-    } else {
-      el.textContent = 'Σ '+fmt+'% ≠100'; el.className = 'vsmix-gc-sum s-err';
+    const el = _gid('vs-gcsum-'+i);
+    if(el){
+      if(!hasVal){ el.textContent = 'Σ —'; el.className = 'vsmix-gc-sum'; }
+      else {
+        const fmt = sum.toFixed(2);
+        if(Math.abs(sum - 100) < 0.5){
+          el.textContent = 'Σ '+fmt+'% ✓'; el.className = 'vsmix-gc-sum s-ok';
+        } else if(Math.abs(sum - 100) < 2){
+          el.textContent = 'Σ '+fmt+'% ⚠'; el.className = 'vsmix-gc-sum s-warn';
+        } else {
+          el.textContent = 'Σ '+fmt+'% ≠100'; el.className = 'vsmix-gc-sum s-err';
+        }
+      }
     }
+    /* v4.70 (V406): tint GC input borders + live-recalc the after-loading result */
+    const ok = hasVal && Math.abs(sum - 100) <= 0.5;
+    document.querySelectorAll('.vs-gc-'+i).forEach(inp=>{
+      inp.style.borderColor = !hasVal ? '' : (ok ? '#86efac' : '#fca5a5');
+    });
+    try{ calcResult(true); }catch(_){}
+  }
+
+  /* ---------- v4.70: lock tank inputs while MIXING (V406 smLockTank) ---------- */
+  function _lockTank(i, lock){
+    const col = document.querySelector('.vsmix-col-'+(i+1));
+    if(col){
+      col.querySelectorAll('input').forEach(el=>{
+        el.readOnly = lock;
+        el.style.opacity = lock ? '0.6' : '1';
+        el.style.pointerEvents = lock ? 'none' : '';
+      });
+      col.querySelectorAll('select').forEach(el=>{
+        el.disabled = lock;
+        el.style.opacity = lock ? '0.6' : '1';
+      });
+    }
+    const card = _gid('vs-card-'+i);
+    if(card) card.style.boxShadow = lock ? '0 0 0 3px #22c55e' : '';
   }
 
   /* ---------- status pill ---------- */
@@ -183,28 +211,152 @@ const VMIX = (function(){
     const el = _gid('vs-status-'+i); if(!el) return;
     const s = STATE[String(i)];
     el.className = 'vsmix-card-status' + (s==='idle' ? '' : ' on');
-    if(s === 'mixing'){ el.classList.add('s-mixing'); el.textContent = '◉ MIXING'; }
+    if(s === 'mixing'){ el.classList.add('s-mixing'); el.textContent = '🔄 ĐANG TRỘN'; el.style.animation = 'vsmixPulse 1.5s ease-in-out infinite'; return; }
+    el.style.animation = 'none';
+    if(s === 'calc'){ el.classList.add('s-pending'); el.textContent = '📐 TÍNH TOÁN'; }
     else if(s === 'pending'){ el.classList.add('s-pending'); el.textContent = '● PENDING GC'; }
     else if(s === 'done'){ el.classList.add('s-done'); el.textContent = '● COMPLETED'; }
     else { el.textContent = ''; }
   }
+  /* pulse keyframes for the MIXING badge (V406 smPulse) */
+  try{
+    const _st = document.createElement('style');
+    _st.textContent = '@keyframes vsmixPulse{0%,100%{opacity:1}50%{opacity:.5}}';
+    document.head.appendChild(_st);
+  }catch(_){}
 
-  /* ---------- START / FINISH ---------- */
+  /* ---------- START / FINISH — V406 state machine (v4.70) ----------
+     START: tanks in 'calc' → 'mixing' (inputs locked, badge pulses, state
+            persisted to /vessel_mix_state so other engineers see it live).
+            Double-click while mixing = revert 'mixing' → 'calc' (unlock).
+     FINISH: 'mixing' → 'calc' (unlock), stamp finish time, persist.      */
+  let _startLastClick = 0;
   function startMix(){
-    /* Mixing state sync to Firebase is wired in Session 5 once the calc
-       writes a real shape. For scaffold: stamp date/start if missing,
-       set both tanks to 'mixing'. */
+    const now = Date.now();
+    const anyMixing = STATE['0']==='mixing' || STATE['1']==='mixing';
+    if(anyMixing && now - _startLastClick < 500){
+      /* double-click: revert mixing → calc */
+      for(let i=0;i<2;i++){
+        if(STATE[String(i)]==='mixing'){ STATE[String(i)]='calc'; _lockTank(i,false); _renderStatus(i); }
+      }
+      _startLastClick = 0;
+      saveMixState();
+      toast('↩ Mixing reverted to CALC (unlocked)','warn');
+      return;
+    }
+    _startLastClick = now;
+    if(anyMixing) return;   /* single click while mixing: ignore */
     const dt = _gid('vs-date'); if(dt && !dt.value) dt.value = _todayDDMMYY();
-    const st = _gid('vs-stime'); if(st && !st.value) st.value = _nowHHMM();
-    STATE['0'] = STATE['1'] = 'mixing';
-    _renderStatus(0); _renderStatus(1);
+    const st = _gid('vs-stime'); if(st && !st.value.trim()) st.value = _nowHHMM();
+    let started = 0;
+    for(let i=0;i<2;i++){
+      const s = STATE[String(i)];
+      if(s && s !== 'idle' && s !== 'mixing'){ STATE[String(i)]='mixing'; _lockTank(i,true); _renderStatus(i); started++; }
+    }
     updateLot();
-    toast('▶ Vessel mix started (Firebase state sync arrives in v4.27.0)', 'ok');
+    if(started){ saveMixState(); toast('▶ Vessel mix started ('+started+' tank'+(started>1?'s':'')+') — session synced','ok'); }
+    else toast('⚠ Nhập QTY/Target trước (tank chưa ở trạng thái TÍNH TOÁN)','er');
   }
   function finishMix(){
-    const ft = _gid('vs-ftime'); if(ft && !ft.value) ft.value = _nowHHMM();
-    /* Stays in 'mixing' until GC + CALCULATE RESULT marks it done — see S5 */
-    toast('⏹ Finish time stamped — fill GC + 🧮 CALCULATE RESULT (live calc arrives in v4.27.0)', 'ok');
+    const ft = _gid('vs-ftime'); if(ft && !ft.value.trim()) ft.value = _nowHHMM();
+    for(let i=0;i<2;i++){
+      if(STATE[String(i)]==='mixing'){ STATE[String(i)]='calc'; _lockTank(i,false); _renderStatus(i); }
+    }
+    saveMixState();
+    toast('⏹ Finish time stamped — fill GC + 🧮 CALCULATE RESULT','ok');
+  }
+
+  /* ---------- v4.70: NOW button (V406 smNow) ---------- */
+  function now(id){
+    const el = _gid(id); if(!el) return;
+    el.value = _nowHHMM();
+    toast('⏱ '+el.value,'ok');
+  }
+
+  /* ---------- v4.70: Firebase mixing-state persistence (V406 sm_mixing_state) ---------- */
+  const MIX_STATE_PATH = 'vessel_mix_state';
+  const PLAN_IDS  = ['qty','tr3','odor','min','max','tole'];
+  const AFTER_IDS = ['ilw','ivw','tload','lvol','labdens'];
+  let _mixSaveT = null;
+  function saveMixState(){
+    clearTimeout(_mixSaveT);
+    _mixSaveT = setTimeout(_doSaveMixState, 500);
+  }
+  function _doSaveMixState(){
+    if(typeof firebase === 'undefined' || !firebase.database) return;
+    const data = {
+      ts: Date.now(),
+      ship:  _gv('vs-ship-sel'), type: _gv('vs-type-sel') || 'S',
+      lotNum:_gv('vs-lot-num'),  cust: _gv('vs-cust'),
+      date:  _gv('vs-date'),     stime:_gv('vs-stime'), ftime:_gv('vs-ftime'),
+      c3fq:  _gv('vs-c3fq'),     c4fq: _gv('vs-c4fq'),
+      states:[STATE['0']==='idle'?null:STATE['0'], STATE['1']==='idle'?null:STATE['1']],
+      ratio: RATIO,
+      tanks: []
+    };
+    for(let i=0;i<2;i++){
+      const tk = { runit: (_gid('vs-runit-'+i)||{}).value || 'vol' };
+      PLAN_IDS.forEach(k => { tk['p_'+k] = _gv('vs-'+k+'-'+i); });
+      AFTER_IDS.forEach(k => { tk['a_'+k] = _gv('vs-'+k+'-'+i); });
+      GC_KEYS.forEach(k => { tk['gc_'+k] = _gv('vs-gc-'+k+'-'+i); });
+      data.tanks.push(tk);
+    }
+    try{
+      firebase.database().ref(MIX_STATE_PATH).set(data).catch(e=>console.warn('[VMIX] saveMixState', e));
+    }catch(_){}
+  }
+  function restoreMixState(){
+    if(typeof firebase === 'undefined' || !firebase.database) return;
+    firebase.database().ref(MIX_STATE_PATH).once('value', snap=>{
+      const d = snap.val();
+      if(!d || !d.tanks) return;
+      /* only restore active sessions < 24h old */
+      if(d.ts && Date.now() - d.ts > 86400000) return;
+
+      /* header */
+      const sel = _gid('vs-ship-sel');
+      if(sel && d.ship){ sel.value = d.ship; onShipChange(); }
+      const ids = { type:'vs-type-sel', lotNum:'vs-lot-num', cust:'vs-cust', date:'vs-date',
+                    stime:'vs-stime', ftime:'vs-ftime', c3fq:'vs-c3fq', c4fq:'vs-c4fq' };
+      Object.keys(ids).forEach(k=>{ const el=_gid(ids[k]); if(el && d[k]) el.value = d[k]; });
+
+      /* per-tank */
+      for(let i=0;i<2;i++){
+        const tk = d.tanks[i]; if(!tk) continue;
+        const ru = _gid('vs-runit-'+i); if(ru && tk.runit){ ru.value = tk.runit; UNIT[String(i)] = tk.runit; }
+        PLAN_IDS.forEach(k=>{ const el=_gid('vs-'+k+'-'+i); if(el && tk['p_'+k]) el.value = tk['p_'+k]; });
+        AFTER_IDS.forEach(k=>{ const el=_gid('vs-'+k+'-'+i); if(el && tk['a_'+k]) el.value = tk['a_'+k]; });
+        GC_KEYS.forEach(k=>{ const el=_gid('vs-gc-'+k+'-'+i); if(el && tk['gc_'+k]) el.value = tk['gc_'+k]; });
+        gcSum(i);
+      }
+
+      /* ratio */
+      if(d.ratio){
+        RATIO = d.ratio;
+        const btn = _gid('vs-ratio-btn');
+        if(btn){ btn.textContent = RATIO+' RATIO'; btn.classList.toggle('r2', RATIO === 2); }
+      }
+
+      /* keep as 'calc' first so calcPlan renders, then apply real state + lock */
+      const saved = [null, null];
+      if(d.states){
+        for(let j=0;j<2;j++){
+          saved[j] = d.states[j] || null;
+          STATE[String(j)] = saved[j] ? 'calc' : 'idle';
+          _renderStatus(j);
+        }
+      }
+      try{ calcPlan(); }catch(_){}
+      updateLot();
+      if(d.states){
+        for(let j=0;j<2;j++){
+          STATE[String(j)] = saved[j] || 'idle';
+          _renderStatus(j);
+          if(STATE[String(j)]==='mixing') _lockTank(j,true);
+        }
+      }
+      toast('📋 Mix session restored','ok');
+    });
   }
 
   /* ---------- reset ---------- */
@@ -229,13 +381,91 @@ const VMIX = (function(){
       const ares = _gid('vs-after-res-'+i); if(ares){ ares.classList.remove('on'); ares.innerHTML = ''; }
       const gr   = _gid('vs-grand-'+i); if(gr){ gr.classList.remove('on'); gr.innerHTML = ''; }
       STATE[String(i)] = 'idle'; _renderStatus(i);
+      _lockTank(i, false);                       /* v4.70: unlock */
     });
     ['vs-cust','vs-lot-num','vs-date','vs-stime','vs-ftime','vs-c3fq','vs-c4fq'].forEach(id=>{
       const el = _gid(id); if(el) el.value = '';
     });
+    /* v4.70: clear the shared mixing session */
+    try{
+      if(typeof firebase !== 'undefined' && firebase.database)
+        firebase.database().ref(MIX_STATE_PATH).set(null).catch(()=>{});
+    }catch(_){}
     updateLot();
     toast('🔄 Vessel Mix reset','ok');
   }
+
+  /* ---------- v4.70: collapse/expand AFTER LOADING boxes (V406 smToggleAfter) ---------- */
+  function toggleAfter(){
+    const boxes = document.querySelectorAll('.vsmix-after');
+    const btn = _gid('vs-btn-after');
+    if(!boxes.length) return;
+    const vis = boxes[0].style.display !== 'none';
+    boxes.forEach(b=>{ b.style.display = vis ? 'none' : ''; });
+    if(btn) btn.textContent = vis ? '🧪 AFTER ▼' : '🧪 AFTER ▲';
+  }
+
+  /* ---------- v4.70: customer autocomplete (V406 smCustSearch/Pick) ---------- */
+  function custSearch(){
+    const inp = _gid('vs-cust');
+    let dd = _gid('vsmix-cust-dd');
+    if(!dd){
+      dd = document.createElement('div');
+      dd.id = 'vsmix-cust-dd';
+      dd.style.cssText = 'display:none;position:fixed;z-index:99999;background:#fff;border:1.5px solid var(--blue);'
+        +'border-radius:6px;max-height:200px;overflow-y:auto;width:240px;box-shadow:0 6px 20px rgba(0,0,0,.2)';
+      document.body.appendChild(dd);
+    }
+    if(!inp) return;
+    const rc = inp.getBoundingClientRect();
+    dd.style.left = rc.left+'px'; dd.style.top = (rc.bottom+2)+'px';
+    const q = (inp.value||'').toLowerCase().trim();
+    /* unique short-name list from Customer table (CT), fallback PLAN_DATA.cust */
+    const seen = {}, items = [];
+    try{
+      if(typeof CT !== 'undefined' && CT.ROWS){
+        Object.values(CT.ROWS).forEach(c=>{
+          const s = (c && c.short || '').trim();
+          if(s && !seen[s.toLowerCase()]){ seen[s.toLowerCase()] = 1; items.push(s); }
+        });
+      }
+    }catch(_){}
+    try{
+      if(!items.length && typeof PLAN_DATA !== 'undefined' && PLAN_DATA.cust){
+        PLAN_DATA.cust.forEach(c=>{
+          const s = (c.short||'').trim();
+          if(s && !seen[s.toLowerCase()]){ seen[s.toLowerCase()] = 1; items.push(s); }
+        });
+      }
+    }catch(_){}
+    const filtered = q ? items.filter(s=>s.toLowerCase().includes(q)) : items;
+    if(!filtered.length){ dd.style.display = 'none'; return; }
+    dd.style.display = '';
+    dd.innerHTML = filtered.map(s=>
+      '<div style="padding:5px 10px;cursor:pointer;font-size:11px;border-bottom:1px solid #f0f0f0" '
+      +'onmousedown="event.preventDefault();VMIX.custPick(\''+s.replace(/'/g,"\\'")+'\')">'+_esc(s)+'</div>'
+    ).join('');
+  }
+  function custPick(name){
+    const inp = _gid('vs-cust'); if(inp) inp.value = name;
+    const dd = _gid('vsmix-cust-dd'); if(dd) dd.style.display = 'none';
+  }
+  /* hide dropdown when clicking elsewhere */
+  document.addEventListener('click', e=>{
+    const dd = _gid('vsmix-cust-dd');
+    if(dd && e.target !== _gid('vs-cust') && !dd.contains(e.target)) dd.style.display = 'none';
+  });
+
+  /* ---------- v4.70: Enter-key nav between plan inputs (V406 data-sm-next) ---------- */
+  document.addEventListener('keydown', e=>{
+    if(e.key !== 'Enter') return;
+    const t = e.target; if(!t || !t.getAttribute) return;
+    const nxt = t.getAttribute('data-vs-next');
+    if(!nxt) return;
+    e.preventDefault();
+    const el = _gid(nxt);
+    if(el){ el.focus(); if(el.select) el.select(); }
+  });
 
   /* ---------- helpers used by the calc pipeline ---------- */
   function _fmtNum(v, d){
@@ -379,7 +609,7 @@ const VMIX = (function(){
      hidden detail table) and #vs-grand-{i} (per-tank grand-total card).
      The intermediate _smCalcData[i] equivalent is cached in module-private
      _afterResult[i] for Session 6's saveLog to consume.                  */
-  function calcResult(){
+  function calcResult(silent){
     const DL3 = DENS.c3l, DL4 = DENS.c4l;
     const DV3 = DENS.c3v, DV4 = DENS.c4v;
     const ship = SEL_SHIP ? SHIPS.find(s => s.name === SEL_SHIP) : null;
@@ -512,6 +742,7 @@ const VMIX = (function(){
     }
 
     /* Diagnostics when no tank produced a result — matches V406's UX cue */
+    if(silent === true) return;
     if(!hasResult){
       const diag = [];
       if(!ship) diag.push('Vessel not selected');
@@ -852,6 +1083,22 @@ const VMIX = (function(){
         fld('vsd-c3v','C3 vapor (kg/L)',  DENS.c3v)+
         fld('vsd-c4v','C4 vapor (kg/L)',  DENS.c4v)+
       '</div>'+
+      /* v4.70 (V406): component density used by Est.Density */
+      '<div style="margin-top:12px;font-family:Oswald;font-size:11px;letter-spacing:1px;color:var(--ink-3);margin-bottom:4px">COMPONENT DENSITY (Est. Density)</div>'+
+      '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;align-items:center">'+
+        '<div style="text-align:center;font-size:9px;font-weight:700;color:var(--ink-3)">Component</div>'+
+        '<div style="text-align:center;font-size:9px;font-weight:700;color:var(--ink-3)">Vol Ratio %</div>'+
+        '<div style="text-align:center;font-size:9px;font-weight:700;color:var(--ink-3)">Density kg/L</div>'+
+        '<div style="text-align:center;font-size:11px;color:var(--blue);font-weight:700">C3</div>'+
+        '<input id="vsd-c3vr"  class="vsmix-inp" value="'+PROPS.c3_vr+'"  inputmode="decimal" style="font-size:11px;text-align:center">'+
+        '<input id="vsd-c3den" class="vsmix-inp" value="'+PROPS.c3_den+'" inputmode="decimal" style="font-size:11px;text-align:center">'+
+        '<div style="text-align:center;font-size:11px;color:var(--orange);font-weight:700">n-C4</div>'+
+        '<input id="vsd-nc4vr"  class="vsmix-inp" value="'+PROPS.nc4_vr+'"  inputmode="decimal" style="font-size:11px;text-align:center">'+
+        '<input id="vsd-nc4den" class="vsmix-inp" value="'+PROPS.nc4_den+'" inputmode="decimal" style="font-size:11px;text-align:center">'+
+        '<div style="text-align:center;font-size:11px;color:var(--orange);font-weight:700">i-C4</div>'+
+        '<input id="vsd-ic4vr"  class="vsmix-inp" value="'+PROPS.ic4_vr+'"  inputmode="decimal" style="font-size:11px;text-align:center">'+
+        '<input id="vsd-ic4den" class="vsmix-inp" value="'+PROPS.ic4_den+'" inputmode="decimal" style="font-size:11px;text-align:center">'+
+      '</div>'+
       '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">'+
         '<button onclick="VMIX._saveDensity()" style="padding:8px 22px;background:var(--green);color:#fff;border:none;border-radius:5px;font-family:Oswald;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer">💾 SAVE</button>'+
         '<button onclick="VMIX._resetDensity()" style="padding:8px 16px;background:#fef3c7;color:#92400e;border:1.5px solid #f59e0b;border-radius:5px;font-family:Oswald;font-size:12px;cursor:pointer">Reset to defaults</button>'+
@@ -867,11 +1114,24 @@ const VMIX = (function(){
       c4v: parseFloat(_gv('vsd-c4v')) || DENS.c4v
     };
     DENS = next;
+    /* v4.70 (V406): also save component props used by Est.Density */
+    PROPS = {
+      c3_vr:  parseFloat(_gv('vsd-c3vr'))  || PROPS.c3_vr,
+      c3_den: parseFloat(_gv('vsd-c3den')) || PROPS.c3_den,
+      nc4_vr: parseFloat(_gv('vsd-nc4vr')) || PROPS.nc4_vr,
+      nc4_den:parseFloat(_gv('vsd-nc4den'))|| PROPS.nc4_den,
+      ic4_vr: parseFloat(_gv('vsd-ic4vr')) || PROPS.ic4_vr,
+      ic4_den:parseFloat(_gv('vsd-ic4den'))|| PROPS.ic4_den
+    };
     if(typeof firebase !== 'undefined' && firebase.database){
-      try{ firebase.database().ref('vessel_density').set(next).catch(e=>console.warn('[VMIX] density', e)); }catch(_){}
+      try{
+        firebase.database().ref('vessel_density').set(next).catch(e=>console.warn('[VMIX] density', e));
+        firebase.database().ref('vessel_config').update({ ships: SHIPS, props: PROPS }).catch(()=>{});
+      }catch(_){}
     }
     closeModal();
-    toast('💾 Density saved','ok');
+    try{ calcPlan(); }catch(_){}
+    toast('💾 Density + Component saved → recalculated','ok');
   }
   function _resetDensity(){
     DENS = Object.assign({}, DEFAULT_DENS);
@@ -907,6 +1167,8 @@ const VMIX = (function(){
       _attached = true;
       console.log('[VMIX] ✅ Init OK · '+SHIPS.length+' vessels');
     }catch(e){ console.warn('[VMIX] init', e); }
+    /* v4.70: auto-restore the shared mixing session (delayed for other init) */
+    setTimeout(()=>{ try{ restoreMixState(); }catch(e){ console.warn('[VMIX] restore', e); } }, 2500);
   }
 
   /* ---------- public API ---------- */
@@ -917,6 +1179,8 @@ const VMIX = (function(){
     gcSum, startMix, finishMix, reset,
     calcPlan, calcResult, saveLog,
     openShipEdit, openDensityEdit, closeModal,
+    now, toggleAfter, custSearch, custPick,
+    saveMixState, restoreMixState,
     _addShipRow, _saveShips, _saveDensity, _resetDensity,
     get SHIPS(){ return SHIPS; },
     get DENS(){  return DENS;  },

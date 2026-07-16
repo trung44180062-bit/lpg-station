@@ -37,6 +37,9 @@ const MC = (function(){
     odoPpm: 30, odoRef: 570, odoBd: 0.00003
   };
   let MC_D, MC_TV, MC_TANK_R, MC_ODO;
+  /* v4.73 — ngưỡng an toàn vận hành theo quy trình (không phải max vật lý).
+     Thể tích cuối > 570 m³ → CẢNH BÁO (vẫn tính); > MC_TV (696.91) → chặn. */
+  const MC_SAFE = 570;
   function _applyCfg(c){
     MC_D = { c3l:c.c3l, c4l:c.c4l, c3v:c.c3v, c4v:c.c4v };
     MC_TV = c.tv;
@@ -90,6 +93,12 @@ const MC = (function(){
      differs a lot from the current lot's ratio. Mutually exclusive with LP. */
   const SP  = { '1':false, '2':false };
   const PC  = { '1':false, '2':false };
+  /* v4.72 — CHỈ BƠM 1 SẢN PHẨM: 'C3' | 'C4' | null. Khi bật, TARGET VOL
+     do phần mềm tự tính (one-way flow Cavern→TK-3501/TK-3502, chỉ bơm thêm). */
+  const FILL = { '1':null, '2':null };
+  /* v4.74 — CHỈ BƠM kèm tuần hoàn về trạm: MẶC ĐỊNH CÓ (pipeline chứa
+     tỉ lệ cũ như SPECIAL RATIO). Bỏ tick = tính không tuần hoàn. */
+  const FILL_CIRC = { '1':true, '2':true };
   const CR_MODE = { '1':'auto', '2':'auto' };
   const MIXING_LOT = { '1':0, '2':0 };
 
@@ -337,12 +346,12 @@ const MC = (function(){
      Single click now only shows a hint; DOUBLE-click performs the toggle
      (same timer pattern as startClick/startDblClick). */
   const _modeTimer = {};
-  const _MODE_LBL = { ord:'thứ tự bơm ➊➋', lp:'LOW PRESSURE', sp:'SPECIAL RATIO', pc:'RECEIVE C3' };
+  const _MODE_LBL = { ord:'pump order ➊➋', lp:'LOW PRESSURE', sp:'SPECIAL RATIO', pc:'RECEIVE C3', fc3:'FILL C3 ONLY', fc4:'FILL C4 ONLY' };
   function modeClick(n, kind){
     const key = kind + n;
     clearTimeout(_modeTimer[key]);
     _modeTimer[key] = setTimeout(()=>{
-      toast('👆👆 Nhấp ĐÔI để chuyển '+(_MODE_LBL[kind]||kind)+' (tránh bấm nhầm)','warn');
+      toast('👆👆 DOUBLE-CLICK to toggle '+(_MODE_LBL[kind]||kind)+' (prevents accidental clicks)','warn');
     }, 260);
   }
   function modeDbl(n, kind){
@@ -351,6 +360,8 @@ const MC = (function(){
     else if(kind==='lp')  toggleLP(n);
     else if(kind==='sp')  toggleSP(n);
     else if(kind==='pc')  togglePC(n);
+    else if(kind==='fc3') toggleFill(n,'C3');
+    else if(kind==='fc4') toggleFill(n,'C4');
   }
 
   /* ---------- toggles ---------- */
@@ -384,7 +395,7 @@ const MC = (function(){
     if(!lbl) return;
     if(SP[n]){
       lbl.innerHTML = 'FINAL TARGET C3 % <span style="color:#047857;font-weight:800">(AFTER CIRCULATE)</span>';
-      lbl.title = 'Kết quả C3 % CUỐI CÙNG mong muốn — SAU khi tuần hoàn đường ống. Phần mềm tự tính Blend target C3 (before circulate) ở ô bên dưới.';
+      lbl.title = 'Desired FINAL C3 % — AFTER pipe circulation. The software back-solves the Blend target C3 (before circulate) shown below.';
     } else {
       lbl.textContent = 'TARGET C3 %';
       lbl.title = '';
@@ -536,14 +547,55 @@ const MC = (function(){
     _gid('mc-sp'+n)?.classList.toggle('on', SP[n]);
     _gid('mc-sp-box'+n)?.classList.toggle('on', SP[n]);
     _updateTrLabel(n);
-    if(SP[n]) toast('★ TK-'+(n==='1'?'3501':'3502')+': SPECIAL RATIO — ô FINAL TARGET C3 % = kết quả CUỐI sau tuần hoàn ống','warn');
+    if(SP[n]) toast('★ TK-'+(n==='1'?'3501':'3502')+': SPECIAL RATIO — FINAL TARGET C3 % input = FINAL result after pipe circulation','warn');
     autoCalc(n);
   }
   function togglePC(n){
     PC[n] = !PC[n];
     if(PC[n] && LP[n]){ LP[n] = false; _gid('mc-lp'+n)?.classList.remove('on'); _gid('mc-lp-box'+n)?.classList.remove('on'); }
+    if(PC[n] && FILL[n]){ _setFill(n, null); }   /* v4.72: RECEIVE C3 loại trừ CHỈ BƠM */
     _gid('mc-pc'+n)?.classList.toggle('on', PC[n]);
     _gid('mc-pc-box'+n)?.classList.toggle('on', PC[n]);
+    autoCalc(n);
+  }
+
+  /* ── v4.72 — CHỈ BƠM C3 / CHỈ BƠM C4 ─────────────────────────────
+     Bật một trong hai: nhập INIT VOL + %C3 hiện tại + TARGET C3 %
+     (FINAL nếu SPECIAL RATIO) — TARGET VOL phần mềm TỰ TÍNH:
+       C4-only: tvEff = (iC3 + crC3·Vp)/s − Vp   (không SP: iC3/tr)
+       C3-only: tvEff = (iC4 + Vp·(s−crC3))/(1−s) (không SP: iC4/(1−tr))
+     Hai nút loại trừ lẫn nhau; loại trừ RECEIVE C3; dùng được cùng
+     SPECIAL RATIO (tuần hoàn ống) và LOW PRESSURE. */
+  function _setFill(n, kind){
+    FILL[n] = kind;
+    _gid('mc-fc3'+n)?.classList.toggle('on', kind === 'C3');
+    _gid('mc-fc4'+n)?.classList.toggle('on', kind === 'C4');
+    /* v4.74 — sub-box tuần hoàn về trạm (chỉ hiện khi bật CHỈ BƠM) */
+    _gid('mc-fc-box'+n)?.classList.toggle('on', !!kind);
+    const ck = _gid('mc-fccirc'+n); if(ck) ck.checked = FILL_CIRC[n];
+    const tvEl = _gid('mc-tv'+n);
+    if(tvEl){
+      tvEl.readOnly = !!kind;
+      tvEl.style.background = kind ? '#f0fdf4' : '';
+      tvEl.title = kind ? 'TARGET VOL auto-calculated (FILL '+kind+' ONLY mode)' : '';
+      if(kind) tvEl.placeholder = 'AUTO';
+    }
+  }
+  /* v4.74 — checkbox tuần hoàn về trạm thay đổi */
+  function fillCircChange(n){
+    const ck = _gid('mc-fccirc'+n);
+    FILL_CIRC[n] = ck ? !!ck.checked : true;
+    toast(FILL_CIRC[n]
+      ? '🔁 TK-'+(n==='1'?'3501':'3502')+': fill WITH pipe circulation (old ratio in pipeline)'
+      : 'TK-'+(n==='1'?'3501':'3502')+': fill WITHOUT circulation — target reached in-tank','warn');
+    autoCalc(n);
+  }
+  function toggleFill(n, kind){
+    const next = FILL[n] === kind ? null : kind;
+    if(next && PC[n]){ PC[n] = false; _gid('mc-pc'+n)?.classList.remove('on'); _gid('mc-pc-box'+n)?.classList.remove('on'); }
+    _setFill(n, next);
+    if(next) toast('⬆ TK-'+(n==='1'?'3501':'3502')+': FILL '+next+' ONLY — enter INIT VOL + TARGET C3 %, TARGET VOL will be auto-calculated','warn');
+    else toast('TK-'+(n==='1'?'3501':'3502')+': single-product fill mode OFF','ok');
     autoCalc(n);
   }
 
@@ -556,8 +608,9 @@ const MC = (function(){
     const crC3 = _gnum('mc-cr'+n) / 100;
     const resEl = _gid('mc-r'+n);
     if(!resEl) return;
-    if(!(iv > 0) || !(tv > 0) || !(trC3 > 0) || !(crC3 > 0)){
-      if(!_calcSilent) toast('⚠ TK-'+tk+': fill all four inputs','er');
+    const fm = FILL[n];   /* v4.72: 'C3' | 'C4' | null — TARGET VOL tự tính khi bật */
+    if(!(iv > 0) || (!fm && !(tv > 0)) || !(trC3 > 0) || !(crC3 > 0)){
+      if(!_calcSilent) toast('⚠ TK-'+tk+': '+(fm ? 'fill INIT VOL + TARGET C3 % (TARGET VOL is auto)' : 'fill all four inputs'),'er');
       resEl.classList.remove('on');
       return;
     }
@@ -569,16 +622,18 @@ const MC = (function(){
       spVPipe = _gnum('mc-spvpipe'+n);
       if(spVPipe > 0){
         spDesired = trC3;
-        const trEff = (spDesired*(tv + spVPipe) - crC3*spVPipe) / tv;
-        const trEl = _gid('mc-sptr'+n);
-        if(trEff <= 0 || trEff >= 1){
-          if(trEl) trEl.value = 'impossible';
-          if(!_calcSilent) toast('⚠ TK-'+tk+': FINAL C3 '+(spDesired*100).toFixed(1)+'% không thể đạt với pipe '+spVPipe+' m³ (blend target ra ngoài 0–100%)','er');
-          resEl.classList.remove('on');
-          return;
+        /* v4.72: ở chế độ CHỈ BƠM, tv chưa biết — bỏ back-solve theo tv,
+           nhánh FILL bên dưới tự giải tvEff rồi cập nhật blend target. */
+        if(!fm){
+          const trEff = (spDesired*(tv + spVPipe) - crC3*spVPipe) / tv;
+          const trEl = _gid('mc-sptr'+n);
+          /* v4.71 — trEff ra ngoài 0–100% KHÔNG còn là lỗi chết: nghĩa là với
+             TARGET VOL cố định thì bất khả thi, nhưng dòng 1 chiều bên dưới sẽ
+             giải lại thể tích (chỉ bơm 1 sản phẩm). Cứ gán trC3 = trEff và để
+             khối one-way xử lý số âm. */
+          if(trEl) trEl.value = (trEff*100).toFixed(2);
+          trC3 = trEff;
         }
-        if(trEl) trEl.value = (trEff*100).toFixed(2);
-        trC3 = trEff;
       }
       /* v4.69 — keep the planner modal in sync with the FINAL TARGET input */
       try{
@@ -591,6 +646,124 @@ const MC = (function(){
     const iC3 = crC3*iv, iC4 = (1-crC3)*iv;
     let aC3 = trC3*tv - iC3;
     let aC4 = (1-trC3)*tv - iC4;
+
+    /* ══ v4.71 — ONE-WAY FLOW Cavern → TK-3501/TK-3502 ══════════
+       Không thể rút C3/C4 ngược về hầm. Nếu mass-balance ra số ÂM
+       (vd: đang 53.9% C3 muốn về FINAL 24% → phải "rút" C3), thì:
+         • kẹp thành phần âm = 0 (chỉ bơm sản phẩm còn lại),
+         • TARGET VOL không giữ được — GIẢI LẠI thể tích cuối tvEff
+           sao cho FINAL C3 (sau tuần hoàn ống nếu SPECIAL RATIO)
+           đúng bằng số đã nhập.
+       C4-only : tvEff = (iC3 + crC3·Vp)/s − Vp   (không SP: iC3/tr)
+       C3-only : tvEff = (iC4 + Vp·(s − crC3))/(1−s) (không SP: iC4/(1−tr)) */
+    let tvEff = tv, owHTML = '';
+    /* v4.75 — sản phẩm KHÔNG bơm (fill = 0) sẽ bị làm mờ trong kết quả */
+    let owDim = null;   /* 'C3' | 'C4' | null */
+    /* ══ v4.72 — CHỈ BƠM C3 / CHỈ BƠM C4 (TARGET VOL tự tính) ══════════
+       v4.74: MẶC ĐỊNH tính tuần hoàn về trạm — pipeline chứa hàng TỈ LỆ CŨ
+       (crC3) quay về tank như SPECIAL RATIO. Bỏ tick "Tuần hoàn về trạm"
+       thì target đạt ngay trong tank (vpF = 0). */
+    if(fm){
+      const sFin  = (SP[n] && spVPipe > 0) ? spDesired : trC3;
+      const onlyC4 = (fm === 'C4');
+      let vpF = 0;
+      if(FILL_CIRC[n]){
+        vpF = (SP[n] && spVPipe > 0) ? spVPipe : (_gnum('mc-fcpipe'+n) || 0);
+      }
+      if(onlyC4){
+        tvEff = vpF > 0
+          ? (iC3 + crC3*vpF) / sFin - vpF
+          : iC3 / sFin;
+        aC3 = 0; aC4 = tvEff - iv;
+      } else {
+        tvEff = vpF > 0
+          ? (iC4 + vpF*(sFin - crC3)) / (1 - sFin)
+          : iC4 / (1 - sFin);
+        aC4 = 0; aC3 = tvEff - iv;
+      }
+      if(!(tvEff > 0) || tvEff < iv - 1e-9 || aC3 < -1e-9 || aC4 < -1e-9){
+        if(!_calcSilent) toast('⚠ TK-'+tk+': FILL '+fm+' ONLY cannot reach C3 '+(sFin*100).toFixed(1)+'% from current '+(crC3*100).toFixed(1)+'% — to '+(onlyC4?'RAISE':'LOWER')+' %C3 use FILL '+(onlyC4?'C3':'C4')+' ONLY','er');
+        resEl.classList.remove('on');
+        return;
+      }
+      if(tvEff > MC_TV){
+        if(!_calcSilent) toast('⚠ TK-'+tk+': needs '+_fmt(tvEff,1)+' m³ to reach C3 '+(sFin*100).toFixed(1)+'% — EXCEEDS tank capacity '+_fmt(MC_TV,0)+' m³. Split into batches or export first.','er');
+        resEl.classList.remove('on');
+        return;
+      }
+      if(aC3 < 1e-9 && aC4 < 1e-9){
+        if(!_calcSilent) toast('ℹ TK-'+tk+': already at '+(sFin*100).toFixed(1)+'% C3 — nothing to pump','warn');
+      }
+      aC3 = Math.max(0, aC3); aC4 = Math.max(0, aC4);
+      owDim = onlyC4 ? 'C3' : 'C4';   /* v4.75: mờ sản phẩm không bơm */
+      /* tự điền TARGET VOL + blend target */
+      const tvEl = _gid('mc-tv'+n); if(tvEl) tvEl.value = tvEff.toFixed(1);
+      trC3 = (iC3 + aC3) / tvEff;
+      const trEl3 = _gid('mc-sptr'+n);
+      if(trEl3 && SP[n] && spVPipe > 0) trEl3.value = (trC3*100).toFixed(2);
+      const fCol = onlyC4 ? '#c2410c' : '#1d4ed8';
+      const fBg  = onlyC4 ? '#fff7ed' : '#eff6ff';
+      const fBd  = onlyC4 ? '#fdba74' : '#93c5fd';
+      const fBg2 = onlyC4 ? '#ffedd5' : '#dbeafe';
+      owHTML = '<div style="margin-top:4px;padding:4px 10px;background:'+fBg+';border:1.5px solid '+fBd+';border-radius:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+        '<span style="font-family:Oswald;font-size:10px;letter-spacing:1px;color:'+fCol+';font-weight:700">⬆ FILL '+fm+' ONLY (one-way flow Cavern → TK-3501/TK-3502)</span>'+
+        (vpF > 0
+          ? '<span style="font-size:10px;color:'+fCol+'">🔁 Circulate back · Pipe '+_fmt(vpF,1)+' m³ · prev C3 '+_fmt(crC3*100,1)+'%</span>'
+          : '<span style="font-size:10px;color:'+fCol+'">No circulation — target reached in-tank</span>')+
+        '<span style="padding:2px 8px;border-radius:4px;background:'+fBg2+';color:'+fCol+';font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">PUMP '+fm+' <span style="font-family:monospace;font-size:14px">'+_fmt(onlyC4?aC4:aC3,1)+' m³</span></span>'+
+        '<span style="padding:2px 8px;border-radius:4px;background:'+fBg2+';color:'+fCol+';font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">TARGET VOL (AUTO) <span style="font-family:monospace;font-size:14px">'+_fmt(tvEff,1)+' m³</span></span>'+
+        (vpF > 0
+          ? '<span style="padding:2px 8px;border-radius:4px;background:#fef3c7;color:#92400e;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">🎯 BLEND IN TANK <span style="font-family:monospace;font-size:14px">'+(( (iC3+aC3)/tvEff )*100).toFixed(2)+'%</span> → AFTER CIRCULATE <span style="font-family:monospace;font-size:14px">'+(sFin*100).toFixed(2)+'%</span></span>'
+          : '')+
+      '</div>';
+    }
+    else if(aC3 < -1e-9 || aC4 < -1e-9){
+      const sFin  = (SP[n] && spVPipe > 0) ? spDesired : trC3;  /* mục tiêu C3 cuối */
+      const onlyC4 = aC3 < 0;
+      if(onlyC4){
+        tvEff = (SP[n] && spVPipe > 0)
+          ? (iC3 + crC3*spVPipe) / sFin - spVPipe
+          : iC3 / sFin;
+        aC3 = 0; aC4 = tvEff - iv;
+      } else {
+        tvEff = (SP[n] && spVPipe > 0)
+          ? (iC4 + spVPipe*(sFin - crC3)) / (1 - sFin)
+          : iC4 / (1 - sFin);
+        aC4 = 0; aC3 = tvEff - iv;
+      }
+      if(!(tvEff > 0) || aC3 < -1e-9 || aC4 < -1e-9 || tvEff < iv - 1e-9){
+        if(!_calcSilent) toast('⚠ TK-'+tk+': FINAL C3 '+(sFin*100).toFixed(1)+'% cannot be reached by filling only (one-way flow — no return to Cavern)','er');
+        resEl.classList.remove('on');
+        return;
+      }
+      if(tvEff > MC_TV){
+        if(!_calcSilent) toast('⚠ TK-'+tk+': needs '+_fmt(tvEff,1)+' m³ to reach C3 '+(sFin*100).toFixed(1)+'% ('+(onlyC4?'C4':'C3')+' only) — EXCEEDS tank capacity '+_fmt(MC_TV,0)+' m³. Split into batches or export first.','er');
+        resEl.classList.remove('on');
+        return;
+      }
+      aC3 = Math.max(0, aC3); aC4 = Math.max(0, aC4);
+      owDim = onlyC4 ? 'C3' : 'C4';   /* v4.75: mờ sản phẩm không bơm */
+      /* blend target thực trong tank (trước tuần hoàn) sau khi kẹp */
+      trC3 = (iC3 + aC3) / tvEff;
+      const trEl2 = _gid('mc-sptr'+n);
+      if(trEl2 && SP[n] && spVPipe > 0) trEl2.value = (trC3*100).toFixed(2);
+      owHTML = '<div style="margin-top:4px;padding:4px 10px;background:#fff7ed;border:1.5px solid #fdba74;border-radius:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+        '<span style="font-family:Oswald;font-size:10px;letter-spacing:1px;color:#c2410c;font-weight:700">⇧ ONE-WAY FLOW Cavern → TK-3501/TK-3502</span>'+
+        '<span style="font-size:10px;color:#9a3412">Cannot return '+(onlyC4?'C3':'C4')+' to Cavern — pump '+(onlyC4?'C4':'C3')+' only</span>'+
+        '<span style="padding:2px 8px;border-radius:4px;background:#ffedd5;color:#c2410c;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">FINAL VOLUME <span style="font-family:monospace;font-size:14px">'+_fmt(tvEff,1)+' m³</span> (TARGET VOL '+_fmt(tv,0)+' m³ not feasible at C3 '+(sFin*100).toFixed(1)+'%)</span>'+
+      '</div>';
+    }
+    /* ══ v4.73 — NGƯỠNG AN TOÀN 570 m³ (quy trình vận hành) ══════════
+       Áp dụng cho MỌI chế độ (kể cả TARGET VOL nhập tay > 570):
+       vẫn tính toán bình thường nhưng hiện cảnh báo đỏ. */
+    if(tvEff > MC_SAFE + 1e-9){
+      owHTML += '<div style="margin-top:4px;padding:5px 10px;background:#fef2f2;border:2px solid #dc2626;border-radius:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
+        '<span style="font-family:Oswald;font-size:11px;letter-spacing:1px;color:#dc2626;font-weight:800">🚨 EXCEEDS PROCEDURE SAFETY LIMIT</span>'+
+        '<span style="padding:2px 8px;border-radius:4px;background:#fee2e2;color:#b91c1c;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">FINAL VOLUME <span style="font-family:monospace;font-size:14px">'+_fmt(tvEff,1)+' m³</span> &gt; <span style="font-family:monospace;font-size:14px">'+_fmt(MC_SAFE,0)+' m³</span></span>'+
+        '<span style="font-size:10px;color:#b91c1c;font-weight:600">Review per operating procedure — consider splitting into batches or exporting before mixing</span>'+
+      '</div>';
+      if(!_calcSilent) toast('🚨 TK-'+tk+': final volume '+_fmt(tvEff,1)+' m³ EXCEEDS procedure safety limit '+_fmt(MC_SAFE,0)+' m³','er');
+    }
     /* Pre-C3 adjustment (RECEIVE C3 before mixing) */
     let preC3 = 0, startVol = iv, addC3 = aC3, addC4 = aC4;
     if(PC[n]){
@@ -623,12 +796,12 @@ const MC = (function(){
     if(LP[n]){
       const vPipe = _gnum('mc-vpipe'+n);
       if(vPipe > 0){
-        const expC3 = (trC3*tv + crC3*vPipe) / (tv + vPipe);
+        const expC3 = (trC3*tvEff + crC3*vPipe) / (tvEff + vPipe);
         const expEl = _gid('mc-expc3'+n);
         if(expEl) expEl.value = (expC3 * 100).toFixed(2);
         const ok = expC3 >= 0.30 && expC3 <= 0.35;
         const rc = ok ? '#15803d' : '#c53727', rb = ok ? 'var(--green-soft)' : 'var(--red-soft)';
-        const solved = (0.33*(tv + vPipe) - crC3*vPipe) / tv;
+        const solved = (0.33*(tvEff + vPipe) - crC3*vPipe) / tvEff;
         lpHTML = '<div style="margin-top:4px;padding:4px 10px;background:#f3e8ff;border:1.5px solid #d4b5f0;border-radius:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
           '<span style="font-family:Oswald;font-size:10px;letter-spacing:1px;color:#7b2d8e;font-weight:700">📐 LOW PRESSURE</span>'+
           '<span style="font-size:10px;color:#7b2d8e">Pipe '+_fmt(vPipe,1)+' m³ · Prev C3 '+_fmt(crC3*100,1)+'%</span>'+
@@ -652,6 +825,14 @@ const MC = (function(){
     const odoBD  = MC_ODO.bd * odoSET;
     const col1 = first === 'C4' ? 'var(--orange)' : 'var(--blue)';
     const col2 = second === 'C4' ? 'var(--orange)' : 'var(--blue)';
+    /* v4.75 — mờ sản phẩm không bơm (fill = 0) để tránh nhầm lẫn */
+    const _dim = ';opacity:.3;filter:grayscale(.7)';
+    const dimC3 = owDim === 'C3' ? _dim : '';
+    const dimC4 = owDim === 'C4' ? _dim : '';
+    const dim1  = owDim === first  ? _dim : '';
+    const dim2  = owDim === second ? _dim : '';
+    const tag1  = owDim === first  ? ' <span style="font-size:9px;font-weight:800;color:var(--red)">NO PUMP</span>' : '';
+    const tag2  = owDim === second ? ' <span style="font-size:9px;font-weight:800;color:var(--red)">NO PUMP</span>' : '';
     resEl.innerHTML =
       '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;margin-bottom:4px;border-bottom:1.5px solid rgba(0,0,0,.08);flex-wrap:wrap;gap:4px">'+
         '<span style="font-family:Oswald;font-size:14px;letter-spacing:1px;color:var(--ink-2)">'+
@@ -660,26 +841,26 @@ const MC = (function(){
             : 'TARGET <span style="font-weight:700;color:var(--blue)">C3 '+(trC3*100).toFixed(0)+'%</span> · <span style="font-weight:700;color:var(--orange)">C4 '+((1-trC3)*100).toFixed(0)+'%</span>')+
         '</span>'+
         '<span style="display:flex;align-items:center;gap:8px">'+
-          '<span style="font-family:monospace;font-size:15px;font-weight:700">'+_fmt(tv,0)+' m³</span>'+
+          '<span style="font-family:monospace;font-size:15px;font-weight:700">'+_fmt(tvEff,0)+' m³'+(fm?' <span style="font-size:10px;color:#047857">(AUTO)</span>':(Math.abs(tvEff-tv)>0.05?' <span style="font-size:10px;color:#c2410c">(input '+_fmt(tv,0)+')</span>':''))+'</span>'+
           '<span style="font-family:Oswald;font-size:10px;color:#7b2d8e;font-weight:600;letter-spacing:1px">💨 ODO SET <span style="font-family:monospace;font-size:15px;font-weight:800">'+_fmt(odoSET,0)+'</span> BD <span style="font-family:monospace;font-size:15px;font-weight:800">'+_fmt(odoBD,2)+'</span></span>'+
         '</span></div>'+
       (PC[n] && preC3 > 0 ?
         '<div style="font-size:10px;padding:3px 8px;background:#fef3c7;border-radius:4px;margin-bottom:4px;color:#92400e;font-weight:600;display:flex;gap:8px;align-items:center"><span>📥 Receive C3: '+_fmt(preC3)+' m³</span><span>C3% after: '+(((crC3*iv + preC3) / startVol) * 100).toFixed(2)+'%</span></div>' : '')+
       '<div style="display:flex;align-items:center;gap:4px;margin:4px 0;flex-wrap:wrap">'+
-        '<div style="display:flex;align-items:center;gap:4px;background:var(--orange-soft);padding:3px 8px;border-radius:4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange)"></span><span style="font-family:Oswald;font-size:12px;color:var(--orange);font-weight:700">C4</span><span style="font-family:monospace;font-size:14px;font-weight:800;color:var(--orange);margin-left:4px">'+_fmt(addC4)+'</span><span style="font-size:9px;color:var(--ink-2)">m³</span></div>'+
-        '<div style="display:flex;align-items:center;gap:4px;background:var(--blue-soft);padding:3px 8px;border-radius:4px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--blue)"></span><span style="font-family:Oswald;font-size:12px;color:var(--blue);font-weight:700">C3</span><span style="font-family:monospace;font-size:14px;font-weight:800;color:var(--blue);margin-left:4px">'+_fmt(addC3)+'</span><span style="font-size:9px;color:var(--ink-2)">m³</span></div>'+
+        '<div style="display:flex;align-items:center;gap:4px;background:var(--orange-soft);padding:3px 8px;border-radius:4px'+dimC4+'"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--orange)"></span><span style="font-family:Oswald;font-size:12px;color:var(--orange);font-weight:700">C4</span><span style="font-family:monospace;font-size:14px;font-weight:800;color:var(--orange);margin-left:4px">'+_fmt(addC4)+'</span><span style="font-size:9px;color:var(--ink-2)">m³</span></div>'+
+        '<div style="display:flex;align-items:center;gap:4px;background:var(--blue-soft);padding:3px 8px;border-radius:4px'+dimC3+'"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--blue)"></span><span style="font-family:Oswald;font-size:12px;color:var(--blue);font-weight:700">C3</span><span style="font-family:monospace;font-size:14px;font-weight:800;color:var(--blue);margin-left:4px">'+_fmt(addC3)+'</span><span style="font-size:9px;color:var(--ink-2)">m³</span></div>'+
         '<div style="display:flex;align-items:center;gap:4px;padding:3px 8px"><span style="font-family:Oswald;font-size:12px;color:var(--red);font-weight:700">LPG</span><span style="font-family:monospace;font-size:14px;font-weight:800;color:var(--red);margin-left:4px">'+_fmt(wC3 + wC4)+'</span><span style="font-size:9px;color:var(--ink-2)">ton</span></div>'+
       '</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px">'+
-        '<div style="background:var(--panel);border-radius:6px;padding:8px 12px;border:2.5px dashed '+col1+';display:flex;align-items:center;justify-content:space-between">'+
-          '<div style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+col1+'"></span><span style="font-family:Oswald;font-size:13px;letter-spacing:1.5px;color:var(--ink-2);font-weight:600">STOP '+first+'</span></div>'+
+        '<div style="background:var(--panel);border-radius:6px;padding:8px 12px;border:2.5px dashed '+col1+';display:flex;align-items:center;justify-content:space-between'+dim1+'">'+
+          '<div style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+col1+'"></span><span style="font-family:Oswald;font-size:13px;letter-spacing:1.5px;color:var(--ink-2);font-weight:600">STOP '+first+tag1+'</span></div>'+
           '<div style="display:flex;align-items:baseline;gap:6px"><span style="font-family:monospace;font-size:28px;font-weight:800;color:'+col1+'">'+_fmt(vAfter1,1)+'</span><span style="font-size:15px;color:var(--ink-2);font-weight:600">m³</span><span style="font-family:monospace;font-size:18px;font-weight:700;color:'+col1+';opacity:.6">'+_fmt(lvl1,0)+'</span><span style="font-size:12px;color:var(--ink-2)">mm</span></div>'+
         '</div>'+
-        '<div style="background:var(--panel);border-radius:6px;padding:8px 12px;border:2.5px dashed '+col2+';display:flex;align-items:center;justify-content:space-between">'+
-          '<div style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+col2+'"></span><span style="font-family:Oswald;font-size:13px;letter-spacing:1.5px;color:var(--ink-2);font-weight:600">STOP '+second+'</span></div>'+
+        '<div style="background:var(--panel);border-radius:6px;padding:8px 12px;border:2.5px dashed '+col2+';display:flex;align-items:center;justify-content:space-between'+dim2+'">'+
+          '<div style="display:flex;align-items:center;gap:5px"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:'+col2+'"></span><span style="font-family:Oswald;font-size:13px;letter-spacing:1.5px;color:var(--ink-2);font-weight:600">STOP '+second+tag2+'</span></div>'+
           '<div style="display:flex;align-items:baseline;gap:6px"><span style="font-family:monospace;font-size:28px;font-weight:800;color:'+col2+'">'+_fmt(vAfter2,1)+'</span><span style="font-size:15px;color:var(--ink-2);font-weight:600">m³</span><span style="font-family:monospace;font-size:18px;font-weight:700;color:'+col2+';opacity:.6">'+_fmt(lvl2,0)+'</span><span style="font-size:12px;color:var(--ink-2)">mm</span></div>'+
         '</div>'+
-      '</div>'+ lpHTML;
+      '</div>'+ owHTML + lpHTML;
     resEl.classList.add('on');
     /* Tank height hint (only update when in MANUAL mode — AUTO already shows "← TK-... Lot ...") */
     if(CR_MODE[n] !== 'auto'){
@@ -704,7 +885,7 @@ const MC = (function(){
       const tr = _gnum('mc-tr'+n);
       const cr = _gnum('mc-cr'+n);
       const resEl = _gid('mc-r'+n);
-      if(iv > 0 && tv > 0 && tr > 0 && cr > 0){
+      if(iv > 0 && (tv > 0 || FILL[n]) && tr > 0 && cr > 0){
         if(ST[n] === 'idle'){ ST[n] = 'calc'; _renderStatus(n); }
         if(ST[n] === 'mixing') return;
         _calcSilent = true;
@@ -752,6 +933,7 @@ const MC = (function(){
     const sptEl = _gid('mc-sptr'+n);   if(sptEl) sptEl.value = '';
     _updateTrLabel(n);
     PC[n] = false; _gid('mc-pc'+n)?.classList.remove('on'); _gid('mc-pc-box'+n)?.classList.remove('on');
+    _setFill(n, null);   /* v4.72: tắt chế độ chỉ bơm 1 sản phẩm */
     MIXING_LOT[n] = 0;
     GCR[n] = null;
     updateLotNames();
@@ -766,7 +948,8 @@ const MC = (function(){
       iv: _gv('mc-iv'+n), tv: _gv('mc-tv'+n),
       tr: _gv('mc-tr'+n), cr: _gv('mc-cr'+n),
       sd: _gv('mc-sd'+n), st: _gv('mc-s'+n),
-      lp: LP[n], sp: SP[n], pc: PC[n], ord: ORD[n],
+      lp: LP[n], sp: SP[n], pc: PC[n], ord: ORD[n], fill: FILL[n] || '',
+      fcirc: FILL_CIRC[n], fcpipe: _gv('mc-fcpipe'+n),   /* v4.74 */
       vpipe: _gv('mc-vpipe'+n), spvpipe: _gv('mc-spvpipe'+n), prec3: _gv('mc-prec3'+n),
       crMode: CR_MODE[n],
       by: (typeof CURRENT_USER !== 'undefined' ? CURRENT_USER.name : ''),
@@ -813,6 +996,11 @@ const MC = (function(){
         if(v.lp){ LP[n] = true; _gid('mc-lp'+n)?.classList.add('on'); _gid('mc-lp-box'+n)?.classList.add('on'); }
         if(v.sp){ SP[n] = true; _gid('mc-sp'+n)?.classList.add('on'); _gid('mc-sp-box'+n)?.classList.add('on'); _updateTrLabel(n); }
         if(v.pc){ PC[n] = true; _gid('mc-pc'+n)?.classList.add('on'); _gid('mc-pc-box'+n)?.classList.add('on'); }
+        if(v.fill === 'C3' || v.fill === 'C4'){
+          FILL_CIRC[n] = (v.fcirc !== false);                          /* v4.74 */
+          if(v.fcpipe){ const e = _gid('mc-fcpipe'+n); if(e) e.value = v.fcpipe; }
+          _setFill(n, v.fill);                                          /* v4.72 */
+        }
         if(v.vpipe){ const e = _gid('mc-vpipe'+n); if(e) e.value = v.vpipe; }
         if(v.spvpipe){ const e = _gid('mc-spvpipe'+n); if(e) e.value = v.spvpipe; }
         if(v.prec3){ const e = _gid('mc-prec3'+n); if(e) e.value = v.prec3; }
@@ -1569,12 +1757,12 @@ const MC = (function(){
         coq = _parseCoqWorkbook(wb);
       }catch(err){
         console.warn('[MC] COQ parse', err);
-        toast('❌ Không đọc được file COQ: '+err.message,'er');
+        toast('❌ Cannot read COQ file: '+err.message,'er');
         return;
       }
       _applyCoq(n, coq, f.name);
     };
-    reader.onerror = ()=> toast('❌ Không đọc được file','er');
+    reader.onerror = ()=> toast('❌ Cannot read file','er');
     reader.readAsArrayBuffer(f);
   }
 
@@ -1588,7 +1776,7 @@ const MC = (function(){
     const coqLot = _parseLotNum(coq.lot);
     const curNum = parseInt(_gv('mc-l'+n)) || 0;
     if(!curNum){
-      alert('⚠ TK-'+tk+' CHƯA CÓ LOT ĐANG MIX\n\nCOQ: '+coq.lot+'\n\nNhập số Lot / bấm ▶START trước rồi import lại.');
+      alert('⚠ TK-'+tk+' HAS NO MIXING LOT\n\nCOQ: '+coq.lot+'\n\nEnter the Lot number / press ▶START first, then import again.');
       return;
     }
     const curYear = new Date().getFullYear();
@@ -1942,6 +2130,7 @@ const MC = (function(){
     init, refresh,
     activate, calcOne, autoCalc, resetCalc,
     toggleOrder, toggleLP, toggleSP, togglePC, toggleCrMode,
+    fillCircChange,   /* v4.74 — checkbox tuần hoàn về trạm (CHỈ BƠM) */
     modeClick, modeDbl,   /* v4.67 — double-click guard for mode buttons */
     spPlanOpen, spPlanClose, spPlanCalc, spPlanApply,   /* v4.69 — special-ratio mix planner modal */
     startClick, startDblClick, finishMix,

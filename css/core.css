@@ -2050,6 +2050,21 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 /* v4.67 — Special-Ratio sub-box (mix tỉ lệ đặc biệt) — green/emerald theme */
 .mc-btn.mc-btn-sp.on{background:#047857;border-color:#065f46;color:#fff;font-weight:800;
   animation:mcModePulse 1.4s infinite;}
+
+/* v4.72 — CHỈ BƠM C3 / CHỈ BƠM C4 (TARGET VOL tự tính) */
+.mc-btn.mc-btn-fc4.on{background:#ea580c;border-color:#c2410c;color:#fff;font-weight:800;
+  animation:mcModePulse 1.4s infinite;}
+.mc-btn.mc-btn-fc3.on{background:#1d4ed8;border-color:#1e40af;color:#fff;font-weight:800;
+  animation:mcModePulse 1.4s infinite;}
+/* v4.74 — sub-box tuần hoàn về trạm cho chế độ CHỈ BƠM */
+.mc-fc-box{display:none;margin-top:6px;padding:6px 10px;background:#eff6ff;
+  border:1.5px solid #93c5fd;border-radius:6px;}
+.mc-fc-box.on{display:block;}
+.mc-fc-ttl{font-family:'Oswald',sans-serif;font-size:10px;letter-spacing:1px;
+  color:#1d4ed8;font-weight:700;white-space:nowrap;}
+.mc-fc-circ{display:flex;align-items:center;gap:4px;font-size:11px;color:#1e40af;
+  font-weight:600;cursor:pointer;white-space:nowrap;}
+.mc-fc-circ input[type=checkbox]{accent-color:#1d4ed8;width:14px;height:14px;cursor:pointer;}
 .mc-sp-box{display:none;margin-top:6px;padding:6px 10px;background:#ecfdf5;
   border:1.5px solid #6ee7b7;border-radius:6px;}
 .mc-sp-box.on{display:block;}

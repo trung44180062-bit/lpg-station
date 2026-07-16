@@ -630,7 +630,10 @@ const INV = (function(){
         if(!_isExport(r)) return;                 // ⬅ EXPORT customers only (skip domestic)
         const lpg=num(r.lpgQty);
         if(lpg<=0) return;
-        rows.push({ doNo:String(r.doNo||'—'), cust:String(r.cust||''), lpg, c3:lpg*pctC3, c4:lpg*(1-pctC3), sel:true });
+        /* round C3 per truck (kg) like Excel/WMS; C4 = LPG − C3 so each row and
+           the grand totals stay consistent (Σ rounded rows, no re-rounding drift) */
+        const c3=Math.round(lpg*pctC3);
+        rows.push({ doNo:String(r.doNo||'—'), cust:String(r.cust||''), lpg, c3, c4:lpg-c3, sel:true });
       });
     }
     rows.sort((a,b)=>String(a.doNo).localeCompare(String(b.doNo),undefined,{numeric:true}));
