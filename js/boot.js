@@ -97,6 +97,7 @@ document.addEventListener('DOMContentLoaded', function () {
             step('P4 · MTHR (Monthly)', () => MTHR.init());
             step('P4 · STAFF',          () => STAFF.init());
             step('P4 · SCX2 (Console)', () => SCX2.init());
+            step('P4 · ALLOC (Allocation)', () => ALLOC.init());
             step('P4 · Fleet subs',     () => { buildFleetSubs(); switchFleetTab('tanklorry'); });
             const total = (performance.now() - _tBoot).toFixed(0);
             console.log('[BOOT] ✅ all modules ready · total ' + total + 'ms');

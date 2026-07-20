@@ -2807,6 +2807,9 @@ function switchSalesTab(t){
   if(t==='cust' && CT.table){ setTimeout(()=>{ try{ CT.table.redraw(true); }catch(_){ } }, 50); }
   if(t==='price' && PP.table){ setTimeout(()=>{ try{ PP.table.redraw(true); }catch(_){ } }, 50); }
   if(t==='vs'){ try{ if(typeof vsRender==='function') vsRender(); }catch(_){ } }
+  /* v4.68 — Allocation planner: dựng/tính lại mỗi lần mở tab vì nó đọc
+     SP.ROWS + ENG.ROWS trực tiếp (không có listener riêng cho hai nguồn này). */
+  if(t==='alloc'){ try{ ALLOC.refresh(); }catch(e){ console.warn('[ALLOC] open tab', e); } }
 }
 
 /* live search wiring */

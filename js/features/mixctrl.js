@@ -382,6 +382,7 @@ const MC = (function(){
     LP[n] = !LP[n];
     if(LP[n] && PC[n]){ PC[n] = false; _gid('mc-pc'+n)?.classList.remove('on'); _gid('mc-pc-box'+n)?.classList.remove('on'); }
     if(LP[n] && SP[n]){ SP[n] = false; _gid('mc-sp'+n)?.classList.remove('on'); _gid('mc-sp-box'+n)?.classList.remove('on'); }
+    if(LP[n] && FILL[n]){ _setFill(n, null); }   /* v4.77: mode exclusivity */
     _gid('mc-lp'+n)?.classList.toggle('on', LP[n]);
     _gid('mc-lp-box'+n)?.classList.toggle('on', LP[n]);
     autoCalc(n);
@@ -393,6 +394,12 @@ const MC = (function(){
   function _updateTrLabel(n){
     const lbl = _gid('mc-trlbl'+n);
     if(!lbl) return;
+    /* v4.77 — FILL mode with circulation: input is also the FINAL after circulate */
+    if(FILL[n] && FILL_CIRC[n]){
+      lbl.innerHTML = 'FINAL TARGET C3 % <span style="color:#1d4ed8;font-weight:800">(AFTER CIRCULATE)</span>';
+      lbl.title = 'Desired FINAL C3 % — AFTER pipe circulation (FILL '+FILL[n]+' ONLY). The software solves TARGET VOL and the in-tank blend automatically.';
+      return;
+    }
     if(SP[n]){
       lbl.innerHTML = 'FINAL TARGET C3 % <span style="color:#047857;font-weight:800">(AFTER CIRCULATE)</span>';
       lbl.title = 'Desired FINAL C3 % — AFTER pipe circulation. The software back-solves the Blend target C3 (before circulate) shown below.';
@@ -540,10 +547,12 @@ const MC = (function(){
     autoCalc(n);
   }
 
-  /* v4.67 — SPECIAL RATIO toggle (exclusive with LOW PRESSURE) */
+  /* v4.67 — SPECIAL RATIO toggle (exclusive with LOW PRESSURE)
+     v4.77 — also exclusive with FILL C3/C4 ONLY */
   function toggleSP(n){
     SP[n] = !SP[n];
     if(SP[n] && LP[n]){ LP[n] = false; _gid('mc-lp'+n)?.classList.remove('on'); _gid('mc-lp-box'+n)?.classList.remove('on'); }
+    if(SP[n] && FILL[n]){ _setFill(n, null); }   /* v4.77: mode exclusivity */
     _gid('mc-sp'+n)?.classList.toggle('on', SP[n]);
     _gid('mc-sp-box'+n)?.classList.toggle('on', SP[n]);
     _updateTrLabel(n);
@@ -559,13 +568,13 @@ const MC = (function(){
     autoCalc(n);
   }
 
-  /* ── v4.72 — CHỈ BƠM C3 / CHỈ BƠM C4 ─────────────────────────────
-     Bật một trong hai: nhập INIT VOL + %C3 hiện tại + TARGET C3 %
-     (FINAL nếu SPECIAL RATIO) — TARGET VOL phần mềm TỰ TÍNH:
-       C4-only: tvEff = (iC3 + crC3·Vp)/s − Vp   (không SP: iC3/tr)
-       C3-only: tvEff = (iC4 + Vp·(s−crC3))/(1−s) (không SP: iC4/(1−tr))
-     Hai nút loại trừ lẫn nhau; loại trừ RECEIVE C3; dùng được cùng
-     SPECIAL RATIO (tuần hoàn ống) và LOW PRESSURE. */
+  /* ── v4.72/v4.77 — FILL C3 ONLY / FILL C4 ONLY ────────────────────
+     Mode NGANG HÀNG và LOẠI TRỪ với LOW PRESSURE / SPECIAL RATIO /
+     RECEIVE C3 (chỉ chọn được 1 kiểu mix — hết trùng lặp tuần hoàn).
+     Nhập INIT VOL + %C3 hiện tại + TARGET C3 % — TARGET VOL TỰ TÍNH.
+     Tự có tuần hoàn riêng (mặc định BẬT, pipe tỉ lệ cũ):
+       C4-only: tvEff = (iC3 + crC3·Vp)/s − Vp   (không circ: iC3/tr)
+       C3-only: tvEff = (iC4 + Vp·(s−crC3))/(1−s) (không circ: iC4/(1−tr)) */
   function _setFill(n, kind){
     FILL[n] = kind;
     _gid('mc-fc3'+n)?.classList.toggle('on', kind === 'C3');
@@ -580,11 +589,13 @@ const MC = (function(){
       tvEl.title = kind ? 'TARGET VOL auto-calculated (FILL '+kind+' ONLY mode)' : '';
       if(kind) tvEl.placeholder = 'AUTO';
     }
+    _updateTrLabel(n);   /* v4.77: label theo mode FILL */
   }
   /* v4.74 — checkbox tuần hoàn về trạm thay đổi */
   function fillCircChange(n){
     const ck = _gid('mc-fccirc'+n);
     FILL_CIRC[n] = ck ? !!ck.checked : true;
+    _updateTrLabel(n);   /* v4.77 */
     toast(FILL_CIRC[n]
       ? '🔁 TK-'+(n==='1'?'3501':'3502')+': fill WITH pipe circulation (old ratio in pipeline)'
       : 'TK-'+(n==='1'?'3501':'3502')+': fill WITHOUT circulation — target reached in-tank','warn');
@@ -592,7 +603,12 @@ const MC = (function(){
   }
   function toggleFill(n, kind){
     const next = FILL[n] === kind ? null : kind;
-    if(next && PC[n]){ PC[n] = false; _gid('mc-pc'+n)?.classList.remove('on'); _gid('mc-pc-box'+n)?.classList.remove('on'); }
+    /* v4.77 — FILL is a peer mix mode: turning it on turns OFF every other mode */
+    if(next){
+      if(PC[n]){ PC[n] = false; _gid('mc-pc'+n)?.classList.remove('on'); _gid('mc-pc-box'+n)?.classList.remove('on'); }
+      if(LP[n]){ LP[n] = false; _gid('mc-lp'+n)?.classList.remove('on'); _gid('mc-lp-box'+n)?.classList.remove('on'); }
+      if(SP[n]){ SP[n] = false; _gid('mc-sp'+n)?.classList.remove('on'); _gid('mc-sp-box'+n)?.classList.remove('on'); _updateTrLabel(n); }
+    }
     _setFill(n, next);
     if(next) toast('⬆ TK-'+(n==='1'?'3501':'3502')+': FILL '+next+' ONLY — enter INIT VOL + TARGET C3 %, TARGET VOL will be auto-calculated','warn');
     else toast('TK-'+(n==='1'?'3501':'3502')+': single-product fill mode OFF','ok');
@@ -659,17 +675,18 @@ const MC = (function(){
     let tvEff = tv, owHTML = '';
     /* v4.75 — sản phẩm KHÔNG bơm (fill = 0) sẽ bị làm mờ trong kết quả */
     let owDim = null;   /* 'C3' | 'C4' | null */
-    /* ══ v4.72 — CHỈ BƠM C3 / CHỈ BƠM C4 (TARGET VOL tự tính) ══════════
-       v4.74: MẶC ĐỊNH tính tuần hoàn về trạm — pipeline chứa hàng TỈ LỆ CŨ
-       (crC3) quay về tank như SPECIAL RATIO. Bỏ tick "Tuần hoàn về trạm"
-       thì target đạt ngay trong tank (vpF = 0). */
+    /* v4.77 — fill-mode FINAL/blend cho header (khi có tuần hoàn riêng) */
+    let fmFin = null, fmVp = 0;
+    /* ══ v4.72/v4.77 — FILL C3 ONLY / FILL C4 ONLY (TARGET VOL auto) ═══
+       Mode NGANG HÀNG, loại trừ LOW PRESSURE / SPECIAL RATIO / RECEIVE C3
+       → chỉ còn MỘT tuyến pipe tuần hoàn duy nhất (mc-fcpipe, checkbox
+       Circulate back mặc định BẬT, pipe chứa hàng tỉ lệ cũ crC3).
+       Target C3 % nhập = FINAL sau tuần hoàn (nếu circ bật). */
     if(fm){
-      const sFin  = (SP[n] && spVPipe > 0) ? spDesired : trC3;
+      const sFin  = trC3;                    /* SP không thể bật cùng — input là final */
       const onlyC4 = (fm === 'C4');
-      let vpF = 0;
-      if(FILL_CIRC[n]){
-        vpF = (SP[n] && spVPipe > 0) ? spVPipe : (_gnum('mc-fcpipe'+n) || 0);
-      }
+      const vpF = FILL_CIRC[n] ? (_gnum('mc-fcpipe'+n) || 0) : 0;
+      fmFin = sFin; fmVp = vpF;
       if(onlyC4){
         tvEff = vpF > 0
           ? (iC3 + crC3*vpF) / sFin - vpF
@@ -696,11 +713,9 @@ const MC = (function(){
       }
       aC3 = Math.max(0, aC3); aC4 = Math.max(0, aC4);
       owDim = onlyC4 ? 'C3' : 'C4';   /* v4.75: mờ sản phẩm không bơm */
-      /* tự điền TARGET VOL + blend target */
+      /* tự điền TARGET VOL; trC3 = blend thực trong tank (trước tuần hoàn) */
       const tvEl = _gid('mc-tv'+n); if(tvEl) tvEl.value = tvEff.toFixed(1);
       trC3 = (iC3 + aC3) / tvEff;
-      const trEl3 = _gid('mc-sptr'+n);
-      if(trEl3 && SP[n] && spVPipe > 0) trEl3.value = (trC3*100).toFixed(2);
       const fCol = onlyC4 ? '#c2410c' : '#1d4ed8';
       const fBg  = onlyC4 ? '#fff7ed' : '#eff6ff';
       const fBd  = onlyC4 ? '#fdba74' : '#93c5fd';
@@ -837,8 +852,10 @@ const MC = (function(){
       '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;margin-bottom:4px;border-bottom:1.5px solid rgba(0,0,0,.08);flex-wrap:wrap;gap:4px">'+
         '<span style="font-family:Oswald;font-size:14px;letter-spacing:1px;color:var(--ink-2)">'+
           ((SP[n] && spVPipe > 0)
-            ? 'FINAL <span style="font-weight:700;color:var(--blue)">C3 '+(spDesired*100).toFixed(0)+'%</span> · <span style="font-weight:700;color:var(--orange)">C4 '+((1-spDesired)*100).toFixed(0)+'%</span> <span style="font-size:11px;color:#047857;font-weight:700">★ mix trong tank tới C3 '+(trC3*100).toFixed(2)+'%</span>'
-            : 'TARGET <span style="font-weight:700;color:var(--blue)">C3 '+(trC3*100).toFixed(0)+'%</span> · <span style="font-weight:700;color:var(--orange)">C4 '+((1-trC3)*100).toFixed(0)+'%</span>')+
+            ? 'FINAL <span style="font-weight:700;color:var(--blue)">C3 '+(spDesired*100).toFixed(0)+'%</span> · <span style="font-weight:700;color:var(--orange)">C4 '+((1-spDesired)*100).toFixed(0)+'%</span> <span style="font-size:11px;color:#047857;font-weight:700">★ mix in tank to C3 '+(trC3*100).toFixed(2)+'%</span>'
+            : (fm && fmVp > 0 && fmFin != null
+              ? 'FINAL <span style="font-weight:700;color:var(--blue)">C3 '+(fmFin*100).toFixed(0)+'%</span> · <span style="font-weight:700;color:var(--orange)">C4 '+((1-fmFin)*100).toFixed(0)+'%</span> <span style="font-size:11px;color:#1d4ed8;font-weight:700">⬆ blend in tank C3 '+(trC3*100).toFixed(2)+'% · after circulate '+(fmFin*100).toFixed(2)+'%</span>'
+              : 'TARGET <span style="font-weight:700;color:var(--blue)">C3 '+(trC3*100).toFixed(0)+'%</span> · <span style="font-weight:700;color:var(--orange)">C4 '+((1-trC3)*100).toFixed(0)+'%</span>'))+
         '</span>'+
         '<span style="display:flex;align-items:center;gap:8px">'+
           '<span style="font-family:monospace;font-size:15px;font-weight:700">'+_fmt(tvEff,0)+' m³'+(fm?' <span style="font-size:10px;color:#047857">(AUTO)</span>':(Math.abs(tvEff-tv)>0.05?' <span style="font-size:10px;color:#c2410c">(input '+_fmt(tv,0)+')</span>':''))+'</span>'+

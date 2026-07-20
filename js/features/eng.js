@@ -36,8 +36,16 @@ const ENG = (function(){
      v4.55.1: +9 → 53: [44] Pro/Bu %Vol  [45] Pro/Bu %Wt  [46] t-2-Butene
      [47] 1-Butene  [48] i-Butene  [49] neo-Pentane  [50] i-Pentane
      [51] n-Pentane  [52] n-Hexane.
+     v4.68: +3 → 56 cho Stock Transfer (đồng bộ chuyển kho WMS):
+       [53] ST flag ('1' = đã chuyển kho trên WMS, '' = chưa)
+       [54] ST timestamp (ms)  [55] ST user (email/uid rút gọn).
+     Ý nghĩa nghiệp vụ: lot ĐÃ tick = SAP/WMS đã ghi nhận bút toán chuyển
+     kho 1100→2100/2101 nên đã nằm trong End Stock của SAP. Lot CHƯA tick =
+     đã pha trộn thực tế nhưng hệ thống chưa chuyển kho → ALLOC phải cộng
+     thêm vào bồn (và trừ khỏi hầm 1100) khi dự báo tồn.
      Old shorter rows load fine (missing cells default ''). */
-  const ROW_W = 53;
+  const ROW_W = 56;
+  const C_ST = 53, C_ST_TS = 54, C_ST_BY = 55;
 
   /* ROWS — display-ordered array of 34-col row arrays. Each row also
      carries a non-enumerable `_rid` (base36 random) used as Firebase key.
@@ -276,6 +284,13 @@ const ENG = (function(){
         '<td class="td-r td-fill-c3">'+_fmtNum(c[13],3)+'</td>' +
         '<td class="td-r td-fill-c4">'+_fmtNum(c[14],3)+'</td>' +
         '<td class="td-r td-fill-lpg">'+_fmtNum(c[15],3)+'</td>' +
+        '<td class="td-c td-st" onclick="event.stopPropagation();ENG.toggleST('+realIdx+')" title="'+
+            (String(c[C_ST])==='1'
+               ? 'Đã stock transfer trên WMS'+(c[C_ST_TS]?' · '+_stWhen(c[C_ST_TS]):'')+(c[C_ST_BY]?' · '+_esc(c[C_ST_BY]):'')
+               : 'CHƯA chuyển kho — lot này đang được ALLOC cộng thêm vào bồn')+'">' +
+          (String(c[C_ST])==='1'
+             ? '<span class="eng-st eng-st-on">✔</span>'
+             : '<span class="eng-st eng-st-off">○</span>') + '</td>' +
         '<td class="td-r">'+_fmtNum(c[6],3)+'</td>' +
         '<td class="td-r" style="font-weight:700;color:var(--green)">'+_fmtNum(c[7],2)+'</td>' +
         '<td class="td-r td-c3" style="font-weight:600">'+_fmtPct(c[8])+'</td>' +
@@ -461,6 +476,13 @@ const ENG = (function(){
         if(k !== '|') lotTankToRid[k] = rid;
         add++;
       }
+      /* v4.68 — paste không mang cột ST, nên giữ lại cờ cũ của row bị ghi đè */
+      const prev = RID_MAP[rid];
+      if(prev && (raw.length <= C_ST || raw[C_ST] === undefined)){
+        cells[C_ST]    = prev[C_ST]    || '';
+        cells[C_ST_TS] = prev[C_ST_TS] || '';
+        cells[C_ST_BY] = prev[C_ST_BY] || '';
+      }
       _setRowLocal(rid, cells);
       fbUpdates[rid] = cells.slice(0, ROW_W);
     });
@@ -552,6 +574,13 @@ const ENG = (function(){
       }
     }
     if(!rid) rid = _genRid();
+    /* v4.68 — GIỮ cờ Stock Transfer khi caller không gửi kèm.
+       MC (Mix Calc) và paste dựng mảng 53 ô theo schema cũ; nếu không chặn thì
+       mỗi lần SAVE lại lot sẽ xoá mất cờ ST đã tick, khiến ALLOC cộng trùng. */
+    if(cells.length <= C_ST || cells[C_ST] === undefined){
+      const prev = RID_MAP[rid];
+      if(prev){ safe[C_ST] = prev[C_ST]||''; safe[C_ST_TS] = prev[C_ST_TS]||''; safe[C_ST_BY] = prev[C_ST_BY]||''; }
+    }
     _setRowLocal(rid, safe);
     _saveCache();
     _pushRowFb(rid, safe);
@@ -562,6 +591,76 @@ const ENG = (function(){
   /* findRowByLotTank(lot, tank) — RAM-only lookup. lot can be "173" or
      "LPG-2026-173"; tank can be "TK-3501" or "3501". Returns the row
      array (with _rid) or null. */
+  /* ---------- v4.68 · STOCK TRANSFER flag (cột 53/54/55) ----------
+     Nguồn sự thật của ALLOC: lot CHƯA tick = chưa chuyển kho trên WMS →
+     tồn SAP của bồn chưa có phần này. Tick tay ở Tank Log, hoặc tự động
+     khi nhân viên cân ấn ✅ Confirm ở Mix Notify (MIXNOTIFY.confirm). */
+  function _stWhen(ts){
+    const n = parseInt(ts); if(!n || isNaN(n)) return '';
+    const d = new Date(n), p = v=>String(v).padStart(2,'0');
+    return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+String(d.getFullYear()).slice(-2)+' '+p(d.getHours())+':'+p(d.getMinutes());
+  }
+  function _stWho(){
+    try{
+      const u = (typeof CURRENT_USER !== 'undefined' && CURRENT_USER) ? CURRENT_USER : null;
+      const s = u ? (u.name || u.email || u.uid || '') : '';
+      return String(s).split('@')[0].slice(0, 24);
+    }catch(_){ return ''; }
+  }
+  /* Ghi cờ ST lên 1 row (đã có sẵn object row). Trả về true nếu có thay đổi. */
+  function _applyST(row, on, who){
+    if(!row) return false;
+    const want = on ? '1' : '';
+    if(String(row[C_ST]||'') === want) return false;
+    row[C_ST]    = want;
+    row[C_ST_TS] = on ? String(Date.now()) : '';
+    row[C_ST_BY] = on ? String(who != null ? who : _stWho()) : '';
+    _pushRowFb(row._rid, row);
+    _saveCache();
+    return true;
+  }
+  /* Tick/bỏ tick thủ công từ bảng Tank Log */
+  function toggleST(idx){
+    const row = ROWS[idx]; if(!row) return;
+    if(typeof canWrite === 'function' && !canWrite('eng_tkmix')){
+      if(typeof toast==='function') toast('Không có quyền sửa Tank Log','er'); return;
+    }
+    const on = String(row[C_ST]||'') !== '1';
+    _applyST(row, on);
+    render();
+    try{ if(window.ALLOC && ALLOC.refresh) ALLOC.refresh(); }catch(_){}
+    if(typeof toast==='function'){
+      toast(on ? '✔ Lot '+String(row[1]||'')+' · đã stock transfer'
+               : '○ Lot '+String(row[1]||'')+' · bỏ đánh dấu stock transfer', on?'ok':'warn');
+    }
+    try{ logAudit('eng:tank_log:stock_transfer', row._rid, 'stockTransfer', on?'':'1', on?'1':'', 'toggle'); }catch(_){}
+  }
+  /* Gọi từ MIXNOTIFY khi nhân viên cân xác nhận mixing notify.
+     Trả về true nếu tìm được lot và đã set cờ. */
+  function setStockTransfer(lot, tank, on, who){
+    const row = findRowByLotTank(lot, tank);
+    if(!row){
+      /* v4.62 lazy-load: chỉ 10 lot mới nhất nằm trong RAM. Lot cũ hơn thì
+         kéo toàn bộ Tank Log về rồi thử lại đúng 1 lần. */
+      if(!_allLoaded){
+        loadAll(()=>{ try{ setStockTransfer(lot, tank, on, who); }catch(_){} });
+        return true;
+      }
+      console.warn('[ENG] setStockTransfer: không tìm thấy lot', lot, tank);
+      return false;
+    }
+    const changed = _applyST(row, on !== false, who);
+    if(changed){
+      render();
+      try{ if(window.ALLOC && ALLOC.refresh) ALLOC.refresh(); }catch(_){}
+    }
+    return true;
+  }
+  /* Danh sách lot CHƯA chuyển kho — ALLOC dùng để cộng thêm vào bồn. */
+  function pendingTransfers(){
+    return ROWS.filter(r => String(r[C_ST]||'') !== '1');
+  }
+
   function findRowByLotTank(lot, tank){
     const lotStr = String(lot||'').trim();
     const m1 = lotStr.match(/(\d+)\s*$/);
@@ -1097,7 +1196,8 @@ const ENG = (function(){
       'InitVol','I.%C3','I.%C4','FilledC3','FilledC4','FilledLPG','CH4','C2H6','C3H8','i-C4','n-C4','1.3-BD',
       'C5+','Olefin','(24)','(25)','Odorant','Quality','Remark','TargetC3%','TargetVol','Temp','Pres','Density',
       'COQNo','SampTime','AnalysisDate','C3H6','VP','Sulfur','FreeWater','CuCorr','Residue','MW',
-      'ProBu%Vol','ProBu%Wt','t2Butene','1Butene','iButene','neoPentane','iPentane','nPentane','nHexane'];
+      'ProBu%Vol','ProBu%Wt','t2Butene','1Butene','iButene','neoPentane','iPentane','nPentane','nHexane',
+      'StockTransfer','ST_Time','ST_By'];   /* v4.68 — 3 cột cuối khớp ROW_W=56 */
     const csvLines = [headers.join(',')];
     /* v4.63 — export theo thứ tự lot MỚI NHẤT → CŨ NHẤT (khớp bảng) */
     const ordered = ROWS.slice().sort((a,b)=> _lotKey(b[1]) - _lotKey(a[1]));
@@ -1307,6 +1407,9 @@ const ENG = (function(){
     _timeMask: _editTimeMask, _dateMask: _editDateMask,
     toggleLotSort, exportXlsx,
     upsertRow, findRowByLotTank,
+    /* v4.68 — Stock Transfer (đồng bộ chuyển kho WMS) */
+    toggleST, setStockTransfer, pendingTransfers,
+    ST_COL: C_ST, ST_TS_COL: C_ST_TS, ST_BY_COL: C_ST_BY,
     loadAll,                          /* v4.62 — fetch full Tank Log on demand */
     get allLoaded(){ return _allLoaded; },
     get ROWS(){ return ROWS; }

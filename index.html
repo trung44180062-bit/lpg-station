@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
+<link rel="stylesheet" href="css/alloc.css?v=468"><!-- Allocation planner (LPG Sales) — link ACTIVE -->
 <!-- P1: toàn bộ app CSS đang tạm gom trong core.css (an toàn cascade).
      Tách mịn 8 file (plan/fleet/scale/cavern/report/engineer/inventory) là bước tuỳ chọn sau.
      Xem docs/PROGRESS.md. Khi tách xong thì bỏ comment các dòng dưới:
@@ -109,6 +110,7 @@
         <button class="stab" data-sub="cust" onclick="switchSalesTab('cust')">👥 CUST<span class="stab-badge" id="ctBadgeCount">0</span></button>
         <button class="stab" data-sub="price" onclick="switchSalesTab('price')">💲 PRICE<span class="stab-badge" id="ppBadgeCount" style="background:#b45309">0</span></button>
         <button class="stab" data-sub="vs" onclick="switchSalesTab('vs')">🚢 VESSEL<span class="stab-badge" id="badge-vessel" style="background:#0077b6">0</span></button>
+        <button class="stab" data-sub="alloc" onclick="switchSalesTab('alloc')">🎯 ALLOCATION<span class="stab-badge" id="alBadgeCount" style="background:#1f9d55">0</span></button>
       </div>
     </div>
 
@@ -1351,6 +1353,9 @@
         </div>
       </div>
     </div>
+
+    <!-- ALLOCATION sub-pane (v4.68) — nội dung dựng hoàn toàn bằng ALLOC.render() -->
+    <div class="sub-pane" id="sub-alloc"></div>
   </section>
 
   <!-- ============================================================
@@ -1580,6 +1585,7 @@
             <th style="width:66px;color:var(--blue);background:#e8f4fd">Filled C3</th>
             <th style="width:66px;color:var(--orange);background:#fff5eb">Filled C4</th>
             <th style="width:66px;color:var(--red);background:#fef0f1">Filled LPG</th>
+            <th style="width:38px;color:var(--green);background:#eef8f2" title="Đã stock transfer trên WMS. Lot chưa tick sẽ được Allocation cộng thêm vào bồn.">ST</th>
             <th style="width:56px">Vol (m³)</th>
             <th style="width:60px">Qty (ton)</th>
             <th style="width:44px;color:var(--blue)">%C3</th>
@@ -4038,7 +4044,7 @@
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>
 <script src="js/features/mthr.js"></script>
-<script src="js/features/inv.js"></script>
+<script src="js/features/inv.js?v=4.75"></script>
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
 <script src="js/features/plog.js"></script>
@@ -4049,6 +4055,7 @@
 <script src="js/features/cav.js"></script>
 <script src="js/features/vs.js"></script>
 <script src="js/features/scx2.js"></script>
+<script src="js/features/alloc.js?v=4681"></script>
 <!-- integrations -->
 <script src="js/integrations/ptt-early.js"></script>
 <script src="js/integrations/sync2.js"></script>

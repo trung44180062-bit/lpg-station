@@ -60,10 +60,32 @@ const MIXNOTIFY = (function(){
      is nothing left to keep, so we remove it → no residual data buildup on
      /mix_notify. The confirmed/cancelled filter in _onValue is kept so any
      legacy flagged records already on Firebase still stay hidden. */
+  /* v4.68 — CONFIRM = "đã chuyển kho trên WMS".
+     Nhân viên cân thao tác stock transfer trên WMS rồi mới ấn ✅ ở đây, nên
+     lúc confirm ta đánh dấu luôn cờ ST của đúng lot+tank trong Tank Log
+     (eng_tkmix cột 53). Từ thời điểm đó ALLOC thôi cộng lot này vào bồn vì
+     SAP/WMS đã ghi nhận. Ghi cờ TRƯỚC khi xoá node để còn đọc được lot/tank. */
   function confirm(pk){
     if(!_fbRef) return;
+    const item = PEND[pk] || null;
+    let stOk = false;
+    if(item){
+      try{
+        if(typeof ENG !== 'undefined' && ENG.setStockTransfer){
+          stOk = ENG.setStockTransfer(item.lot, item.tkName, true);
+        }
+      }catch(e){ console.warn('[MIXNOTIFY] setStockTransfer', e); }
+    }
     _fbRef.child(pk).remove()
-      .then(()=>{ try{ if(typeof toast==='function') toast('✓ Mix confirmed','ok'); }catch(_){} })
+      .then(()=>{
+        try{
+          if(typeof toast==='function'){
+            if(stOk) toast('✓ Mix confirmed · đã đánh dấu stock transfer lot '+String(item.lot||''),'ok');
+            else if(item) toast('✓ Mix confirmed · không tìm thấy lot '+String(item.lot||'')+' trong Tank Log để tick ST','warn');
+            else toast('✓ Mix confirmed','ok');
+          }
+        }catch(_){}
+      })
       .catch(e => { if(typeof fbErr==='function') fbErr(e,'Confirm mix'); else console.warn('[MIXNOTIFY] confirm', e); });
   }
 

@@ -1,0 +1,132 @@
+/* alloc.css — Tank Allocation Planner (v4.68)
+   Dùng token của core.css (--navy, --blue, --orange, --green, --red, --ink…).
+   Quy ước màu: batch D = cam (Domestic), batch E = xanh mòng két (Export),
+   C3 = xanh dương, C4 = cam đậm. */
+
+#sub-alloc{ overflow:auto; padding:8px 0; }
+.al-wrap{ display:flex; flex-direction:column; gap:10px; padding:0 10px 18px; }
+
+/* ---------- thanh công cụ ---------- */
+.al-bar{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+  padding:8px 12px; box-shadow:var(--sh0); }
+.al-bar-l{ display:flex; align-items:center; gap:8px; }
+.al-bar-r{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.al-bar-lbl{ font-size:11px; font-weight:700; letter-spacing:.4px; text-transform:uppercase; color:var(--ink-2); }
+.al-bar-hint{ font-size:11px; color:var(--ink-3); }
+.al-btn{ font-family:inherit; font-size:12px; font-weight:600; padding:6px 11px; border-radius:7px;
+  border:1px solid var(--line); background:var(--panel-2); color:var(--ink-2); cursor:pointer; transition:.14s; }
+.al-btn:hover{ background:#eef4fa; color:var(--ink); border-color:#c6d5e2; }
+.al-btn-p{ border-color:#bcd7f0; background:var(--blue-soft); color:var(--blue); }
+.al-btn-p:hover{ background:#d3e8fb; }
+.al-btn-d{ border-color:#f0c4bf; background:var(--red-soft); color:var(--red); }
+.al-btn-d:hover{ background:#fbdad6; }
+.al-sel{ font-family:inherit; font-size:12.5px; font-weight:600; padding:5px 8px; border-radius:7px;
+  border:1px solid var(--line); background:#fff; color:var(--ink); cursor:pointer; }
+.al-sel-s{ font-size:11.5px; font-weight:600; padding:3px 5px; width:100%; }
+.al-sel:focus{ outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgba(21,101,192,.12); }
+.al-bt-D{ color:var(--orange); } .al-bt-E{ color:#0f7c8c; }
+
+/* ---------- kết luận ---------- */
+.al-verdict{ display:flex; align-items:center; gap:10px; border-radius:var(--radius);
+  padding:9px 14px; font-size:12.5px; border:1px solid var(--line); background:var(--panel); }
+.al-verdict .dot{ width:9px; height:9px; border-radius:50%; flex:none; }
+.al-verdict b{ font-weight:700; }
+.al-verdict.ok{ border-color:#bfe3cc; background:var(--green-soft); color:#14683a; }
+.al-verdict.ok .dot{ background:var(--green); }
+.al-verdict.warn{ border-color:#f0dcae; background:var(--yellow-soft); color:#8a5b06; }
+.al-verdict.warn .dot{ background:var(--yellow); }
+.al-verdict.bad{ border-color:#f0c4bf; background:var(--red-soft); color:#9b2318; }
+.al-verdict.bad .dot{ background:var(--red); }
+
+/* ---------- thẻ tồn kho ---------- */
+.al-cards{ display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+@media(max-width:900px){ .al-cards{ grid-template-columns:1fr; } }
+.al-card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+  padding:12px 14px; box-shadow:var(--sh0); }
+.al-card-bad{ border-color:#f0c4bf; background:linear-gradient(180deg,var(--red-soft),var(--panel) 60%); }
+.al-card-h{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:6px; }
+.al-card-h b{ font-size:13px; color:var(--navy); }
+.al-card-role{ font-size:9.5px; letter-spacing:1px; text-transform:uppercase; color:var(--ink-3); }
+.al-card-big{ font-family:'Oswald',monospace; font-size:23px; font-weight:600; color:var(--ink); line-height:1.1; }
+.al-card-big .al-un{ font-family:inherit; font-size:11px; font-weight:400; color:var(--ink-3); margin-left:6px; }
+.al-bar-g{ display:flex; height:7px; border-radius:4px; overflow:hidden; background:var(--line-2); margin:9px 0 8px; }
+.al-bar-g i{ display:block; height:100%; }
+.al-sg-d{ background:linear-gradient(90deg,#f0993f,#e8740c); }
+.al-sg-e{ background:linear-gradient(90deg,#3fb3c4,#0f7c8c); }
+.al-kv{ display:flex; align-items:center; justify-content:space-between; font-size:11.5px;
+  color:var(--ink-2); padding:2.5px 0; }
+.al-kv b{ font-family:'Oswald',monospace; font-size:12.5px; font-weight:600; color:var(--ink); }
+.al-kv-sep{ border-top:1px dashed var(--line); margin-top:4px; padding-top:5px; }
+.al-chip{ display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:6px; vertical-align:middle; }
+.al-chip-d{ background:var(--orange); } .al-chip-e{ background:#0f7c8c; }
+
+/* ---------- panel ---------- */
+.al-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:start; }
+@media(max-width:1150px){ .al-grid2{ grid-template-columns:1fr; } }
+.al-panel{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--sh0); overflow:hidden; }
+.al-ph{ display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  padding:9px 13px; border-bottom:1px solid var(--line); background:var(--panel-2); }
+.al-ph h3{ font-size:12.5px; font-weight:700; color:var(--navy); margin:0; }
+.al-ph-sub{ font-size:10.5px; color:var(--ink-3); font-family:'Oswald',monospace; letter-spacing:.3px; }
+.al-scroll{ overflow:auto; max-height:420px; }
+.al-note{ padding:7px 13px; font-size:10.5px; line-height:1.55; color:var(--ink-3);
+  border-top:1px solid var(--line-2); background:var(--panel-2); }
+.al-note b{ color:var(--ink-2); }
+
+/* ---------- bảng ---------- */
+.al-tbl{ width:100%; border-collapse:collapse; font-size:11.5px; }
+.al-tbl th{ position:sticky; top:0; z-index:2; background:#eef3f7; color:var(--ink-2);
+  font-size:10px; font-weight:700; letter-spacing:.4px; text-transform:uppercase;
+  padding:6px 7px; text-align:left; border-bottom:1px solid var(--line); white-space:nowrap; }
+.al-tbl td{ padding:4px 7px; border-bottom:1px solid var(--line-2); vertical-align:middle; white-space:nowrap; }
+.al-tbl tbody tr:hover{ background:#f7fbff; }
+.al-tbl .al-r{ text-align:right; font-family:'Oswald',monospace; font-variant-numeric:tabular-nums; }
+.al-tbl .al-c{ text-align:center; }
+.al-tbl .al-b{ font-weight:700; color:var(--ink); }
+.al-c3{ color:var(--blue); } .al-c4{ color:var(--orange); }
+.al-zero{ color:var(--ink-3); } .al-neg{ color:var(--red); font-weight:700; }
+.al-sm{ font-size:9.5px; color:var(--ink-3); font-family:inherit; }
+.al-empty{ padding:18px 14px; text-align:center; color:var(--ink-3); font-style:italic; }
+.al-sum td{ background:#eef4fa; font-weight:700; border-top:1px solid var(--line); border-bottom:none; }
+.al-sum-loc td{ background:#e6eef6; }
+.al-row-off td{ opacity:.42; }
+.al-tick{ cursor:pointer; font-size:13px; color:var(--ink-3); user-select:none; }
+.al-tick.on{ color:var(--green); font-weight:700; }
+.al-del{ cursor:pointer; color:var(--ink-3); font-weight:700; }
+.al-del:hover{ color:var(--red); }
+.al-flag{ color:var(--yellow); font-weight:700; }
+.al-tk{ font-family:'Oswald',monospace; font-size:10.5px; font-weight:600; padding:1px 5px; border-radius:4px; }
+.al-tk-2100{ background:var(--blue-soft); color:var(--tk1); }
+.al-tk-2101{ background:var(--orange-soft); color:var(--tk2); }
+.al-in{ width:100%; font-family:inherit; font-size:11.5px; padding:3px 6px; border-radius:5px;
+  border:1px solid var(--line); background:#fff; color:var(--ink); }
+.al-in-r{ text-align:right; font-family:'Oswald',monospace; }
+.al-in-s{ width:56px; }
+.al-in:focus{ outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgba(21,101,192,.12); }
+.al-in:disabled{ background:var(--line-2); color:var(--ink-3); }
+.al-tbl td:has(> .al-src){ display:flex; align-items:center; gap:5px; }
+.al-src{ flex:none; font-family:'Oswald',monospace; font-size:9px; font-weight:700; letter-spacing:.5px;
+  padding:2px 5px; border-radius:4px; background:var(--blue-soft); color:var(--blue); }
+
+/* ---------- bảng kết quả ---------- */
+.al-tbl-res th.al-grp{ text-align:center; border-left:2px solid var(--line); }
+.al-tbl-res th.al-sub{ font-size:9.5px; }
+.al-grp-f{ background:#e9f4ec; color:#14683a; }
+.al-grp-s{ background:#fdeceb; color:#9b2318; }
+.al-grp-e{ background:#e6eef6; color:var(--navy); }
+.al-tbl-res td.al-tf{ background:#f4faf6; }
+.al-tbl-res td.al-ts{ background:#fdf5f4; }
+.al-tbl-res td.al-te{ background:#f2f7fb; }
+.al-tbl-res tr.al-rule td{ border-top:1px solid var(--line); }
+.al-loc{ background:var(--panel-2); }
+.al-loc b{ display:block; font-size:12px; color:var(--navy); }
+.al-loc span{ font-family:'Oswald',monospace; font-size:9.5px; color:var(--ink-3); }
+
+/* ---------- cột ST ở Tank Log (eng.js) ---------- */
+.td-st{ cursor:pointer; user-select:none; background:#f4fbf7; }
+.td-st:hover{ background:#e2f4ea; }
+.eng-st{ font-size:13px; line-height:1; }
+.eng-st-on{ color:var(--green); font-weight:700; }
+.eng-st-off{ color:var(--ink-3); }

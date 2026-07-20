@@ -628,10 +628,12 @@ const INV = (function(){
         if(r.date!==dmy) return;
         if(!String(r.ltank||'').toUpperCase().includes(suffix)) return;
         if(!_isExport(r)) return;                 // ⬅ EXPORT customers only (skip domestic)
-        const lpg=num(r.lpgQty);
+        const lpg=Math.round(num(r.lpgQty));
         if(lpg<=0) return;
-        /* round C3 per truck (kg) like Excel/WMS; C4 = LPG − C3 so each row and
-           the grand totals stay consistent (Σ rounded rows, no re-rounding drift) */
+        /* v4.75 — mọi giá trị lưu ở dòng ĐỀU là số nguyên kg đã làm tròn, đúng
+           bằng con số hiển thị. C3 = round(LPG × %wt), C4 = LPG − C3.
+           Tổng ở khung summary = Σ các dòng (KHÔNG tính lại từ tổng LPG),
+           nên tổng luôn khớp chi tiết, không lệch 1 kg do làm tròn 2 lần. */
         const c3=Math.round(lpg*pctC3);
         rows.push({ doNo:String(r.doNo||'—'), cust:String(r.cust||''), lpg, c3, c4:lpg-c3, sel:true });
       });
@@ -662,9 +664,12 @@ const INV = (function(){
   /* recompute totals from SELECTED rows only */
   function _recalcExport(){
     const selRows=_exportRows.filter(r=>r.sel);
-    const totLpg=selRows.reduce((s,r)=>s+r.lpg,0);
-    const totC3 =selRows.reduce((s,r)=>s+r.c3,0);
-    const totC4 =selRows.reduce((s,r)=>s+r.c4,0);
+    /* v4.75 — CỘNG DỒN TỪ CHI TIẾT. Tuyệt đối không tính totC3 = totLpg × %wt
+       (cách cũ gây lệch 1 kg: 124.630 × 48% = 59.822,4 → 59.822 trong khi Σ các
+       dòng đã làm tròn = 59.823). Chi tiết là chuẩn, tổng bám theo chi tiết. */
+    const totLpg=selRows.reduce((s,r)=>s+Math.round(r.lpg),0);
+    const totC3 =selRows.reduce((s,r)=>s+Math.round(r.c3),0);
+    const totC4 =selRows.reduce((s,r)=>s+Math.round(r.c4),0);
     const sumEl=document.getElementById('invExportSum');
     if(sumEl){
       const cntTxt = (_exportRows.length && selRows.length!==_exportRows.length)
