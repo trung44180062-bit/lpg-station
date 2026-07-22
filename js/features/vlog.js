@@ -341,53 +341,92 @@ const VLOG = (function(){
      🔄 RECALC (recompute C3/C4 Wt from %Wt·LPG or derive %Wt
      from %Vol) and 💾 SAVE / 🚢 SAVE+PUSH VESSEL.
      ============================================================ */
+  /* v4.72 — mỗi field gắn src (nguồn dữ liệu) để tô màu:
+       orig = nhập tay / từ mix · coq = import từ COQ · calc = phần mềm tính */
   const EDIT_FIELDS = [
-    {k:'lot',l:'LOT'},{k:'tank',l:'Tank'},{k:'ship',l:'Ship'},{k:'customer',l:'Customer'},
-    {k:'date',l:'Date'},{k:'tStart',l:'Start'},{k:'tEnd',l:'Finish'},
-    {k:'qty',l:'Qty (ton)'},{k:'volC3',l:'%Vol C3'},{k:'volC4',l:'%Vol C4'},
-    {k:'lpgMixQty',l:'LPG Mix qty'},{k:'wtC3',l:'%Wt C3'},{k:'wtC4',l:'%Wt C4'},
-    {k:'stC3',l:'C3 Weight'},{k:'stC4',l:'C4 Weight'},{k:'lpgWt',l:'LPG Weight'},
-    {k:'targetC3',l:'Target C3'},{k:'minC3',l:'Min C3'},{k:'maxC3',l:'Max C3'},
-    {k:'c3fq',l:'FQ C3'},{k:'c4fq',l:'FQ C4'},{k:'odoTk1',l:'Odo T1'},{k:'odoTk2',l:'Odo T2'},
-    {k:'quality',l:'Quality'},{k:'remark',l:'Remark'}
+    {k:'lot',l:'LOT',src:'orig'},{k:'tank',l:'Tank',src:'orig'},{k:'ship',l:'Ship',src:'orig'},{k:'customer',l:'Customer',src:'orig'},
+    {k:'date',l:'Date',src:'orig'},{k:'tStart',l:'Start',src:'orig'},{k:'tEnd',l:'Finish',src:'orig'},
+    {k:'qty',l:'Qty (ton)',src:'orig'},{k:'volC3',l:'%Vol C3',src:'coq'},{k:'volC4',l:'%Vol C4',src:'coq'},
+    {k:'lpgMixQty',l:'LPG Mix qty',src:'orig'},{k:'wtC3',l:'%Wt C3',src:'calc'},{k:'wtC4',l:'%Wt C4',src:'calc'},
+    {k:'stC3',l:'C3 Weight',src:'calc'},{k:'stC4',l:'C4 Weight',src:'calc'},{k:'lpgWt',l:'LPG Weight',src:'calc'},
+    {k:'targetC3',l:'Target C3',src:'orig'},{k:'minC3',l:'Min C3',src:'orig'},{k:'maxC3',l:'Max C3',src:'orig'},
+    {k:'c3fq',l:'FQ C3',src:'coq'},{k:'c4fq',l:'FQ C4',src:'coq'},{k:'odoTk1',l:'Odo T1',src:'orig'},{k:'odoTk2',l:'Odo T2',src:'orig'},
+    {k:'quality',l:'Quality',src:'calc'},{k:'remark',l:'Remark',src:'orig'},{k:'coqNo',l:'COQ No',src:'coq'}
   ];
-  const EDIT_TXT = ['lot','tank','ship','customer','date','tStart','tEnd','quality','remark'];
+  const EDIT_TXT = ['lot','tank','ship','customer','date','tStart','tEnd','quality','remark','coqNo'];
   const EDIT_GC_LABELS = ['CH₄','C₂H₆','C₃H₈','i-C₄','n-C₄','1.3-BD','C5+','Olefins','Density'];
+  /* nguồn của 9 cột GC chính: CH₄ nhập tay (COQ không có), còn lại từ COQ */
+  const GC_SRC = ['orig','coq','coq','coq','coq','coq','coq','coq','coq'];
+  /* v4.72 — chỉ tiêu COQ bổ sung / tank (trước đây chưa ghi nhận ở vessel log) */
+  const GC_EXTRA = [
+    {k:'c3h6', l:'C₃H₆ Propylene'},{k:'vp', l:'Vapor Pres kPa'},{k:'sul', l:'T.Sulfur mg/kg'},
+    {k:'mw', l:'Mol. Weight'},{k:'frv', l:'Pro/Bu %Vol', txt:true},{k:'frw', l:'Pro/Bu %Wt', txt:true},
+    {k:'h2o', l:'Free Water', txt:true},{k:'cu', l:'Cu Corrosion', txt:true},{k:'res', l:'Residue', txt:true},
+    {k:'t2b', l:'t-2-Butene'},{k:'b1', l:'1-Butene'},{k:'ib', l:'i-Butene'},
+    {k:'neoc5', l:'neo-Pentane'},{k:'ic5', l:'i-Pentane'},{k:'nc5', l:'n-Pentane'},{k:'nc6', l:'n-Hexane'}
+  ];
+  const GC_EXTRA_TXT = ['frv','frw','h2o','cu','res'];
+  /* v4.72 — tô màu input theo nguồn (khớp palette Tank Log edit modal) */
+  function _srcInputStyle(src){
+    if(src === 'coq')  return 'background:#f6f0fb;border:1.5px solid #c9a0e8';
+    if(src === 'calc') return 'background:#eaf7ef;border:1.5px solid #6cbf94';
+    return 'background:#f4f7fa;border:1.5px solid #cbd5e0';   /* orig */
+  }
+  function _srcLegend(){
+    const chip = (c,b,t)=>'<span style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink-2)">'
+      +'<span style="width:15px;height:15px;border-radius:3px;background:'+c+';border:1.5px solid '+b+'"></span>'+t+'</span>';
+    return '<div style="display:flex;gap:22px;flex-wrap:wrap;margin-bottom:16px;padding:9px 14px;background:#fafbfc;border:1px solid var(--line);border-radius:6px">'
+      + chip('#f4f7fa','#cbd5e0','Ban đầu (nhập tay / từ mix)')
+      + chip('#f6f0fb','#c9a0e8','Từ COQ (import)')
+      + chip('#eaf7ef','#6cbf94','Phần mềm tính toán')
+      + '</div>';
+  }
   function _escAttr(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+  let _editRid = null;   /* dòng đang mở trong modal — cho import COQ */
 
   function openEdit(rid){
     const e = RID_MAP[rid]; if(!e){ toast('Row not found','er'); return; }
+    _editRid = rid;
     const old = document.getElementById('vlog-edit-overlay'); if(old) old.remove();
     const ov = document.createElement('div');
     ov.id = 'vlog-edit-overlay';
-    ov.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:20px';
     ov.onclick = ev => { if(ev.target === ov) ov.remove(); };
-    let h = '<div style="background:#fff;border-radius:10px;padding:16px;max-width:700px;width:100%;max-height:90vh;overflow-y:auto">';
-    h += '<div style="font-family:Oswald;font-size:14px;font-weight:700;margin-bottom:10px">✏ Edit — Lot '+_escAttr(e.lot)+' Tank '+_escAttr(e.tank)+'</div>';
-    h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px">';
+    let h = '<div style="background:#fff;border-radius:12px;padding:26px 30px;max-width:1180px;width:96vw;max-height:92vh;overflow-y:auto;box-shadow:0 12px 48px rgba(0,0,0,.3)">';
+    h += '<div style="font-family:Oswald;font-size:22px;font-weight:700;margin-bottom:14px;letter-spacing:.5px">✏ Edit — Lot '+_escAttr(e.lot)+' Tank '+_escAttr(e.tank)+'</div>';
+    h += _srcLegend();
+    h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px 14px">';
     EDIT_FIELDS.forEach(f=>{
       const v = e[f.k] != null ? e[f.k] : '';
-      h += '<div><div style="font-size:8px;font-weight:700;color:var(--ink-3);text-transform:uppercase">'+f.l+'</div>'
-        +'<input id="vle-'+f.k+'" value="'+_escAttr(v)+'" style="width:100%;font-family:monospace;font-size:11px;padding:3px 4px;border:1px solid var(--line);border-radius:3px"></div>';
+      h += '<div><div style="font-size:11px;font-weight:700;color:var(--ink-3);text-transform:uppercase;margin-bottom:3px">'+f.l+'</div>'
+        +'<input id="vle-'+f.k+'" value="'+_escAttr(v)+'" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:15px;padding:8px 10px;border-radius:5px;'+_srcInputStyle(f.src)+'"></div>';
     });
     h += '</div>';
     [0,1].forEach(t=>{
       const col = t === 0 ? 'var(--blue)' : 'var(--orange)';
-      h += '<div style="font-size:10px;font-weight:700;color:'+col+';margin:8px 0 4px">GC TANK '+(t+1)+'</div>';
-      h += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px">';
+      h += '<div style="font-size:14px;font-weight:700;color:'+col+';margin:18px 0 8px;letter-spacing:.5px">GC TANK '+(t+1)+'</div>';
+      h += '<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px 14px">';
       GC_COLS.forEach((k,ki)=>{
         const src = e.t && e.t[t] ? e.t[t] : (t === 0 ? (e.gc||{}) : (e.gc2||{}));
         const v = src && src[k] != null ? src[k] : '';
-        h += '<div><div style="font-size:8px;font-weight:700;color:var(--ink-3)">'+EDIT_GC_LABELS[ki]+'</div>'
-          +'<input id="vle-gc'+t+'-'+k+'" value="'+_escAttr(v)+'" style="width:100%;font-family:monospace;font-size:10px;padding:2px 3px;border:1px solid var(--line);border-radius:3px"></div>';
+        h += '<div><div style="font-size:11px;font-weight:700;color:var(--ink-3);margin-bottom:3px">'+EDIT_GC_LABELS[ki]+'</div>'
+          +'<input id="vle-gc'+t+'-'+k+'" value="'+_escAttr(v)+'" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:14px;padding:7px 9px;border-radius:5px;'+_srcInputStyle(GC_SRC[ki])+'"></div>';
+      });
+      GC_EXTRA.forEach(f=>{
+        const src = e.t && e.t[t] ? e.t[t] : (t === 0 ? (e.gc||{}) : (e.gc2||{}));
+        const v = src && src[f.k] != null ? src[f.k] : '';
+        h += '<div><div style="font-size:11px;font-weight:700;color:var(--ink-3);margin-bottom:3px">'+f.l+'</div>'
+          +'<input id="vle-gc'+t+'-'+f.k+'" value="'+_escAttr(v)+'" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:14px;padding:7px 9px;border-radius:5px;'+_srcInputStyle('coq')+'"></div>';
       });
       h += '</div>';
     });
-    h += '<div style="margin-top:10px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap">';
-    h += '<button onclick="VLOG.recalcEditForm()" style="background:#2d8a4e;color:#fff;border:1px solid #2d8a4e;border-radius:5px;font-size:11px;padding:5px 16px;cursor:pointer" title="Recalculate C3/C4 Weight from %Wt (or %Vol) and LPG qty">🔄 RECALC</button>';
-    h += '<button onclick="VLOG.saveEdit(\''+String(rid).replace(/'/g,"\\'")+'\')" style="background:var(--blue);color:#fff;border:1px solid var(--blue);border-radius:5px;font-size:11px;padding:5px 16px;cursor:pointer">💾 SAVE</button>';
-    h += '<button onclick="VLOG.saveAndPushVessel(\''+String(rid).replace(/'/g,"\\'")+'\')" style="background:#7b2d8e;color:#fff;border:1px solid #7b2d8e;border-radius:5px;font-size:11px;padding:5px 16px;cursor:pointer" title="Save + push this entry to the LPG Sales → Vessel tab">🚢 SAVE + PUSH VESSEL</button>';
-    h += '<button onclick="document.getElementById(\'vlog-edit-overlay\').remove()" style="background:#f0f4f8;border:1px solid var(--line);border-radius:5px;font-size:11px;padding:5px 16px;cursor:pointer">✕ CANCEL</button>';
+    h += '<div style="margin-top:22px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">';
+    h += '<input type="file" id="vlog-coqfile" accept=".xlsx,.xls" style="display:none" onchange="VLOG.coqChosen(this)">';
+    h += '<button onclick="VLOG.importCoqPick()" style="background:#7b2d8e;color:#fff;border:1px solid #7b2d8e;border-radius:6px;font-size:14px;font-weight:600;padding:10px 26px;cursor:pointer" title="Import COQ Excel (2 tank) → điền GC Tank 1/2 + các chỉ tiêu (tím)">📄 IMPORT COQ</button>';
+    h += '<button onclick="VLOG.recalcEditForm()" style="background:#2d8a4e;color:#fff;border:1px solid #2d8a4e;border-radius:6px;font-size:14px;font-weight:600;padding:10px 26px;cursor:pointer" title="Recalculate C3/C4 Weight from %Wt (or %Vol) and LPG qty">🔄 RECALC</button>';
+    h += '<button onclick="VLOG.saveEdit(\''+String(rid).replace(/'/g,"\\'")+'\')" style="background:var(--blue);color:#fff;border:1px solid var(--blue);border-radius:6px;font-size:14px;font-weight:600;padding:10px 26px;cursor:pointer">💾 SAVE</button>';
+    h += '<button onclick="VLOG.saveAndPushVessel(\''+String(rid).replace(/'/g,"\\'")+'\')" style="background:#7b2d8e;color:#fff;border:1px solid #7b2d8e;border-radius:6px;font-size:14px;font-weight:600;padding:10px 26px;cursor:pointer" title="Save + push this entry to the LPG Sales → Vessel tab">🚢 SAVE + PUSH VESSEL</button>';
+    h += '<button onclick="document.getElementById(\'vlog-edit-overlay\').remove()" style="background:#f0f4f8;border:1px solid var(--line);border-radius:6px;font-size:14px;font-weight:600;padding:10px 26px;cursor:pointer">✕ CANCEL</button>';
     h += '</div></div>';
     ov.innerHTML = h;
     document.body.appendChild(ov);
@@ -410,6 +449,21 @@ const VLOG = (function(){
       const v0 = gn('vle-gc0-'+k), v1 = gn('vle-gc1-'+k);
       if(v0 != null) e.t[0][k] = v0; else delete e.t[0][k];
       if(v1 != null) e.t[1][k] = v1; else delete e.t[1][k];
+    });
+    /* v4.72 — extra COQ indicators per tank (numeric or text) */
+    GC_EXTRA.forEach(f=>{
+      const isTxt = GC_EXTRA_TXT.includes(f.k);
+      [0,1].forEach(t=>{
+        const el = document.getElementById('vle-gc'+t+'-'+f.k);
+        if(!el){ return; }
+        if(isTxt){
+          const s = String(el.value||'').trim();
+          if(s) e.t[t][f.k] = s; else delete e.t[t][f.k];
+        } else {
+          const v = parseFloat(el.value);
+          if(!isNaN(v)) e.t[t][f.k] = v; else delete e.t[t][f.k];
+        }
+      });
     });
     recalcEntry(e);
     e._ts = Date.now();
@@ -471,6 +525,171 @@ const VLOG = (function(){
     } else {
       toast('⚠ Need %Wt C3 (or %Vol C3) and LPG qty to calculate','er');
     }
+  }
+
+  /* ============================================================
+     v4.72 — IMPORT COQ (vessel, 2-tank) → điền vào modal edit.
+     COQ vessel có CẢ TANK 1 (%Vol cột H) và TANK 2 (%Vol cột J)
+     trong 1 file (sheet 'SHIP LPG'). Validate Lot, rồi điền GC
+     Tank 1/2 + các chỉ tiêu COQ. Không lưu tới khi bấm SAVE.
+     ============================================================ */
+  function importCoqPick(){
+    const inp = document.getElementById('vlog-coqfile');
+    if(!inp){ toast('❌ File input missing','er'); return; }
+    inp.value = ''; inp.click();
+  }
+  function _vcoqNum(v){
+    if(v == null) return null;
+    const s = String(v).trim(); if(!s) return null;
+    if(/^</.test(s)) return 0;                     // '<0.01' → 0
+    const m = s.replace(/,/g,'').match(/-?\d+(\.\d+)?/);
+    return m ? parseFloat(m[0]) : null;
+  }
+  function _vcoqLotParse(s){
+    s = String(s||'');
+    const y = s.match(/(20\d{2})/);
+    const n = s.match(/(\d+)(?!.*\d)/);            // last integer in the string
+    return (y && n) ? { year:parseInt(y[1]), num:parseInt(n[1]) } : null;
+  }
+  function _parseVesselCoq(wb){
+    let ws = null;
+    for(const name of wb.SheetNames){
+      const s = wb.Sheets[name];
+      const txt = JSON.stringify(XLSX.utils.sheet_to_json(s, {header:1, defval:'', raw:false}) || []);
+      if(/CERTIFICATE OF QUALITY/i.test(txt)){ ws = s; break; }
+    }
+    if(!ws) ws = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:true});
+    /* tìm cột kết quả của TANK 1 / TANK 2 từ dòng header */
+    let c1 = 7, c2 = 9;
+    for(const row of aoa){
+      for(let j = 0; j < row.length; j++){
+        const s = String(row[j]||'').trim();
+        if(/^TANK\s*1$/i.test(s)) c1 = j;
+        if(/^TANK\s*2$/i.test(s)) c2 = j;
+      }
+    }
+    /* nhãn → giá trị đầu tiên bên phải (dùng cho phần định danh) */
+    const findRight = (labelRe, valRe)=>{
+      for(const row of aoa){
+        for(let j = 0; j < row.length; j++){
+          if(labelRe.test(String(row[j]||''))){
+            for(let k = j+1; k < row.length; k++){
+              const v = String(row[k]||'').trim();
+              if(!v || v === ':') continue;
+              if(valRe){ const m = v.match(valRe); if(m) return m[0]; }
+              else return v;
+            }
+          }
+        }
+      }
+      return '';
+    };
+    const coq = {};
+    coq.lot      = findRight(/Lot\s*No/i, /LPG-\d{4}-[A-Za-z0-9-]+/i) || findRight(/Lot\s*No/i);
+    coq.no       = findRight(/No\.?\s*\/\s*S[oố]/i, /[A-Z]{2,5}-\d{4}-[A-Za-z0-9-]+/i)
+                 || findRight(/CERTIFICATE OF QUALITY/i, /[A-Z]{2,5}-\d{4}-[A-Za-z0-9-]+/i);
+    coq.vessel   = findRight(/Vessel\s*Name/i);
+    coq.customer = findRight(/Customer/i);
+    coq.dest     = findRight(/Port\s*of\s*Discharge/i);
+    coq.sampTime = findRight(/Sampling\s*Time/i, /\d{1,2}:\d{2}/);
+    coq.testDate = findRight(/Testing\s*Date|Analysis\s*Date/i, /\d{1,2}\/\d{1,2}\/\d{2,4}/);
+    /* đọc 1 chỉ tiêu: nhãn ở cột D (< tankCol), giá trị ở tankCol */
+    const rd = (labelRe, col, txt)=>{
+      for(const row of aoa){
+        for(let j = 0; j < Math.min(row.length, col); j++){
+          if(labelRe.test(String(row[j]||''))){
+            const raw = row[col];
+            if(txt){ const s = String(raw == null ? '' : raw).trim(); if(s) return s; }
+            else { const n = _vcoqNum(raw); if(n != null) return n; }
+          }
+        }
+      }
+      return txt ? '' : null;
+    };
+    /* Pro/Bu fraction: dòng nhãn = %Vol, dòng ngay dưới = %Wt */
+    const rdFrac = (col, which)=>{
+      for(let i = 0; i < aoa.length; i++){
+        const row = aoa[i] || [];
+        let hit = false;
+        for(let j = 0; j < Math.min(row.length, col); j++){
+          if(/C3\s*\/\s*C4\s*Fraction|Fraction/i.test(String(row[j]||''))){ hit = true; break; }
+        }
+        if(!hit) continue;
+        const r = which === 0 ? row : (aoa[i+1] || []);
+        const v = String(r[col]||'').trim();
+        return v || '';
+      }
+      return '';
+    };
+    const readTank = (col)=>({
+      eth:  rd(/Ethane|\(C2H6\)/i, col),
+      prop: rd(/\(C3H8\)/i, col),
+      c3h6: rd(/Propylene|\(C3H6\)/i, col),
+      ibut: rd(/\(i-C4H10\)|Iso\s*-?\s*Butane/i, col),
+      nbut: rd(/\(n-C4H10\)|n-butane/i, col),
+      buta: rd(/Butadiene|\(C4H6\)/i, col),
+      c5:   rd(/C5\s*&\s*C5\+/i, col),
+      ole:  rd(/Total\s*-?\s*Olefin/i, col),
+      labdens: rd(/Density\s*at\s*15/i, col),
+      vp:   rd(/Vapor\s*Pressure/i, col),
+      sul:  rd(/Total\s*Sulfur/i, col),
+      mw:   rd(/Molecular\s*weight|Kh[oố]i\s*l[uư][oợ]ng\s*ph[aâ]n\s*t[uử]/i, col),
+      h2o:  rd(/Free\s*Water/i, col, true),
+      cu:   rd(/Copper\s*Strip/i, col, true),
+      res:  rd(/Residue/i, col, true),
+      t2b:  rd(/t-2\s*butene|\(t-C4H8\)/i, col),
+      b1:   rd(/1-Butene|\(1-C4H8\)/i, col),
+      ib:   rd(/i-Butene|\(i-C4H8\)/i, col),
+      neoc5:rd(/Neo\s*-?\s*Pentane|\(neo-C5H12\)/i, col),
+      ic5:  rd(/Iso\s*-?\s*Pentane|\(i-C5H12\)/i, col),
+      nc5:  rd(/\(n-C5H12\)|n-Pentane/i, col),
+      nc6:  rd(/n-Hexane|\(n-C6H14\)/i, col),
+      frv:  rdFrac(col, 0),
+      frw:  rdFrac(col, 1)
+    });
+    coq.tanks = [ readTank(c1), readTank(c2) ];
+    return coq;
+  }
+  function coqChosen(inputEl){
+    const f = inputEl && inputEl.files && inputEl.files[0]; if(!f) return;
+    if(typeof XLSX === 'undefined'){ toast('❌ XLSX library not loaded','er'); return; }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      let coq;
+      try{ const wb = XLSX.read(ev.target.result, {type:'array'}); coq = _parseVesselCoq(wb); }
+      catch(err){ console.warn('[VLOG] COQ parse', err); toast('❌ Không đọc được file COQ: '+err.message,'er'); return; }
+      _applyVesselCoq(coq, f.name);
+    };
+    reader.onerror = ()=> toast('❌ Không đọc được file','er');
+    reader.readAsArrayBuffer(f);
+  }
+  function _applyVesselCoq(coq, fname){
+    if(!_editRid){ toast('⚠ Chưa mở dòng nào để import','warn'); return; }
+    const e = RID_MAP[_editRid]; if(!e) return;
+    if(!coq.lot){ alert('⚠ KHÔNG TÌM THẤY SỐ LOT trong file COQ\n\nFile: '+fname+'\nKiểm tra lại file trước khi import.'); return; }
+    const cq = _vcoqLotParse(coq.lot), rw = _vcoqLotParse(e.lot);
+    if(rw && cq && (cq.num !== rw.num || cq.year !== rw.year)){
+      alert('❌ SỐ LOT KHÔNG KHỚP — DỮ LIỆU KHÔNG ĐƯỢC IMPORT\n\n'+
+            '• COQ file:      '+coq.lot+'\n'+
+            '• Dòng đang sửa:  '+(e.lot||'—')+'\n\n'+
+            'Có thể chọn nhầm file. Kiểm tra lại.');
+      toast('❌ COQ Lot '+coq.lot+' ≠ '+(e.lot||'—')+' — không import','er');
+      return;
+    }
+    const sv = (id, val)=>{
+      const el = document.getElementById(id);
+      if(!el || val == null || val === '') return;
+      el.value = (typeof val === 'number') ? String(parseFloat(val.toFixed(4))) : String(val);
+    };
+    sv('vle-coqNo', coq.no || '');
+    if(coq.sampTime){ const fin = document.getElementById('vle-tEnd'); if(fin && !String(fin.value||'').trim()) fin.value = coq.sampTime; }
+    [0,1].forEach(t=>{
+      const tk = coq.tanks[t] || {};
+      GC_COLS.forEach(k=>{ if(k !== 'meth') sv('vle-gc'+t+'-'+k, tk[k]); });
+      GC_EXTRA.forEach(f=>{ sv('vle-gc'+t+'-'+f.k, tk[f.k]); });
+    });
+    toast('📄 Import COQ '+(coq.no||coq.lot)+' → đã điền GC Tank 1 & 2 (tím) · bấm 🔄 RECALC rồi 💾 SAVE','ok');
   }
 
   /* v4.70 (V406 smPushToVessel): push a Vessel Log entry to the LPG Sales →
@@ -779,6 +998,8 @@ const VLOG = (function(){
     /* v4.70 */
     toggleGrp, sortBy, exportXlsx,
     saveEdit, recalcEntry, recalcEditForm, pushToVessel, saveAndPushVessel,
+    /* v4.72 — COQ import (vessel, 2-tank) */
+    importCoqPick, coqChosen, parseVesselCoq: _parseVesselCoq,
     get ROWS(){ return ROWS; }
   };
 })();

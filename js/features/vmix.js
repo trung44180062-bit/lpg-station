@@ -40,6 +40,16 @@ const VMIX = (function(){
     ic4_vr:22,   ic4_den:0.5629
   };
   const GC_KEYS = ['meth','eth','prop','ibut','nbut','buta','c5','ole'];
+  /* v4.72 — chỉ tiêu COQ bổ sung / tank (COQ vessel có, tab này trước đây chưa có).
+     Lưu ý: COQ vessel KHÔNG có final volume nên không import tload/lvol. */
+  const VCQ = [
+    {k:'c3h6',l:'C₃H₆ Propylene'},{k:'vp',l:'Vapor kPa'},{k:'sul',l:'Sulfur mg/kg'},{k:'mw',l:'Mol. Weight'},
+    {k:'frv',l:'Pro/Bu %Vol',txt:1},{k:'frw',l:'Pro/Bu %Wt',txt:1},
+    {k:'h2o',l:'Free Water',txt:1},{k:'cu',l:'Cu Corrosion',txt:1},{k:'res',l:'Residue',txt:1},
+    {k:'t2b',l:'t-2-Butene'},{k:'b1',l:'1-Butene'},{k:'ib',l:'i-Butene'},
+    {k:'neoc5',l:'neo-Pentane'},{k:'ic5',l:'i-Pentane'},{k:'nc5',l:'n-Pentane'},{k:'nc6',l:'n-Hexane'}
+  ];
+  const VCQ_TXT = ['frv','frw','h2o','cu','res'];
 
   /* ---------- module state ---------- */
   let SHIPS    = DEFAULT_SHIPS.slice();
@@ -373,6 +383,7 @@ const VMIX = (function(){
         }
       });
       GC_KEYS.forEach(g=>{ const el = _gid('vs-gc-'+g+'-'+i); if(el) el.value = ''; });
+      VCQ.forEach(f=>{ const el = _gid('vs-cq-'+f.k+'-'+i); if(el) el.value = ''; });
       const sel = _gid('vs-runit-'+i); if(sel){ sel.value = 'vol'; UNIT[String(i)] = 'vol'; }
       const lblTag = document.querySelector('#vs-tr3-lbl-'+i+' .vsmix-unit-tag');
       if(lblTag) lblTag.textContent = '%VOL';
@@ -828,6 +839,16 @@ const VMIX = (function(){
       labdens:_val('vs-labdens-'+i)
     };
     GC_KEYS.forEach(k => { t[k] = _val('vs-gc-'+k+'-'+i); });
+    /* v4.72 — chỉ tiêu COQ bổ sung (numeric hoặc text) → lưu vào entry.t[tank] */
+    VCQ.forEach(f=>{
+      const el = _gid('vs-cq-'+f.k+'-'+i);
+      if(!el) return;
+      if(VCQ_TXT.includes(f.k)){
+        const s = String(el.value||'').trim(); if(s) t[f.k] = s;
+      } else {
+        const v = _val('vs-cq-'+f.k+'-'+i); if(v != null) t[f.k] = v;
+      }
+    });
     /* Merge cached after-result intermediates (tw3/tw4/wr3/ld3/ld4/fqty) */
     const cd = _afterResult[i];
     if(cd){
@@ -1140,18 +1161,105 @@ const VMIX = (function(){
   }
   function closeModal(){ _gid('vsmixModalBg')?.classList.remove('on'); }
 
+  /* ============================================================
+     v4.72 — COQ extras grid (render vào placeholder mỗi tank) + IMPORT COQ.
+     COQ vessel có CẢ TANK 1 (cột H) và TANK 2 (cột J) trong 1 file;
+     import điền GC %vol + Lab Dens + các chỉ tiêu COQ cho cả 2 tank.
+     KHÔNG import final volume (COQ vessel không có).
+     ============================================================ */
+  function _renderCoqExtra(){
+    [0,1].forEach(i=>{
+      const host = _gid('vs-coq-extra-'+i);
+      if(!host || host.dataset.built === '1') return;
+      let h = '<div class="vsmix-gc-row" style="align-items:flex-start">'
+        + '<span class="vsmix-gc-ttl" style="color:#7b2d8e" title="Chỉ tiêu từ COQ (điền khi IMPORT COQ)">📄 COQ</span>'
+        + '<div class="vsmix-gc-grid" style="flex-wrap:wrap">';
+      VCQ.forEach(f=>{
+        h += '<div class="vsmix-fld"><label class="vsmix-lbl-xs">'+f.l+'</label>'
+          + '<input type="text" id="vs-cq-'+f.k+'-'+i+'" class="vsmix-inp vsmix-inp-xs" inputmode="decimal"'
+          + ' style="background:#f6f0fb;border:1.5px solid #c9a0e8"></div>';
+      });
+      h += '</div></div>';
+      host.innerHTML = h;
+      host.dataset.built = '1';
+    });
+  }
+
   /* ---------- refresh: called when navigating to the Vessel Mix sub-tab ---------- */
   function refresh(){
     _populateShipSel();
+    _renderCoqExtra();
     const dt = _gid('vs-date'); if(dt && !dt.value) dt.value = _todayDDMMYY();
     updateLot();
     [0,1].forEach(_renderStatus);
+  }
+
+  /* ---------- COQ import (vessel, 2-tank) ---------- */
+  function importCoqPick(){
+    const inp = _gid('vs-coqfile');
+    if(!inp){ toast('❌ File input missing','er'); return; }
+    inp.value = ''; inp.click();
+  }
+  function _vmLotParse(s){
+    s = String(s||'');
+    const y = s.match(/(20\d{2})/), n = s.match(/(\d+)(?!.*\d)/);
+    return (y && n) ? { year:parseInt(y[1]), num:parseInt(n[1]) } : null;
+  }
+  function coqChosen(inputEl){
+    const f = inputEl && inputEl.files && inputEl.files[0]; if(!f) return;
+    if(typeof XLSX === 'undefined'){ toast('❌ XLSX library not loaded','er'); return; }
+    if(typeof VLOG === 'undefined' || typeof VLOG.parseVesselCoq !== 'function'){
+      toast('❌ Vessel Log module chưa sẵn sàng','er'); return;
+    }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      let coq;
+      try{ const wb = XLSX.read(ev.target.result, {type:'array'}); coq = VLOG.parseVesselCoq(wb); }
+      catch(err){ console.warn('[VMIX] COQ parse', err); toast('❌ Không đọc được file COQ: '+err.message,'er'); return; }
+      _applyCoq(coq, f.name);
+    };
+    reader.onerror = ()=> toast('❌ Không đọc được file','er');
+    reader.readAsArrayBuffer(f);
+  }
+  function _applyCoq(coq, fname){
+    _renderCoqExtra();
+    if(!coq.lot){ alert('⚠ KHÔNG TÌM THẤY SỐ LOT trong file COQ\n\nFile: '+fname+'\nKiểm tra lại file.'); return; }
+    /* validate Lot vs LOT đang nhập (nếu đã có) */
+    const curDisp = (_gid('vs-lot-display')||{}).textContent || '';
+    const cq = _vmLotParse(coq.lot), rw = _vmLotParse(curDisp);
+    if(rw && cq && (cq.num !== rw.num || cq.year !== rw.year)){
+      alert('❌ SỐ LOT KHÔNG KHỚP — DỮ LIỆU KHÔNG ĐƯỢC IMPORT\n\n'+
+            '• COQ file:  '+coq.lot+'\n'+
+            '• Đang nhập: '+curDisp+'\n\nCó thể chọn nhầm file. Kiểm tra lại.');
+      toast('❌ COQ Lot '+coq.lot+' ≠ '+curDisp+' — không import','er');
+      return;
+    }
+    const sv = (id, val)=>{
+      const el = _gid(id);
+      if(!el || val == null || val === '') return;
+      el.value = (typeof val === 'number') ? String(parseFloat(val.toFixed(4))) : String(val);
+    };
+    /* điền định danh nếu đang trống (không đè dữ liệu đã nhập) */
+    const cust = _gid('vs-cust'); if(cust && !cust.value && coq.customer) cust.value = coq.customer;
+    const fin  = _gid('vs-ftime'); if(fin && !fin.value && coq.sampTime) fin.value = coq.sampTime;
+    [0,1].forEach(i=>{
+      const tk = (coq.tanks && coq.tanks[i]) || {};
+      /* GC %vol — CH₄ để trống (COQ không có) */
+      GC_KEYS.forEach(k=>{ if(k !== 'meth') sv('vs-gc-'+k+'-'+i, tk[k]); });
+      /* Lab Dens = Density@15 của COQ */
+      sv('vs-labdens-'+i, tk.labdens);
+      /* các chỉ tiêu COQ bổ sung (KHÔNG có final volume) */
+      VCQ.forEach(f=>{ sv('vs-cq-'+f.k+'-'+i, tk[f.k]); });
+      try{ gcSum(i); }catch(_){}
+    });
+    toast('📄 Import COQ '+(coq.no||coq.lot)+' → điền GC %vol + Lab Dens + chỉ tiêu cả 2 tank (tím)','ok');
   }
 
   /* ---------- init: attach Firebase listeners (vessel_config / density) ---------- */
   function init(){
     if(_attached) return;
     _populateShipSel();
+    _renderCoqExtra();
     try{
       if(typeof firebase === 'undefined' || !firebase.database){ console.warn('[VMIX] firebase not loaded'); return; }
       firebase.database().ref('vessel_config').on('value', snap=>{
@@ -1178,6 +1286,7 @@ const VMIX = (function(){
     toggleRatio, onUnitChange,
     gcSum, startMix, finishMix, reset,
     calcPlan, calcResult, saveLog,
+    importCoqPick, coqChosen,
     openShipEdit, openDensityEdit, closeModal,
     now, toggleAfter, custSearch, custPick,
     saveMixState, restoreMixState,

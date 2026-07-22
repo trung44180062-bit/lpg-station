@@ -2304,6 +2304,8 @@
 
           <div class="vsmix-hdr-actions">
             <button type="button" class="vsmix-act-btn" id="vs-btn-after" onclick="VMIX.toggleAfter()" title="Thu gọn/mở phần AFTER LOADING">🧪 AFTER ▲</button>
+            <input type="file" id="vs-coqfile" accept=".xlsx,.xls" style="display:none" onchange="VMIX.coqChosen(this)">
+            <button type="button" class="vsmix-act-btn" style="border-color:#7b2d8e;color:#7b2d8e" onclick="VMIX.importCoqPick()" title="Import COQ Excel (2 tank) → điền GC %vol + Lab Dens + các chỉ tiêu COQ cho cả 2 tank">📄 IMPORT COQ</button>
             <button type="button" class="vsmix-act-btn vsmix-act-vessel" onclick="VMIX.openShipEdit()" title="Manage vessels (name + tank volumes)">⚙ VESSEL</button>
             <button type="button" class="vsmix-act-btn vsmix-act-density" onclick="VMIX.openDensityEdit()" title="Edit density constants">ρ</button>
             <button type="button" class="vsmix-act-btn vsmix-act-reset" onclick="VMIX.reset()" title="Reset all inputs">🔄</button>
@@ -2382,6 +2384,8 @@
                 </div>
                 <span class="vsmix-gc-sum" id="vs-gcsum-0">Σ —</span>
               </div>
+              <!-- v4.72 — COQ extra indicators (điền khi IMPORT COQ) -->
+              <div id="vs-coq-extra-0"></div>
               <div class="vsmix-calc-row">
                 <button type="button" class="vsmix-calc-btn vsmix-calc-btn-1" onclick="VMIX.calcResult()">🧮 CALCULATE RESULT</button>
               </div>
@@ -2453,6 +2457,8 @@
                 </div>
                 <span class="vsmix-gc-sum" id="vs-gcsum-1">Σ —</span>
               </div>
+              <!-- v4.72 — COQ extra indicators (điền khi IMPORT COQ) -->
+              <div id="vs-coq-extra-1"></div>
               <div class="vsmix-calc-row">
                 <button type="button" class="vsmix-calc-btn vsmix-calc-btn-2" onclick="VMIX.calcResult()">🧮 CALCULATE RESULT</button>
               </div>
