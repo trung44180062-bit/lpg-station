@@ -124,11 +124,18 @@ const ENG = (function(){
   }
 
   /* ---------- Firebase wiring — incremental child writes only ---------- */
-  function _pushRowFb(rid, cells){
-    if(!_fbRef) return;
+  /* v4.77 — cb(ok, err) tuỳ chọn: caller cần BIẾT ghi Firebase có thành công
+     hay không (vd. MIXNOTIFY chỉ được xoá thông báo sau khi cờ ST đã lên FB).
+     Trước đây lỗi ghi chỉ console.warn → mất dữ liệu âm thầm. */
+  function _pushRowFb(rid, cells, cb){
+    if(!_fbRef){ if(typeof cb==='function') cb(false, 'no-firebase-ref'); return; }
     _suppressEcho++;
     _fbRef.child(rid).set({ cells: cells.slice(0, ROW_W), _ts: Date.now() })
-      .catch(e => console.warn('[ENG] fb push row', e))
+      .then(()=>{ if(typeof cb==='function') cb(true, null); })
+      .catch(e => {
+        console.warn('[ENG] fb push row', e);
+        if(typeof cb==='function') cb(false, e);
+      })
       .finally(()=> setTimeout(()=>{ _suppressEcho = Math.max(0, _suppressEcho - 1); }, 400));
   }
   function _deleteRowFb(rid){
@@ -329,8 +336,31 @@ const ENG = (function(){
         '</tr>';
     }).join('');
 
+    /* v4.76 — TOTALS: cộng dồn trên đúng tập ĐANG hiển thị (sau filter). */
+    const T = _sumRows(filtered);
+    const tf = document.getElementById('engTfoot');
+    if(tf){
+      tf.innerHTML =
+        '<tr class="eng-tfoot-row">' +
+          '<td colspan="10" class="td-tot-lbl">Σ TỔNG — '+filtered.length+' lot'+
+            (filtered.length !== ROWS.length ? ' (đang lọc / '+ROWS.length+')' : '')+'</td>' +
+          '<td class="td-r td-fill-c3">'+_fmtNum(T.fc3,3)+'</td>' +
+          '<td class="td-r td-fill-c4">'+_fmtNum(T.fc4,3)+'</td>' +
+          '<td class="td-r td-fill-lpg">'+_fmtNum(T.flpg,3)+'</td>' +
+          '<td class="td-c" style="font-size:9px;color:var(--green)">'+T.stOn+'/'+filtered.length+'</td>' +
+          '<td class="td-r">'+_fmtNum(T.vol,3)+'</td>' +
+          '<td class="td-r" style="color:var(--green)">'+_fmtNum(T.qty,2)+'</td>' +
+          '<td colspan="11"></td>' +
+          '<td class="td-r" style="color:#7b2d8e">'+_fmtNum(T.odo,2)+'</td>' +
+          '<td colspan="21"></td>' +
+        '</tr>';
+    }
+
     if(stats){
       let html = '<b>'+filtered.length+'</b> / '+ROWS.length+' rows';
+      html += ' <span class="eng-tot-chip" title="Tổng cộng trên tập đang hiển thị">'
+        + 'ΣC3 <b>'+_fmtNum(T.fc3,3)+'</b> · ΣC4 <b>'+_fmtNum(T.fc4,3)+'</b> · ΣLPG <b>'+_fmtNum(T.flpg,3)+'</b> MT'
+        + ' · ΣQty <b>'+_fmtNum(T.qty,2)+'</b> T · ΣOdo <b>'+_fmtNum(T.odo,2)+'</b> kg</span>';
       if(qMonth){
         const s = _monthSummary(qMonth);
         html += ' <span style="color:var(--blue,#2f80ed);font-weight:600">· Tháng '+_ymLabelEng(qMonth)+': '
@@ -366,6 +396,29 @@ const ENG = (function(){
       const o = parseFloat(String(r[26]||'').replace(/,/g,'')); if(!isNaN(o)) odo += o;
     });
     return { lots, lpg, odo };
+  }
+
+  /* v4.76 — cộng dồn 1 tập row bất kỳ.
+     Filled C3 [13] · Filled C4 [14] · Filled LPG [15] · Final Vol m³ [6]
+     · Qty ton [7] · Odorant kg [26] · số lot đã Stock Transfer.
+     Ô rỗng / không parse được → bỏ qua (không tính là 0 sai lệch). */
+  function _num(v){
+    const n = parseFloat(String(v == null ? '' : v).replace(/,/g,'').trim());
+    return isNaN(n) ? null : n;
+  }
+  function _sumRows(list){
+    const T = { fc3:0, fc4:0, flpg:0, vol:0, qty:0, odo:0, stOn:0, n:0 };
+    (list||[]).forEach(r=>{
+      T.n++;
+      const a = _num(r[13]); if(a !== null) T.fc3  += a;
+      const b = _num(r[14]); if(b !== null) T.fc4  += b;
+      const c = _num(r[15]); if(c !== null) T.flpg += c;
+      const d = _num(r[6]);  if(d !== null) T.vol  += d;
+      const e = _num(r[7]);  if(e !== null) T.qty  += e;
+      const f = _num(r[26]); if(f !== null) T.odo  += f;
+      if(String(r[C_ST]||'') === '1') T.stOn++;
+    });
+    return T;
   }
 
   /* v4.62 — Load-All button state */
@@ -608,14 +661,17 @@ const ENG = (function(){
     }catch(_){ return ''; }
   }
   /* Ghi cờ ST lên 1 row (đã có sẵn object row). Trả về true nếu có thay đổi. */
-  function _applyST(row, on, who){
-    if(!row) return false;
+  function _applyST(row, on, who, cb){
+    if(!row){ if(typeof cb==='function') cb(false,'no-row'); return false; }
     const want = on ? '1' : '';
-    if(String(row[C_ST]||'') === want) return false;
+    if(String(row[C_ST]||'') === want){       // đã đúng trạng thái → coi như thành công
+      if(typeof cb==='function') cb(true, 'already');
+      return false;
+    }
     row[C_ST]    = want;
     row[C_ST_TS] = on ? String(Date.now()) : '';
     row[C_ST_BY] = on ? String(who != null ? who : _stWho()) : '';
-    _pushRowFb(row._rid, row);
+    _pushRowFb(row._rid, row, cb);
     _saveCache();
     return true;
   }
@@ -637,24 +693,43 @@ const ENG = (function(){
   }
   /* Gọi từ MIXNOTIFY khi nhân viên cân xác nhận mixing notify.
      Trả về true nếu tìm được lot và đã set cờ. */
-  function setStockTransfer(lot, tank, on, who){
-    const row = findRowByLotTank(lot, tank);
-    if(!row){
-      /* v4.62 lazy-load: chỉ 10 lot mới nhất nằm trong RAM. Lot cũ hơn thì
-         kéo toàn bộ Tank Log về rồi thử lại đúng 1 lần. */
-      if(!_allLoaded){
-        loadAll(()=>{ try{ setStockTransfer(lot, tank, on, who); }catch(_){} });
-        return true;
+  /* v4.77 — cb(ok, why) BẮT BUỘC dùng nếu caller cần biết kết quả thật.
+     why: 'ok' | 'already' | 'notfound' | 'fb-error'.
+     Giá trị trả về CHỈ mang tính đồng bộ tức thời (null = đang chờ loadAll),
+     đừng dựa vào nó — bug cũ: nhánh lazy-load return true ngay lập tức nên
+     MIXNOTIFY tưởng đã tick xong và xoá thông báo, trong khi lot có thể
+     không bao giờ được tìm thấy → cờ ST mất âm thầm. */
+  function setStockTransfer(lot, tank, on, who, cb){
+    const fin = (ok, why) => {
+      if(!ok) console.warn('[ENG] setStockTransfer FAILED', lot, tank, why);
+      if(typeof cb === 'function'){ try{ cb(!!ok, why); }catch(e){ console.warn('[ENG] ST cb', e); } }
+      return !!ok;
+    };
+    const commit = (row) => {
+      const changed = _applyST(row, on !== false, who, (ok, err)=>{
+        fin(ok, ok ? (err === 'already' ? 'already' : 'ok') : 'fb-error');
+      });
+      if(changed){
+        render();
+        try{ if(window.ALLOC && ALLOC.refresh) ALLOC.refresh(); }catch(_){}
       }
-      console.warn('[ENG] setStockTransfer: không tìm thấy lot', lot, tank);
-      return false;
+      return true;
+    };
+
+    const row = findRowByLotTank(lot, tank);
+    if(row) return commit(row);
+
+    /* v4.62 lazy-load: chỉ 10 lot mới nhất nằm trong RAM. Lot cũ hơn thì
+       kéo toàn bộ Tank Log về rồi thử lại đúng 1 lần. */
+    if(!_allLoaded){
+      loadAll(()=>{
+        const r2 = findRowByLotTank(lot, tank);
+        if(!r2){ fin(false, 'notfound'); return; }
+        commit(r2);
+      });
+      return null;                      // ĐANG CHỜ — kết quả trả về qua cb
     }
-    const changed = _applyST(row, on !== false, who);
-    if(changed){
-      render();
-      try{ if(window.ALLOC && ALLOC.refresh) ALLOC.refresh(); }catch(_){}
-    }
-    return true;
+    return fin(false, 'notfound');
   }
   /* Danh sách lot CHƯA chuyển kho — ALLOC dùng để cộng thêm vào bồn. */
   function pendingTransfers(){
@@ -675,6 +750,19 @@ const ENG = (function(){
       const m2 = rLot.match(/(\d+)\s*$/);
       const rNum = m2 ? parseInt(m2[1]) : NaN;
       if(!isNaN(rNum) && !isNaN(lotNum) && rNum === lotNum) return row;
+    }
+    /* v4.77 — VÒNG 2: bỏ qua điều kiện bồn, khớp riêng số lot.
+       Số lot là duy nhất trong Tank Log nên vẫn an toàn; vòng này cứu các
+       trường hợp tên bồn lệch nhau giữa notify và Tank Log (vd "TK-3501"
+       vs "Tank 1" vs "3501 A") mà trước đây làm tick ST thất bại âm thầm. */
+    if(!isNaN(lotNum)){
+      for(const row of ROWS){
+        const rLot = String(row[1]||'').trim();
+        if(rLot === lotStr) return row;
+        const m3 = rLot.match(/(\d+)\s*$/);
+        const rNum = m3 ? parseInt(m3[1]) : NaN;
+        if(!isNaN(rNum) && rNum === lotNum) return row;
+      }
     }
     return null;
   }
@@ -1398,8 +1486,715 @@ const ENG = (function(){
     console.log('[ENG] ✅ Init OK · '+ROWS.length+' tank-log rows (rid-keyed)');
   }
 
+  /* ============================================================
+     v4.77 — IN PHIẾU DỮ LIỆU LÔ PHA TRỘN (A4 portrait)
+     ------------------------------------------------------------
+     Mục đích: xuất 1 tờ A4 / 1 lot chứa dữ liệu của lot (điều kiện
+     pha trộn, cân bằng vật chất, kết quả GC, chỉ tiêu COQ, trạng
+     thái chuyển kho) kèm ô ký tên của LPG Terminal để cung cấp cho
+     đoàn kiểm tra / audit.
+
+     Luồng 2 bước:
+       B1  gõ số lot → danh sách CHỈ hiện khi đã gõ (tránh rối mắt)
+           → tick chọn; tìm tiếp lot khác, các lot đã chọn giữ
+           nguyên dưới dạng chip → in nhiều trang một lần.
+       B2  "Xem trước & sửa": dựng đúng bản in trên màn hình,
+           mọi ô số đều sửa được tại chỗ, có ✕ để xoá trắng, và
+           checkbox bật/tắt từng VÙNG dữ liệu (đầu phiếu, GC, COQ,
+           ký tên…) — vùng nào không muốn lộ thì bỏ tick.
+           Sửa/ẩn CHỈ ảnh hưởng bản in, KHÔNG ghi lại Tank Log.
+     In qua hidden iframe (_pfPrintViaIframe) — không mở tab mới.
+     ============================================================ */
+  const CO_VN  = 'CÔNG TY TNHH HÓA CHẤT HYOSUNG VINA';
+  const CO_EN  = 'HYOSUNG VINA CHEMICALS CO., LTD.';
+  const DEPT   = 'LPG TERMINAL — ENGINEERING / TANK MIXING';
+
+  /* Các vùng bật/tắt được. key phải khớp data-sec trong _buildOneSheet. */
+  const PR_SECS = [
+    { k:'hdr',  n:'Đầu phiếu (tên công ty, ngày in, người in)' },
+    { k:'band', n:'Dải nhận diện lô (Lot · Bồn · Ngày · Kết quả)' },
+    { k:'s1',   n:'1. Điều kiện pha trộn' },
+    { k:'s2',   n:'2. Cân bằng vật chất' },
+    { k:'s3',   n:'3. Kết quả phân tích GC' },
+    { k:'s4',   n:'4. Chỉ tiêu COQ' },
+    { k:'s5',   n:'5. Ghi chú' },
+    { k:'cert', n:'Câu xác nhận' },
+    { k:'sig',  n:'Khối ký tên' },
+    { k:'foot', n:'Chân trang' }
+  ];
+
+  let _prSel  = Object.create(null);      // rid -> true (lot đã chọn, giữ qua nhiều lần tìm)
+  let _prSecOn = Object.create(null);     // key vùng -> bật/tắt
+  PR_SECS.forEach(s => _prSecOn[s.k] = true);
+  let _prEdit = false;                    // đang dựng bản CÓ chỉnh sửa?
+
+  /* ---------------- BƯỚC 1 — tìm & chọn lot ---------------- */
+  function openPrint(){
+    _prSel = Object.create(null);
+    PR_SECS.forEach(s => _prSecOn[s.k] = true);
+    const bg = document.getElementById('engPrintModal');
+    if(!bg) return;
+    const q = document.getElementById('engPrintSrch');
+    if(q) q.value = '';
+    printBack();
+    bg.classList.add('on');
+    renderPrintList();
+    setTimeout(()=>{ q && q.focus(); }, 80);
+  }
+  function closePrint(){
+    const bg = document.getElementById('engPrintModal');
+    if(bg) bg.classList.remove('on');
+  }
+
+  function _prQuery(){
+    return String(document.getElementById('engPrintSrch')?.value || '').toLowerCase().trim();
+  }
+  /* Kết quả tìm — khớp Lot, Bồn hoặc COQ No. KHÔNG trả gì khi chưa gõ. */
+  function _prMatches(){
+    const q = _prQuery();
+    if(!q) return [];
+    return ROWS.slice()
+      .sort((a,b)=> _lotKey(b[1]) - _lotKey(a[1]))
+      .filter(r =>
+        String(r[1]||'').toLowerCase().includes(q) ||
+        String(r[2]||'').toLowerCase().includes(q) ||
+        String(r[34]||'').toLowerCase().includes(q))
+      .slice(0, 40);
+  }
+  function renderPrintList(){
+    const box = document.getElementById('engPrintList');
+    if(!box) return;
+    const q = _prQuery();
+
+    if(!q){
+      box.innerHTML = '<div class="eng-pr-empty">'
+        + '<div class="eng-pr-empty-ic">🔍</div>'
+        + 'Gõ <b>số lot</b> vào ô trên để tìm — ví dụ <code>305</code> hoặc <code>LPG-2026-305</code>.'
+        + '<br>Tick lot cần in, rồi tìm tiếp lot khác nếu muốn in nhiều trang.'
+        + '</div>';
+      _syncPrintCount(); return;
+    }
+    const list = _prMatches();
+    if(!list.length){
+      box.innerHTML = '<div class="eng-pr-empty">Không tìm thấy lot nào khớp "<b>'+_esc(q)+'</b>"'
+        + (_allLoaded ? '' : '<br><span style="color:var(--orange)">Đang ở chế độ '+INIT_LOTS
+           +' lot mới nhất — bấm 📥 Load All ở thanh công cụ để tìm trong toàn bộ dữ liệu.</span>')
+        + '</div>';
+      _syncPrintCount(); return;
+    }
+    box.innerHTML =
+      '<div class="eng-pr-hd">'
+      + '<span></span><span>Lot</span><span>Bồn</span><span>Ngày</span>'
+      + '<span class="ta-r">Filled LPG</span><span class="ta-c">Quality</span><span>COQ No</span>'
+      + '</div>'
+      + list.map(r=>{
+        const rid = r._rid || '';
+        const on  = !!_prSel[rid];
+        const ql  = String(r[27]||'').trim().toLowerCase();
+        const qc  = ql==='pass' ? 'var(--green)' : (ql==='fail' ? 'var(--red)' : '#d97706');
+        return '<label class="eng-pr-item'+(on?' on':'')+'">'
+          + '<input type="checkbox" '+(on?'checked':'')+' onchange="ENG.togglePrintSel(\''+rid+'\',this.checked)">'
+          + '<span class="eng-pr-lot">'+_esc(r[1])+'</span>'
+          + '<span class="eng-pr-tk">'+_esc(r[2])+'</span>'
+          + '<span class="eng-pr-dt">'+_fmtDate(r[3])+'</span>'
+          + '<span class="eng-pr-lpg">'+_fmtNum(r[15],3)+'</span>'
+          + '<span class="eng-pr-q" style="color:'+qc+'">'+_esc(r[27])+'</span>'
+          + '<span class="eng-pr-coq">'+_esc(r[34])+'</span>'
+          + '</label>';
+      }).join('');
+    _syncPrintCount();
+  }
+  function togglePrintSel(rid, on){
+    if(on) _prSel[rid] = true; else delete _prSel[rid];
+    renderPrintList();
+  }
+  function printSelectAll(){
+    const l = _prMatches();
+    if(!l.length) return;
+    l.forEach(r=>{ if(r._rid) _prSel[r._rid] = true; });
+    renderPrintList();
+  }
+  function printClearSel(){ _prSel = Object.create(null); renderPrintList(); }
+
+  /* Lot đã chọn theo thứ tự lot giảm dần */
+  function _prPicked(){
+    return ROWS.filter(r => r._rid && _prSel[r._rid])
+               .sort((a,b)=> _lotKey(b[1]) - _lotKey(a[1]));
+  }
+  function _syncPrintCount(){
+    const picked = _prPicked();
+    const n = picked.length;
+
+    const chips = document.getElementById('engPrChips');
+    if(chips){
+      chips.innerHTML = n
+        ? picked.map(r=>'<span class="eng-pr-chip">'+_esc(r[1])+' · '+_esc(r[2])
+            + '<button onclick="ENG.togglePrintSel(\''+r._rid+'\',false)" title="Bỏ lot này">✕</button></span>').join('')
+            + '<button class="eng-pr-chip-clr" onclick="ENG.printClearSel()">Xoá hết</button>'
+        : '<span class="eng-pr-chip-none">— chưa chọn lot nào —</span>';
+    }
+    const cn = document.getElementById('engPrChipN'); if(cn) cn.textContent = n;
+
+    const el = document.getElementById('engPrintCnt');
+    if(el) el.textContent = n ? (n + ' lot · ' + n + ' trang A4') : 'Chưa chọn lot nào';
+    const nx = document.getElementById('engPrNext');
+    if(nx){ nx.disabled = !n; nx.style.opacity = n ? '' : '.5'; nx.style.cursor = n ? '' : 'not-allowed'; }
+  }
+
+  /* ---------------- BƯỚC 2 — xem trước & sửa ---------------- */
+  function printReview(){
+    const picked = _prPicked();
+    if(!picked.length){ toast('⚠ Chưa chọn lot nào','warn'); return; }
+
+    /* nhúng CSS bản in vào trang để xem trước giống hệt lúc in */
+    if(!document.getElementById('engPrStyle')){
+      const st = document.createElement('style');
+      st.id = 'engPrStyle';
+      st.textContent = _PR_CSS + _PR_SCREEN_CSS;
+      document.head.appendChild(st);
+    }
+    const host = document.getElementById('engPrSheets');
+    if(host){
+      _prEdit = true;
+      host.innerHTML = picked.map((r,i)=> '<div class="pr-paper">'
+        + _buildOneSheet(r, i+1, picked.length) + '</div>').join('');
+      _prEdit = false;
+      if(!host.dataset.wired){
+        host.dataset.wired = '1';
+        /* ✕ trên từng ô → bật/tắt cờ .pr-off cho CẢ nhãn lẫn giá trị.
+           Lúc in, ô .pr-off bị làm trống hoàn toàn nên không còn cảnh
+           "có tiêu đề mà không có số" — thứ luôn bị đoàn kiểm tra hỏi. */
+        host.addEventListener('click', e=>{
+          const x = e.target.closest ? e.target.closest('.pr-x') : null;
+          if(!x) return;
+          e.preventDefault(); e.stopPropagation();
+          _prToggleCell(x.closest('td'));
+        });
+        /* checkbox tiêu đề mục ngay trên phiếu */
+        host.addEventListener('change', e=>{
+          const cb = e.target;
+          if(!cb || !cb.dataset || !cb.dataset.seck) return;
+          printToggleSec(cb.dataset.seck, cb.checked);
+          _prSyncSecUI();
+        });
+      }
+    }
+    /* bảng bật/tắt vùng */
+    const sec = document.getElementById('engPrSecList');
+    if(sec){
+      sec.innerHTML =
+        '<div class="eng-pr-sec-bar">'
+        + '<button class="eng-pr-sec-b" onclick="ENG.printAllSecs(true)">Chọn tất cả</button>'
+        + '<button class="eng-pr-sec-b" onclick="ENG.printAllSecs(false)">Bỏ tất cả</button>'
+        + '<span class="eng-pr-sec-cnt" id="engPrSecCnt">'
+        + PR_SECS.filter(x=>_prSecOn[x.k]).length + '/' + PR_SECS.length + '</span>'
+        + '</div>'
+        + PR_SECS.map(s=>
+        '<label class="eng-pr-sec"><input type="checkbox" '+(_prSecOn[s.k]?'checked':'')
+        + ' onchange="ENG.printToggleSec(\''+s.k+'\',this.checked);ENG.syncSecUI()"><span>'+s.n+'</span></label>').join('');
+    }
+    PR_SECS.forEach(s=> printToggleSec(s.k, _prSecOn[s.k]));
+    _prSyncSecUI();
+
+    _prSwitch(2);
+    _prFit();
+    const cnt = document.getElementById('engPrintCnt');
+    if(cnt) cnt.textContent = picked.length + ' trang A4 — kiểm tra và sửa trước khi in';
+  }
+  /* v4.78 — TỰ CO TỜ GIẤY cho vừa khung xem trước.
+     Không tin vào chiều rộng modal nữa: đo trực tiếp chỗ trống thực tế rồi
+     đặt zoom. Trước đây .modal của core.css khoá width:680px nên tờ A4
+     190mm luôn bị cắt mất mép phải dù CSS override đã có. */
+  let _prFitWired = false;
+  function _prFit(){
+    const host = document.getElementById('engPrSheets');
+    if(!host) return;
+    const papers = host.querySelectorAll('.pr-paper');
+    if(!papers.length) return;
+    const avail = host.clientWidth - 24;            // trừ padding 2 bên
+    if(avail <= 0) return;
+    const PAPER_PX = 210 * 96 / 25.4;               // 190mm nội dung + 20mm lề = 210mm
+    let z = avail / PAPER_PX;
+    if(z > 1) z = 1;
+    if(z < 0.35) z = 0.35;
+    Array.prototype.forEach.call(papers, el=>{ el.style.zoom = z.toFixed(3); });
+    if(!_prFitWired){
+      _prFitWired = true;
+      window.addEventListener('resize', ()=>{ try{ _prFit(); }catch(_){} });
+    }
+  }
+
+  function printBack(){ _prSwitch(1); _syncPrintCount(); }
+  function _prSwitch(step){
+    const p1 = document.getElementById('engPrPane1'), p2 = document.getElementById('engPrPane2');
+    const bk = document.getElementById('engPrBack'), nx = document.getElementById('engPrNext');
+    const go = document.getElementById('engPrintGo');
+    if(p1) p1.style.display = step===1 ? '' : 'none';
+    if(p2) p2.style.display = step===2 ? '' : 'none';
+    if(bk) bk.style.display = step===2 ? '' : 'none';
+    if(nx) nx.style.display = step===1 ? '' : 'none';
+    if(go) go.style.display = step===2 ? '' : 'none';
+    /* .modal của core.css khoá width:680px — bước 2 cần khổ giấy 190mm nên
+       phải đổi bằng class (đặt width + max-height), không chỉ maxWidth. */
+    const md = document.querySelector('#engPrintModal .modal');
+    if(md) md.classList.toggle('pr-wide', step === 2);
+  }
+  function printToggleSec(key, on){
+    _prSecOn[key] = !!on;
+    const host = document.getElementById('engPrSheets');
+    if(!host) return;
+    Array.prototype.forEach.call(host.querySelectorAll('[data-sec="'+key+'"]'),
+      el => { el.style.display = on ? '' : 'none'; });
+    _prRenum();
+  }
+  /* Đồng bộ 2 nơi tick: cột trái và checkbox trên tiêu đề mục trong phiếu */
+  function _prSyncSecUI(){
+    const host = document.getElementById('engPrSheets');
+    if(host) Array.prototype.forEach.call(host.querySelectorAll('[data-seck]'), cb=>{
+      cb.checked = !!_prSecOn[cb.dataset.seck];
+    });
+    const side = document.getElementById('engPrSecList');
+    if(side) Array.prototype.forEach.call(side.querySelectorAll('input[type=checkbox]'), (cb,i)=>{
+      if(PR_SECS[i]) cb.checked = !!_prSecOn[PR_SECS[i].k];
+    });
+    const n = PR_SECS.filter(s=>_prSecOn[s.k]).length;
+    const el = document.getElementById('engPrSecCnt');
+    if(el) el.textContent = n + '/' + PR_SECS.length;
+  }
+  function printAllSecs(on){
+    PR_SECS.forEach(s=> printToggleSec(s.k, on));
+    _prSyncSecUI();
+  }
+  /* Đánh lại số mục 1,2,3… theo các mục CÒN được in (bỏ mục 2 thì mục 3
+     thành 2) — bản in không nhảy số nên không phát sinh câu hỏi khi audit. */
+  function _prRenum(){
+    const host = document.getElementById('engPrSheets');
+    if(!host) return;
+    Array.prototype.forEach.call(host.querySelectorAll('.pr-paper'), paper=>{
+      let i = 0;
+      Array.prototype.forEach.call(paper.querySelectorAll('[data-sec] .pr-sec-no'), sp=>{
+        const blk = sp.closest('[data-sec]');
+        if(blk && blk.style.display === 'none') return;
+        sp.textContent = (++i) + '.';
+      });
+    });
+  }
+  /* Bật/tắt 1 ô dữ liệu: ẩn CẢ nhãn lẫn giá trị khi in */
+  function _prToggleCell(td){
+    if(!td) return;
+    const on = !td.classList.contains('pr-off');
+    td.classList.toggle('pr-off', on);
+    /* ô nhãn đứng ngay trước ô giá trị */
+    const lbl = td.previousElementSibling;
+    if(lbl && lbl.classList.contains('pr-l')) lbl.classList.toggle('pr-off', on);
+    /* mục 2 (cân bằng vật chất): nhãn nằm ở hàng <th> phía trên, cùng cột */
+    if(td.parentNode && td.parentNode.classList.contains('pr-bal-v')){
+      const idx = Array.prototype.indexOf.call(td.parentNode.children, td);
+      const hdr = td.closest('table').querySelector('.pr-bal-h');
+      if(hdr && hdr.children[idx]) hdr.children[idx].classList.toggle('pr-off', on);
+    }
+  }
+  function printResetEdits(){ printReview(); toast('↺ Đã khôi phục dữ liệu gốc của phiếu','ok'); }
+
+  /* ---------------- dựng phiếu ---------------- */
+  /* _ed — bọc giá trị để sửa tại chỗ khi đang ở chế độ xem trước.
+     .pr-e = ô sửa được · .pr-x = nút xoá trắng (cả hai bị ẩn khi in). */
+  function _ed(html){
+    if(!_prEdit) return html;
+    return '<span class="pr-e" contenteditable="true">'+html+'</span>'
+         + '<button class="pr-x" title="Bỏ ô này khỏi bản in (ẩn cả nhãn lẫn số)">✕</button>';
+  }
+
+  /* v4.79 — tiêu đề mục kèm checkbox in/không in ngay trên phiếu.
+     data-no giữ số gốc để _prRenum() đánh lại 1,2,3… cho các mục CÒN in,
+     tránh bản in nhảy số (1,3,5) khiến đoàn kiểm tra thắc mắc. */
+  function _secHdr(key, no, vn, en){
+    return '<div class="pr-sec">'
+      + (_prEdit ? '<label class="pr-sec-ck" title="Bỏ tick = KHÔNG in mục này">'
+                 + '<input type="checkbox" checked data-seck="'+key+'"></label>' : '')
+      + '<span class="pr-sec-no" data-no="'+no+'">'+no+'.</span> '
+      + vn + ' <i>· ' + en + '</i></div>';
+  }
+  /* v4.78 — bỏ số 0 thừa ở đuôi phần thập phân: 54.6200 → 54.62, 0.0400 →
+     0.04, 11.70 → 11.7. Giữ nguyên dấu phân cách nghìn của _fmtNum. */
+  function _trimZ(str){
+    const t = String(str);
+    if(t.indexOf('.') < 0) return t;
+    return t.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  }
+  function _pv(v, d){                       // giá trị số → chuỗi, rỗng thì '—'
+    const s = String(v == null ? '' : v).trim();
+    if(s === '') return _ed('<span class="pr-na">—</span>');
+    return _ed(d != null ? _trimZ(_fmtNum(v, d)) : _esc(s));
+  }
+  function _pvp(v){                          // phần trăm
+    const s = String(v == null ? '' : v).trim();
+    if(s === '') return _ed('<span class="pr-na">—</span>');
+    return _ed(_fmtPct(v));
+  }
+  function _pt(v){                           // chuỗi thuần
+    const s = _esc(String(v == null ? '' : v).trim());
+    return _ed(s || '<span class="pr-na">—</span>');
+  }
+  function _prNowStr(){
+    const d = new Date(), p = v=>String(v).padStart(2,'0');
+    return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes());
+  }
+  /* 1 ô dữ liệu: nhãn + giá trị + đơn vị */
+  /* Nhãn truyền vào dạng 'Tiếng Việt|English'. LUÔN dựng 2 dòng (dòng EN
+     rỗng thì để &nbsp;) để mọi hàng cao bằng nhau — trước đây nhãn dài ngắn
+     khác nhau làm mỗi hàng lệch một kiểu, nhìn rất lộn xộn.
+     Giá trị và đơn vị tách thành 2 span: .pr-n canh phải, .pr-u là máng
+     rộng cố định → tất cả con số thẳng hàng dù đơn vị dài ngắn khác nhau. */
+  function _cell(lbl, val, unit){
+    const p = String(lbl).split('|');
+    return '<td class="pr-l">'
+         +   '<span class="pr-l-vn">'+p[0]+'</span>'
+         +   '<span class="pr-l-en">'+(p[1] || '&nbsp;')+'</span>'
+         + '</td>'
+         + '<td class="pr-v">'
+         +   '<span class="pr-n">'+val+'</span>'
+         +   '<span class="pr-u">'+(unit || '')+'</span>'
+         + '</td>';
+  }
+
+  function _buildOneSheet(r, pageNo, pageTot){
+    const c = []; for(let i=0;i<ROW_W;i++) c.push(r[i] == null ? '' : r[i]);
+    const ql = String(c[27]).trim().toLowerCase();
+    const qCls = ql==='pass' ? 'pr-pass' : (ql==='fail' ? 'pr-fail' : 'pr-pend');
+    const stOn = String(c[C_ST]) === '1';
+    const fin  = _fmtTime(c[5]), sta = _fmtTime(c[4]);
+    const overnight = (sta && fin && fin < sta);
+
+    return ''
+    + '<div class="pr-page">'
+
+    /* ── ĐẦU PHIẾU ── */
+    + '<div data-sec="hdr">'
+    + '<table class="pr-hdr"><tr>'
+      + '<td class="pr-logo">'
+        + '<div class="pr-logo-hy">HYOSUNG</div>'
+        + '<div class="pr-logo-vc">VINA CHEMICALS</div>'
+      + '</td>'
+      + '<td class="pr-hdr-mid">'
+        + '<div class="pr-co">'+CO_VN+'</div>'
+        + '<div class="pr-co-en">'+CO_EN+'</div>'
+        + '<div class="pr-dept">'+DEPT+'</div>'
+      + '</td>'
+      + '<td class="pr-hdr-r">'
+        + '<div>Biểu mẫu / <i>Form</i>: <b>LPG-ENG-TKMIX-01</b></div>'
+        + '<div>Ngày in / <i>Printed</i>: <b>'+_prNowStr()+'</b></div>'
+        + '<div>Người in / <i>By</i>: <b>'+(_esc(_stWho()) || '—')+'</b></div>'
+        + '<div>Trang / <i>Page</i>: <b>'+pageNo+' / '+pageTot+'</b></div>'
+      + '</td>'
+    + '</tr></table>'
+    + '</div>'
+
+    + '<div class="pr-title">PHIẾU DỮ LIỆU LÔ PHA TRỘN LPG</div>'
+    + '<div class="pr-title-en">LPG TANK MIXING BATCH DATA SHEET</div>'
+
+    /* ── DẢI NHẬN DIỆN LÔ ── */
+    + '<div data-sec="band">'
+    + '<table class="pr-band"><tr>'
+      + '<td><span class="pr-band-l">SỐ LÔ / LOT No.</span><span class="pr-band-v pr-lot">'+_pt(c[1])+'</span></td>'
+      + '<td><span class="pr-band-l">BỒN / TANK</span><span class="pr-band-v">'+_pt(c[2])+'</span></td>'
+      + '<td><span class="pr-band-l">NGÀY / DATE</span><span class="pr-band-v">'+_ed(_fmtDate(c[3]))+'</span></td>'
+      + '<td><span class="pr-band-l">KẾT QUẢ / RESULT</span><span class="pr-band-v '+qCls+'">'+_pt(c[27])+'</span></td>'
+    + '</tr></table>'
+    + '</div>'
+
+    /* ── 1. ĐIỀU KIỆN PHA TRỘN ── */
+    + '<div data-sec="s1">'
+    + _secHdr('s1','1','ĐIỀU KIỆN PHA TRỘN','Mixing conditions')
+    + '<table class="pr-t">'
+      + '<tr>'
+        + _cell('Bắt đầu|Start', _ed(sta || '<span class="pr-na">—</span>'), '')
+        + _cell('Kết thúc|Finish', _ed((fin || '—') + (overnight?' <span class="pr-nx">(+1 ngày)</span>':'')), '')
+        + _cell('Thể tích đầu|Init vol.', _pv(c[10],3), 'm³')
+      + '</tr>'
+      + '<tr>'
+        + _cell('%C3 đầu|Init %C3', _pvp(c[11]), '')
+        + _cell('%C4 đầu|Init %C4', _pvp(c[12]), '')
+        + _cell('Nhiệt độ|Temp.', _pv(c[31],1), '°C')
+      + '</tr>'
+      + '<tr>'
+        + _cell('Áp suất|Pressure', _pv(c[32],2), 'bar')
+        + _cell('Tỷ trọng|Density', _pv(c[33],3), 'kg/l')
+        + _cell('Mùi (Odorant)', _pv(c[26],2), 'kg')
+      + '</tr>'
+      + '<tr>'
+        + _cell('%C3 mục tiêu|Target', _pvp(c[29]), '')
+        + _cell('Thể tích mục tiêu|Target vol.', _pv(c[30],1), 'm³')
+        + _cell('Chuyển kho WMS|Stock transfer',
+            _ed((stOn ? '<b class="pr-pass">✔ ĐÃ CHUYỂN</b>' : '<b class="pr-pend">○ CHƯA CHUYỂN</b>')
+            + (stOn && c[C_ST_TS] ? ' <span class="pr-sm">'+_stWhen(c[C_ST_TS])
+               + (c[C_ST_BY] ? ' · '+_esc(c[C_ST_BY]) : '')+'</span>' : '')), '')
+      + '</tr>'
+    + '</table>'
+    + '</div>'
+
+    /* ── 2. CÂN BẰNG VẬT CHẤT ── */
+    + '<div data-sec="s2">'
+    + _secHdr('s2','2','CÂN BẰNG VẬT CHẤT','Material balance')
+    + '<table class="pr-t pr-bal">'
+      + '<tr class="pr-bal-h">'
+        + '<th>Propane nạp<br><i>Filled C3</i> (MT)</th>'
+        + '<th>Butane nạp<br><i>Filled C4</i> (MT)</th>'
+        + '<th>Tổng LPG nạp<br><i>Filled LPG</i> (MT)</th>'
+        + '<th>Thể tích cuối<br><i>Final vol.</i> (m³)</th>'
+        + '<th>Khối lượng cuối<br><i>Final qty</i> (MT)</th>'
+      + '</tr>'
+      + '<tr class="pr-bal-v">'
+        + '<td class="pr-c3">'+_pv(c[13],3)+'</td>'
+        + '<td class="pr-c4">'+_pv(c[14],3)+'</td>'
+        + '<td class="pr-lpg">'+_pv(c[15],3)+'</td>'
+        + '<td>'+_pv(c[6],3)+'</td>'
+        + '<td class="pr-qty">'+_pv(c[7],2)+'</td>'
+      + '</tr>'
+    + '</table>'
+    + '</div>'
+
+    /* ── 3. KẾT QUẢ PHÂN TÍCH GC ── */
+    + '<div data-sec="s3">'
+    + _secHdr('s3','3','KẾT QUẢ PHÂN TÍCH THÀNH PHẦN (GC)','Gas chromatography')
+    + '<table class="pr-t">'
+      + '<tr>'
+        + _cell('%C3 cuối|Final %C3', _pvp(c[8]), '')
+        + _cell('%C4 cuối|Final %C4', _pvp(c[9]), '')
+        + _cell('Ethane (C₂H₆)', _pv(c[17],4), '%')
+      + '</tr>'
+      + '<tr>'
+        + _cell('Propane (C₃H₈)', _pv(c[18],4), '%')
+        + _cell('iso-Butane (i-C₄)', _pv(c[19],4), '%')
+        + _cell('n-Butane (n-C₄)', _pv(c[20],4), '%')
+      + '</tr>'
+      + '<tr>'
+        + _cell('Pentane+ (C₅⁺)', _pv(c[22],4), '%')
+        + _cell('Olefin', _pv(c[23],4), '%')
+        + _cell('Propylene (C₃H₆)', _pv(c[37],4), '%')
+      + '</tr>'
+    + '</table>'
+    + '</div>'
+
+    /* ── 4. CHỨNG THƯ CHẤT LƯỢNG (COQ) ── */
+    + '<div data-sec="s4">'
+    + _secHdr('s4','4','CHỈ TIÊU CHỨNG THƯ CHẤT LƯỢNG','Certificate of Quality')
+    + '<table class="pr-t">'
+      + '<tr>'
+        + _cell('Số COQ|COQ No.', _pt(c[34]), '')
+        + _cell('Ngày phân tích|Analysis', _pt(c[36]), '')
+        + _cell('Áp suất hơi|Vapour press.', _pv(c[38],0), 'kPa')
+      + '</tr>'
+      + '<tr>'
+        + _cell('Lưu huỳnh tổng|Total sulfur', _pv(c[39],2), 'mg/kg')
+        + _cell('Nước tự do|Free water', _pt(c[40]), '')
+        + _cell('Ăn mòn đồng|Cu corrosion', _pt(c[41]), '')
+      + '</tr>'
+      + '<tr>'
+        + _cell('Cặn|Residue', _pt(c[42]), '')
+        + _cell('Khối lượng phân tử|MW', _pv(c[43],2), '')
+        + _cell('Pro/Bu %Vol', _pt(c[44]), '')
+      + '</tr>'
+      + '<tr>'
+        + _cell('Pro/Bu %Wt', _pt(c[45]), '')
+        + _cell('t-2-Butene', _pv(c[46],4), '%')
+        + _cell('1-Butene', _pv(c[47],4), '%')
+      + '</tr>'
+      + '<tr>'
+        + _cell('iso-Butene', _pv(c[48],4), '%')
+        + _cell('neo-Pentane', _pv(c[49],4), '%')
+        + _cell('iso-Pentane', _pv(c[50],4), '%')
+      + '</tr>'
+      + '<tr>'
+        + _cell('n-Pentane', _pv(c[51],4), '%')
+        + _cell('n-Hexane', _pv(c[52],4), '%')
+        + '<td class="pr-l"></td><td class="pr-v"></td>'
+      + '</tr>'
+    + '</table>'
+    + '</div>'
+
+    /* ── 5. GHI CHÚ ── */
+    + '<div data-sec="s5">'
+    + _secHdr('s5','5','GHI CHÚ','Remark')
+    + '<table class="pr-t"><tr><td class="pr-rmk">'
+      + (_prEdit ? '<span class="pr-e" contenteditable="true">'+(_esc(c[28])||'&nbsp;')+'</span>'
+                 : (_esc(c[28]) || '&nbsp;'))
+      + '</td></tr></table>'
+    + '</div>'
+
+    /* ── XÁC NHẬN / KÝ TÊN ── */
+    + '<div class="pr-spacer"></div>'
+    + '<div data-sec="cert"><div class="pr-cert">'
+      + 'Chúng tôi xác nhận các số liệu trên được trích xuất trung thực từ hệ thống quản lý '
+      + 'pha trộn LPG của Nhà máy và phản ánh đúng dữ liệu lô hàng nêu trên.<br>'
+      + '<i>We hereby certify that the data above is truthfully extracted from the plant LPG mixing management '
+      + 'system and correctly reflects the stated batch.</i></div></div>'
+    + '<div data-sec="sig">'
+    + '<table class="pr-sig"><tr>'
+      + '<td><div class="pr-sig-r">NGƯỜI LẬP</div><div class="pr-sig-en">Prepared by</div>'
+        + '<div class="pr-sig-note">(Ký, ghi rõ họ tên)</div><div class="pr-sig-sp"></div><div class="pr-sig-ln"></div></td>'
+      + '<td><div class="pr-sig-r">TRƯỞNG CA VẬN HÀNH</div><div class="pr-sig-en">Shift Supervisor</div>'
+        + '<div class="pr-sig-note">(Ký, ghi rõ họ tên)</div><div class="pr-sig-sp"></div><div class="pr-sig-ln"></div></td>'
+      + '<td><div class="pr-sig-r">QUẢN ĐỐC LPG TERMINAL</div><div class="pr-sig-en">LPG Terminal Manager</div>'
+        + '<div class="pr-sig-note">(Ký, đóng dấu, ghi rõ họ tên)</div><div class="pr-sig-sp"></div><div class="pr-sig-ln"></div></td>'
+    + '</tr></table>'
+    + '</div>'
+    + '<div data-sec="foot"><div class="pr-foot">HSVC LPG Station v4 · Tank Log · Lot '+_esc(c[1])+' · '+_esc(c[2])
+      + ' · In lúc '+_prNowStr()+' — Tài liệu phục vụ kiểm tra / audit, không dùng cho mục đích thương mại.</div></div>'
+    + '</div>';
+  }
+
+  /* CSS dùng CHUNG cho bản xem trước trên màn hình và bản in.
+     Phần @page / html,body chỉ thêm vào lúc in (xem _prDoc). */
+  const _PR_CSS = '\
+.pr-page{display:flex;flex-direction:column;min-height:271mm;font-family:"Barlow",Arial,sans-serif;font-size:8.6pt;color:#111;}\
+.pr-page *{box-sizing:border-box;}\
+.pr-hdr{width:100%;border-collapse:collapse;border:0.8pt solid #123;}\
+.pr-hdr td{border:0.5pt solid #567;padding:3pt 6pt;vertical-align:middle;}\
+.pr-logo{width:34mm;text-align:center;}\
+.pr-logo-hy{font-family:"Arial Black",Arial,sans-serif;font-size:15pt;font-weight:900;letter-spacing:.4pt;color:#000;line-height:1;}\
+.pr-logo-vc{font-size:7pt;font-weight:700;letter-spacing:1.1pt;color:#1a3a5c;margin-top:1.5pt;}\
+.pr-hdr-mid{text-align:center;}\
+.pr-co{font-size:10.5pt;font-weight:800;color:#0b2c4d;letter-spacing:.2pt;}\
+.pr-co-en{font-size:7.5pt;color:#456;font-style:italic;margin-top:1pt;}\
+.pr-dept{font-size:8pt;font-weight:700;color:#1a3a5c;margin-top:2.5pt;letter-spacing:.6pt;}\
+.pr-hdr-r{width:52mm;font-size:7.2pt;line-height:1.55;}\
+.pr-hdr-r i{color:#789;font-size:6.6pt;}\
+.pr-title{text-align:center;font-size:14pt;font-weight:900;letter-spacing:.4pt;color:#0b2c4d;margin-top:5pt;}\
+.pr-title-en{text-align:center;font-size:8pt;font-style:italic;color:#567;letter-spacing:1pt;margin-bottom:5pt;}\
+.pr-band{width:100%;border-collapse:collapse;border:0.8pt solid #123;background:#eef4fa;margin-bottom:5pt;}\
+.pr-band td{border:0.5pt solid #9ab;padding:4pt 7pt;text-align:center;}\
+.pr-band-l{display:block;font-size:6.6pt;font-weight:700;color:#567;letter-spacing:.7pt;}\
+.pr-band-v{display:block;font-size:11.5pt;font-weight:800;color:#0b2c4d;margin-top:1.5pt;}\
+.pr-band-v.pr-lot{font-family:"Courier New",monospace;letter-spacing:.4pt;}\
+.pr-sec{font-size:8.6pt;font-weight:800;color:#0b2c4d;background:#dde7f1;border-left:2.5pt solid #1a5f9e;\
+  padding:2.6pt 6pt;margin:5pt 0 0;letter-spacing:.2pt;}\
+.pr-sec i{font-weight:400;color:#567;font-size:7.4pt;}\
+.pr-t{width:100%;border-collapse:collapse;border:0.6pt solid #567;table-layout:fixed;}\
+.pr-t td,.pr-t th{border:0.4pt solid #9ab;padding:3pt 6pt;vertical-align:middle;font-size:8.4pt;}\
+.pr-l{background:#f4f7fa;width:20.4%;line-height:1.2;vertical-align:middle;padding:2.5pt 6pt;}\
+.pr-l-vn{display:block;font-size:7.6pt;font-weight:600;color:#26445e;}\
+.pr-l-en{display:block;font-size:6.3pt;font-style:italic;font-weight:400;color:#93a6b8;}\
+.pr-l i{color:#89a;font-weight:400;}\
+.pr-v{width:12.93%;text-align:right;vertical-align:middle;padding:2.5pt 4pt 2.5pt 5pt;\
+  position:relative;white-space:nowrap;}\
+.pr-n{display:inline-block;font-size:9.2pt;font-weight:700;color:#111;font-variant-numeric:tabular-nums;\
+  letter-spacing:-.1pt;}\
+.pr-u{display:inline-block;width:8.2mm;padding-left:1.5pt;text-align:left;vertical-align:baseline;\
+  font-size:6.5pt;font-weight:500;color:#93a6b8;white-space:nowrap;}\
+.pr-t tr{height:25pt;}\
+.pr-sm{font-size:6.8pt;font-weight:500;color:#567;}\
+.pr-na{color:#bbb;font-weight:400;}\
+.pr-nx{font-size:6.8pt;color:#7b2d8e;font-weight:600;}\
+.pr-pass{color:#157a40;}\
+.pr-fail{color:#c0392b;}\
+.pr-pend{color:#b8860b;}\
+.pr-bal-h th{background:#eef4fa;font-size:7.2pt;font-weight:700;color:#345;text-align:center;line-height:1.35;padding:3.5pt 3pt;}\
+.pr-bal-h th i{font-weight:400;color:#89a;}\
+.pr-bal-v td{text-align:center;font-size:13pt;font-weight:800;padding:6pt 3pt;font-variant-numeric:tabular-nums;position:relative;}\
+.pr-bal-v .pr-c3{color:#1a5f9e;background:#f2f8fd;}\
+.pr-bal-v .pr-c4{color:#c26a11;background:#fffaf3;}\
+.pr-bal-v .pr-lpg{color:#c0392b;background:#fef5f6;}\
+.pr-bal-v .pr-qty{color:#157a40;background:#f3faf5;}\
+.pr-rmk{height:11mm;font-size:8.6pt;vertical-align:top;padding:4pt 7pt;line-height:1.5;text-align:left;}\
+.pr-spacer{flex:1;min-height:4mm;}\
+.pr-cert{font-size:7.4pt;line-height:1.55;color:#345;text-align:justify;border-top:0.5pt dashed #9ab;\
+  padding-top:4pt;margin-top:5pt;}\
+.pr-cert i{color:#789;}\
+.pr-sig{width:100%;border-collapse:collapse;margin-top:5pt;table-layout:fixed;}\
+.pr-sig td{text-align:center;vertical-align:top;padding:4pt 4pt 0;}\
+.pr-sig-r{font-size:8.4pt;font-weight:800;color:#0b2c4d;letter-spacing:.3pt;}\
+.pr-sig-en{font-size:7pt;font-style:italic;color:#789;margin-top:.5pt;}\
+.pr-sig-note{font-size:6.6pt;color:#9ab;margin-top:1pt;}\
+.pr-sig-sp{height:20mm;}\
+.pr-sig-ln{border-top:0.5pt dotted #789;margin:0 6mm;}\
+.pr-foot{margin-top:5pt;border-top:0.5pt solid #ccd;padding-top:2.5pt;font-size:6.4pt;color:#9ab;text-align:center;}\
+.pr-e{outline:none;}\
+.pr-x{display:none;}\
+';
+
+  /* CSS chỉ dùng khi XEM TRƯỚC trên màn hình (không đi vào bản in). */
+  const _PR_SCREEN_CSS = '\
+#engPrSheets .pr-paper{box-sizing:border-box;width:210mm;background:#fff;padding:8mm 10mm;\
+  margin:0 auto 14px;box-shadow:0 2px 14px rgba(15,35,60,.16);border-radius:2px;}\
+#engPrSheets .pr-e{outline:none;border-radius:3px;padding:0 2px;cursor:text;\
+  box-shadow:inset 0 -1px 0 rgba(47,128,237,.35);transition:background .12s;}\
+#engPrSheets .pr-e:hover{background:#eaf3fd;}\
+#engPrSheets .pr-e:focus{background:#fffbe6;box-shadow:0 0 0 2px #f0c000;}\
+#engPrSheets .pr-x{display:inline-block;visibility:hidden;width:14px;height:14px;line-height:12px;\
+  margin-left:3px;padding:0;border:none;border-radius:50%;background:#c0392b;color:#fff;\
+  font-size:9px;font-weight:700;cursor:pointer;vertical-align:middle;}\
+#engPrSheets .pr-e:hover + .pr-x,#engPrSheets .pr-x:hover,\
+#engPrSheets td:hover .pr-x,#engPrSheets .pr-band-v:hover .pr-x{visibility:visible;}\
+#engPrSheets [data-sec].pr-sec-off{display:none!important;}\
+#engPrSheets .pr-sec-ck{float:left;margin:0 6px 0 0;display:inline-flex;align-items:center;}\
+#engPrSheets .pr-sec-ck input{width:13px;height:13px;cursor:pointer;accent-color:#1a5f9e;margin:0;}\
+#engPrSheets .pr-off{background:#f2f4f6!important;opacity:.42;}\
+#engPrSheets .pr-off .pr-e{text-decoration:line-through;box-shadow:none;}\
+#engPrSheets .pr-off .pr-l-vn,#engPrSheets .pr-off .pr-l-en{text-decoration:line-through;}\
+#engPrSheets .pr-off .pr-x{visibility:visible;background:#7a8a99;}\
+';
+
+  function _prDoc(bodyHtml){
+    return '<!DOCTYPE html><html><head><meta charset="utf-8">'
+      + '<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">'
+      + '<style>@page{size:A4 portrait;margin:8mm 10mm;}'
+      + '*{margin:0;padding:0;box-sizing:border-box;}'
+      + 'html,body{background:#fff;}'
+      + '.pr-page{page-break-after:always;}'
+      + '.pr-page:last-child{page-break-after:auto;}'
+      + _PR_CSS + '</style></head><body>' + bodyHtml + '</body></html>';
+  }
+
+  /* IN — lấy đúng những gì đang hiển thị ở bước xem trước (đã sửa / đã ẩn vùng). */
+  function doPrint(){
+    const host = document.getElementById('engPrSheets');
+    if(!host || !host.children.length){ toast('⚠ Chưa có phiếu nào để in','warn'); return; }
+
+    const clone = host.cloneNode(true);
+    /* 1 · vùng bỏ tick → XOÁ HẲN khỏi bản in (cả tiêu đề mục) */
+    Array.prototype.forEach.call(clone.querySelectorAll('[data-sec]'), el=>{
+      const k = el.getAttribute('data-sec');
+      if(!_prSecOn[k] && el.parentNode) el.parentNode.removeChild(el);
+    });
+    /* 2 · ô bỏ tick → làm TRỐNG cả nhãn lẫn số (giữ khung bảng cho thẳng
+       hàng, nhưng không để lại tiêu đề trơ trọi không có số liệu) */
+    Array.prototype.forEach.call(clone.querySelectorAll('.pr-off'), el=>{
+      el.innerHTML = '';
+      el.classList.remove('pr-off');
+    });
+    /* 3 · gỡ toàn bộ chrome chỉnh sửa */
+    Array.prototype.forEach.call(clone.querySelectorAll('.pr-x, .pr-sec-ck'), el=>{
+      if(el.parentNode) el.parentNode.removeChild(el);
+    });
+    Array.prototype.forEach.call(clone.querySelectorAll('[contenteditable]'), el=>{
+      el.removeAttribute('contenteditable');
+    });
+    /* .pr-paper chỉ là khung giấy trên màn hình — giữ .pr-page bên trong */
+    const pages = Array.prototype.map.call(clone.querySelectorAll('.pr-page'), el => el.outerHTML).join('');
+    if(!pages){ toast('⚠ Không có nội dung để in','er'); return; }
+
+    const n = clone.querySelectorAll('.pr-page').length;
+    const doc = _prDoc(pages);
+    if(typeof _pfPrintViaIframe === 'function'){
+      _pfPrintViaIframe(doc, 700);
+    } else {
+      const w = window.open('', '_blank');
+      if(!w){ toast('⚠ Trình duyệt chặn cửa sổ in — hãy cho phép pop-up','er'); return; }
+      w.document.write(doc); w.document.close();
+      setTimeout(()=>{ try{ w.focus(); w.print(); }catch(_){ } }, 700);
+    }
+    const off = PR_SECS.filter(s=>!_prSecOn[s.k]).length;
+    toast('🖨 Đang in '+n+' phiếu lô'+(off?' · đã ẩn '+off+' vùng dữ liệu':''),'ok');
+  }
+
   return {
     init, render, openPaste, closePaste, doPaste, pasteText,
+    /* v4.76 — in phiếu dữ liệu lô (A4) phục vụ kiểm tra / audit */
+    openPrint, closePrint, renderPrintList, togglePrintSel,
+    printSelectAll, printClearSel, doPrint,
+    printReview, printBack, printToggleSec, printResetEdits,
+    printAllSecs, syncSecUI: _prSyncSecUI,
     rangeDelete, deleteRow, editRow, openEdit, closeEdit, saveEdit,
     calcSave, calcSaveClick, notifyScale, openGc,
     importCoq, coqChosen,       /* v4.61 — COQ import in the edit modal */

@@ -23,7 +23,7 @@
 <link rel="stylesheet" href="css/scale.css">
 <link rel="stylesheet" href="css/cavern.css">
 <link rel="stylesheet" href="css/report.css">
-<link rel="stylesheet" href="css/engineer.css">
+<link rel="stylesheet" href="css/engineer.css?v=480">
 <link rel="stylesheet" href="css/inventory.css">
 <link rel="stylesheet" href="css/monthly.css">
 -->
@@ -1130,7 +1130,7 @@
       <!-- Add/Edit Form (modal overlay) -->
       <div id="vs-form-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:600;overflow:auto;padding:40px 20px" onclick="if(event.target===this)vsCloseForm()">
         <div style="max-width:650px;margin:0 auto;background:#fff;border-radius:8px;box-shadow:0 8px 32px rgba(0,0,0,.2);overflow:hidden">
-          <div style="padding:10px 16px;background:var(--ce);color:#fff;display:flex;align-items:center;gap:8px">
+          <div style="padding:10px 16px;background:#0077b6;color:#fff;display:flex;align-items:center;gap:8px">
             <span style="font-family:'Oswald',sans-serif;font-size:14px;font-weight:700;letter-spacing:1px" id="vs-form-title">🚢 ADD SHIPMENT</span>
             <span style="margin-left:auto;cursor:pointer;font-size:18px;opacity:.8" onclick="vsCloseForm()">✕</span>
           </div>
@@ -1149,23 +1149,28 @@
               <div><label class="vs-lbl">Lot</label><input class="fi" type="text" inputmode="numeric" id="vs-f-lot" placeholder="VD: 1"></div>
               <div></div>
             </div>
+            <datalist id="vs-type-list"><option value="LPG"></option><option value="LPG (C3:50/C4:50)"></option><option value="LPG (C3:30/C4:70)"></option><option value="LPG (C3:35/C4:65)"></option><option value="LPG (C3:40/C4:60)"></option><option value="LPG (C3:60/C4:40)"></option><option value="LPG (Pure Propane)"></option><option value="LPG (Pure Butane)"></option></datalist>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
               <div><label class="vs-lbl">Trade</label><select class="fi" id="vs-f-item"><option>Domestic (Ship)</option><option>Export (Ship)</option></select></div>
-              <div><label class="vs-lbl">Type</label><input class="fi" list="vs-type-list" id="vs-f-type" placeholder="Select or enter..." autocomplete="off"><datalist id="vs-type-list"><option value="LPG"></option><option value="LPG (C3:50/C4:50)"></option><option value="LPG (C3:30/C4:70)"></option><option value="LPG (C3:35/C4:65)"></option><option value="LPG (C3:40/C4:60)"></option><option value="LPG (C3:60/C4:40)"></option><option value="LPG (Pure Propane)"></option><option value="LPG (Pure Butane)"></option></datalist></div>
               <div style="position:relative"><label class="vs-lbl">Customer</label><input class="fi" type="text" id="vs-f-customer" placeholder="🔍 Type to search..." autocomplete="off" oninput="vsCustSearch(this.value)" onfocus="vsCustSearch(this.value)"><div class="vs-cust-dd" id="vs-cust-dd"></div></div>
+              <div><label class="vs-lbl">Destination</label><input class="fi" type="text" id="vs-f-dest" placeholder="VD: VT gas, Bien Hoa"></div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
-              <div><label class="vs-lbl">Destination</label><input class="fi" type="text" id="vs-f-dest" placeholder="VD: VT gas, Bien Hoa"></div>
               <div><label class="vs-lbl">Loading Tank</label><select class="fi" id="vs-f-tank"><option>Cavern</option></select></div>
-              <div><label class="vs-lbl">Price (USD/MT)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-price" placeholder="VD: 550"></div>
+              <div></div>
+              <div></div>
             </div>
             <div style="border:1px solid var(--bd);border-radius:6px;padding:10px;margin-bottom:8px;background:#f7fbff">
               <div style="font-family:'Oswald',sans-serif;font-size:11px;font-weight:600;color:var(--ce);letter-spacing:.5px;margin-bottom:6px">📦 RATIO LINE 1</div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
-                <div><label class="vs-lbl">DO No.</label><input class="fi" type="text" id="vs-f-do1" placeholder="86431619"></div>
+                <div><label class="vs-lbl">DO No.</label><input class="fi" type="text" id="vs-f-do1" placeholder="86431619" onblur="vsCleanDoField(this)"></div>
                 <div><label class="vs-lbl">C3 Wt (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-c3-1" oninput="vsCalcRatio(1)"></div>
                 <div><label class="vs-lbl">C4 Wt (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-c4-1" oninput="vsCalcRatio(1)"></div>
                 <div><label class="vs-lbl">LPG Total (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-lpg-1" oninput="vsCalcRatio(1)"></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+                <div><label class="vs-lbl">Type</label><input class="fi" list="vs-type-list" id="vs-f-type-1" placeholder="Select or enter..." autocomplete="off"></div>
+                <div><label class="vs-lbl">Price (USD/MT)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-price-1" placeholder="VD: 550"></div>
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
                 <div><label class="vs-lbl">WMS Ratio C3</label><input class="fi" type="text" id="vs-f-r3-1" readonly style="background:#e8f5e9;font-weight:700;color:#2d8a4e"></div>
@@ -1175,10 +1180,14 @@
             <div id="vs-line2" style="display:none;border:1px solid #ffcc80;border-radius:6px;padding:10px;margin-bottom:8px;background:#fffbf0">
               <div style="font-family:'Oswald',sans-serif;font-size:11px;font-weight:600;color:#e76f00;letter-spacing:.5px;margin-bottom:6px">📦 RATIO LINE 2 (Tank 2)</div>
               <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px">
-                <div><label class="vs-lbl">DO No.</label><input class="fi" type="text" id="vs-f-do2" placeholder="86431623"></div>
+                <div><label class="vs-lbl">DO No.</label><input class="fi" type="text" id="vs-f-do2" placeholder="86431623" onblur="vsCleanDoField(this)"></div>
                 <div><label class="vs-lbl">C3 Wt (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-c3-2" oninput="vsCalcRatio(2)"></div>
                 <div><label class="vs-lbl">C4 Wt (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-c4-2" oninput="vsCalcRatio(2)"></div>
                 <div><label class="vs-lbl">LPG Total (kg)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-lpg-2" oninput="vsCalcRatio(2)"></div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
+                <div><label class="vs-lbl">Type</label><input class="fi" list="vs-type-list" id="vs-f-type-2" placeholder="Select or enter..." autocomplete="off"></div>
+                <div><label class="vs-lbl">Price (USD/MT)</label><input class="fi" type="text" inputmode="decimal" id="vs-f-price-2" placeholder="VD: 550"></div>
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px">
                 <div><label class="vs-lbl">WMS Ratio C3</label><input class="fi" type="text" id="vs-f-r3-2" readonly style="background:#e8f5e9;font-weight:700;color:#2d8a4e"></div>
@@ -1187,7 +1196,7 @@
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
               <button class="pbtn" onclick="vsCloseForm()" style="color:var(--mt)">Cancel</button>
-              <button class="pbtn" onclick="vsSave()" style="border-color:var(--ce);color:#fff;background:var(--ce);font-weight:700">💾 SAVE</button>
+              <button class="pbtn" onclick="vsSave()" style="border-color:#0077b6;color:#fff;background:#0077b6;font-weight:700">💾 SAVE</button>
             </div>
           </div>
         </div>
@@ -1557,6 +1566,7 @@
         <button class="eng-btn" id="engLoadAllBtn" onclick="ENG.loadAll()" title="Tải toàn bộ lot từ Firebase (mặc định chỉ tải 10 lot mới nhất)">📥 Load All</button>
         <button class="eng-btn green" onclick="ENG.openPaste()">📋 Paste Data</button>
         <button class="eng-btn blue" onclick="ENG.exportXlsx()">⬇ Export</button>
+        <button class="eng-btn purple" onclick="ENG.openPrint()" title="Tìm lot và in phiếu dữ liệu lô ra khổ A4 (phục vụ đoàn kiểm tra / audit)">🖨 In phiếu</button>
         <button class="eng-btn red" onclick="ENG.rangeDelete()" title="Delete rows by date range (downloads a CSV backup first)">🗑 Range delete</button>
       </div>
       <div class="eng-table-wrap" id="engTableWrap">
@@ -1623,6 +1633,7 @@
             <th style="width:44px;color:#7b2d8e;background:#f6f0fb">n-C₆</th>
           </tr></thead>
           <tbody id="engTbody"></tbody>
+          <tfoot id="engTfoot" class="eng-tfoot"></tfoot>
         </table>
       </div>
     </div>
@@ -3328,6 +3339,59 @@
     <div class="modal-foot">
       <button class="btn" onclick="ENG.closePaste()">Cancel</button>
       <button class="btn btn-green" onclick="ENG.doPaste()">Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ TANK LOG · IN PHIẾU DỮ LIỆU LÔ (A4) — v4.76 ═══════════ -->
+<div class="modal-bg" id="engPrintModal" onclick="if(event.target===this)ENG.closePrint()">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-hdr">
+      <h3>🖨 In phiếu dữ liệu lô pha trộn</h3>
+      <button class="modal-close" onclick="ENG.closePrint()">×</button>
+    </div>
+    <div class="modal-body" style="padding-bottom:6px">
+
+      <!-- ── BƯỚC 1 · TÌM & CHỌN LOT ── -->
+      <div id="engPrPane1">
+        <div class="eng-pr-bar">
+          <input type="text" id="engPrintSrch" class="eng-pr-srch" autocomplete="off"
+                 placeholder="🔍 Gõ số lot / bồn / số COQ để tìm — VD: 305"
+                 oninput="ENG.renderPrintList()" onkeydown="if(event.key==='Enter')event.preventDefault()">
+          <button class="eng-btn" onclick="ENG.printSelectAll()" title="Chọn tất cả lot đang tìm thấy">☑ Chọn hết</button>
+        </div>
+        <div class="eng-pr-list" id="engPrintList"></div>
+        <div class="eng-pr-chips-wrap">
+          <div class="eng-pr-chips-lbl">Đã chọn <b id="engPrChipN">0</b> lot — tìm tiếp để thêm lot khác:</div>
+          <div class="eng-pr-chips" id="engPrChips"></div>
+        </div>
+      </div>
+
+      <!-- ── BƯỚC 2 · XEM TRƯỚC & SỬA ── -->
+      <div id="engPrPane2" style="display:none">
+        <div class="eng-pr-rv">
+          <aside class="eng-pr-side">
+            <div class="eng-pr-side-h">Vùng dữ liệu được in</div>
+            <div class="eng-pr-side-sub">Bỏ tick = vùng đó không in ra</div>
+            <div id="engPrSecList"></div>
+            <div class="eng-pr-side-h" style="margin-top:12px">Sửa dữ liệu</div>
+            <div class="eng-pr-side-note">Bấm thẳng vào bất kỳ ô số nào trong phiếu để sửa.
+              Rê chuột lên ô rồi bấm <b>✕</b> để xoá trắng dữ liệu ô đó.
+              Mọi thay đổi chỉ áp dụng cho bản in — <b>không</b> ghi vào Tank Log.</div>
+            <button class="eng-btn" style="width:100%;justify-content:center;margin-top:10px"
+                    onclick="ENG.printResetEdits()" title="Bỏ mọi chỉnh sửa, dựng lại phiếu từ dữ liệu gốc">↺ Khôi phục dữ liệu gốc</button>
+          </aside>
+          <div class="eng-pr-paper-wrap" id="engPrSheets"></div>
+        </div>
+      </div>
+
+    </div>
+    <div class="modal-foot">
+      <span class="eng-pr-cnt" id="engPrintCnt">Chưa chọn lot nào</span>
+      <button class="btn" id="engPrBack" style="display:none" onclick="ENG.printBack()">‹ Quay lại chọn lot</button>
+      <button class="btn" onclick="ENG.closePrint()">Đóng</button>
+      <button class="btn btn-blue" id="engPrNext" onclick="ENG.printReview()">Xem trước &amp; sửa ›</button>
+      <button class="btn btn-green" id="engPrintGo" style="display:none" onclick="ENG.doPrint()">🖨 IN A4</button>
     </div>
   </div>
 </div>

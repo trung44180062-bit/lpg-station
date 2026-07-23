@@ -282,15 +282,14 @@ function vsShowForm(editKey){
     document.getElementById('vs-f-lot').value='';
     document.getElementById('vs-f-vessel').value='';
     document.getElementById('vs-f-item').value='Domestic (Ship)';
-    document.getElementById('vs-f-type').value='LPG';
     document.getElementById('vs-f-customer').value='';
     document.getElementById('vs-f-dest').value='';
     document.getElementById('vs-f-tank').value='Cavern';
-    document.getElementById('vs-f-price').value='';
-    ['vs-f-do1','vs-f-c3-1','vs-f-c4-1','vs-f-lpg-1','vs-f-r3-1','vs-f-r4-1',
-     'vs-f-do2','vs-f-c3-2','vs-f-c4-2','vs-f-lpg-2','vs-f-r3-2','vs-f-r4-2'].forEach(function(id){
+    ['vs-f-do1','vs-f-c3-1','vs-f-c4-1','vs-f-lpg-1','vs-f-r3-1','vs-f-r4-1','vs-f-price-1',
+     'vs-f-do2','vs-f-c3-2','vs-f-c4-2','vs-f-lpg-2','vs-f-r3-2','vs-f-r4-2','vs-f-type-2','vs-f-price-2'].forEach(function(id){
       var el=document.getElementById(id); if(el) el.value='';
     });
+    document.getElementById('vs-f-type-1').value='LPG';
     vsSetType(1);
   } else {
     var r=VS_ROWS[editKey]; if(!r) return;
@@ -300,11 +299,11 @@ function vsShowForm(editKey){
     document.getElementById('vs-f-lot').value=r.lot||'';
     document.getElementById('vs-f-vessel').value=r.vessel||'';
     document.getElementById('vs-f-item').value=r.item||'';
-    document.getElementById('vs-f-type').value=r.type||'LPG';
+    document.getElementById('vs-f-type-1').value=r.type||'LPG';
     document.getElementById('vs-f-customer').value=r.customer||'';
     document.getElementById('vs-f-dest').value=r.dest||'';
     document.getElementById('vs-f-tank').value=r.tank||'Cavern';
-    document.getElementById('vs-f-price').value=r.price||'';
+    document.getElementById('vs-f-price-1').value=r.price||'';
     document.getElementById('vs-f-do1').value=r.doNo||'';
     document.getElementById('vs-f-c3-1').value=r.c3||'';
     document.getElementById('vs-f-c4-1').value=r.c4||'';
@@ -317,6 +316,8 @@ function vsShowForm(editKey){
       document.getElementById('vs-f-c3-2').value=sib.c3||'';
       document.getElementById('vs-f-c4-2').value=sib.c4||'';
       document.getElementById('vs-f-lpg-2').value=sib.lpg||'';
+      document.getElementById('vs-f-type-2').value=sib.type||'LPG';
+      document.getElementById('vs-f-price-2').value=sib.price||'';
       vsCalcRatio(2);
     } else { vsSetType(1); }
   }
@@ -335,7 +336,7 @@ function vsCloseForm(){ document.getElementById('vs-form-overlay').style.display
 function vsSetType(n){
   var b1=document.getElementById('vs-type-1'), b2=document.getElementById('vs-type-2'), l2=document.getElementById('vs-line2');
   if(n===2){ b2.style.background='#e76f00'; b2.style.color='#fff'; b2.style.borderColor='#e76f00'; b1.style.background=''; b1.style.color=''; b1.style.borderColor=''; l2.style.display=''; }
-  else { b1.style.background='var(--ce)'; b1.style.color='#fff'; b1.style.borderColor='var(--ce)'; b2.style.background=''; b2.style.color=''; b2.style.borderColor=''; l2.style.display='none'; }
+  else { b1.style.background='#0077b6'; b1.style.color='#fff'; b1.style.borderColor='#0077b6'; b2.style.background=''; b2.style.color=''; b2.style.borderColor=''; l2.style.display='none'; }
   document.getElementById('vs-form-overlay').dataset.type=n;
 }
 function vsOnVesselChange(){ var v=document.getElementById('vs-f-vessel').value; if(v==='VIET GAS') vsSetType(2); else vsSetType(1); }
@@ -418,19 +419,19 @@ function vsSave(){
     time:document.getElementById('vs-f-time').value,
     lot:document.getElementById('vs-f-lot').value.trim(),
     vessel:vessel, item:document.getElementById('vs-f-item').value,
-    type:document.getElementById('vs-f-type').value,
     customer:document.getElementById('vs-f-customer').value.trim(),
     dest:document.getElementById('vs-f-dest').value.trim(),
-    tank:document.getElementById('vs-f-tank').value,
-    price:document.getElementById('vs-f-price').value.trim()
+    tank:document.getElementById('vs-f-tank').value
   };
   function buildLine(n){
     var c3=parseFloat(document.getElementById('vs-f-c3-'+n).value)||0;
     var c4=parseFloat(document.getElementById('vs-f-c4-'+n).value)||0;
     var lpg=parseFloat(document.getElementById('vs-f-lpg-'+n).value)||0;
     if(!lpg)lpg=c3+c4;
+    var typeEl=document.getElementById('vs-f-type-'+n), priceEl=document.getElementById('vs-f-price-'+n);
     return Object.assign({}, common, {
-      doNo:document.getElementById('vs-f-do'+n).value.trim(), c3:c3, c4:c4, lpg:lpg,
+      type:typeEl?typeEl.value:'', price:priceEl?priceEl.value.trim():'',
+      doNo:_vsCleanDo(document.getElementById('vs-f-do'+n).value), c3:c3, c4:c4, lpg:lpg,
       ratioC3:lpg?(c3/lpg).toFixed(2):'0', ratioC4:lpg?(c4/lpg).toFixed(2):'0', lineNo:String(n)
     });
   }
@@ -535,6 +536,9 @@ function _vsSplitCSV(line, delim){
   out.push(cur); return out;
 }
 function _vsCleanDo(v){ return (typeof cleanDO==='function') ? cleanDO(v||'') : String(v||'').trim().replace(/^0+/,''); }
+/* strip leading zeros live when leaving the DO field in the Add/Edit form */
+function vsCleanDoField(el){ if(el){ var c=_vsCleanDo(el.value); if(c!==el.value) el.value=c; } }
+window.vsCleanDoField=vsCleanDoField;
 function _vsNormRow(o){
   var num=function(v){ var n=parseFloat(String(v==null?'':v).replace(/,/g,'')); return isNaN(n)?0:n; };
   var date=_vsToDMY(o.date||''); if(!date) return null;

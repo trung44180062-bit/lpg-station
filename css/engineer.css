@@ -14,3 +14,112 @@
 .plog-fi:focus{outline:none;border-color:var(--blue);}
 .plog-sec{font-family:'Oswald',sans-serif;font-size:9px;letter-spacing:2px;color:var(--ink-3);
   margin:2px 0 5px;font-weight:600;}
+
+/* ============================================================
+   v4.76 — TANK LOG: dòng TỔNG (tfoot) + modal IN PHIẾU A4
+   ============================================================ */
+
+/* ---- Dòng tổng dính đáy bảng ---- */
+.eng-tbl tfoot.eng-tfoot{position:sticky;bottom:0;z-index:6;}
+.eng-tbl tfoot.eng-tfoot td{padding:6px 5px;background:#eef2f7;border-top:2px solid var(--line);
+  border-bottom:none;border-right:1px solid var(--line-2);white-space:nowrap;
+  font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums;
+  box-shadow:0 -2px 6px rgba(15,35,60,.07);}
+.eng-tbl tfoot.eng-tfoot td.td-tot-lbl{text-align:right;letter-spacing:.6px;font-size:10.5px;
+  color:var(--ink-2);font-family:'Oswald',sans-serif;font-weight:600;text-transform:uppercase;}
+.eng-tbl tfoot.eng-tfoot td.td-fill-c3{background:#dcecfa;}
+.eng-tbl tfoot.eng-tfoot td.td-fill-c4{background:#ffeed9;}
+.eng-tbl tfoot.eng-tfoot td.td-fill-lpg{background:#fce0e3;}
+
+/* Chip tổng trên thanh công cụ */
+.eng-toolbar .eng-stats .eng-tot-chip{padding:2px 8px;border-radius:20px;background:var(--line-2);
+  color:var(--ink-2);font-size:10.5px;font-weight:600;white-space:nowrap;}
+.eng-toolbar .eng-stats .eng-tot-chip b{font-size:11.5px;color:var(--navy);font-family:'Oswald',sans-serif;}
+
+/* Nút tím "In phiếu" */
+.eng-btn.purple{background:#f6f0fb;border-color:#d9c2ea;color:#7b2d8e;}
+.eng-btn.purple:hover{background:#ecdff7;}
+
+/* ---- Modal in phiếu · BƯỚC 1: tìm & chọn lot ---- */
+.eng-pr-bar{display:flex;gap:7px;align-items:center;margin-bottom:9px;}
+.eng-pr-srch{flex:1;padding:9px 12px;border:1.5px solid var(--line);border-radius:8px;
+  font-family:inherit;font-size:13.5px;color:var(--ink);background:var(--panel);}
+.eng-pr-srch:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(47,128,237,.13);}
+
+.eng-pr-list{max-height:300px;overflow-y:auto;border:1.5px solid var(--line);border-radius:9px;
+  background:var(--panel);}
+.eng-pr-hd,.eng-pr-item{display:grid;
+  grid-template-columns:24px minmax(118px,1.4fr) 62px 72px 84px 62px minmax(96px,1.2fr);
+  gap:10px;align-items:center;padding:6px 11px;font-size:11.5px;}
+.eng-pr-hd{position:sticky;top:0;z-index:2;background:var(--line-2);
+  font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--ink-3);
+  border-bottom:1.5px solid var(--line);}
+.eng-pr-hd .ta-r{text-align:right;} .eng-pr-hd .ta-c{text-align:center;}
+.eng-pr-item{cursor:pointer;border-bottom:1px solid var(--line-2);transition:background .12s;}
+.eng-pr-item:last-child{border-bottom:none;}
+.eng-pr-item:hover{background:var(--blue-soft);}
+.eng-pr-item.on{background:#eaf5ec;box-shadow:inset 3px 0 0 var(--green);}
+.eng-pr-item input{width:15px;height:15px;cursor:pointer;accent-color:var(--green);}
+.eng-pr-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.eng-pr-lot{font-weight:800;color:var(--navy);font-family:'Courier New',monospace;letter-spacing:-.2px;}
+.eng-pr-tk{font-weight:700;color:var(--blue);}
+.eng-pr-dt{color:var(--ink-2);}
+.eng-pr-lpg{text-align:right;font-weight:700;color:var(--red);font-variant-numeric:tabular-nums;}
+.eng-pr-q{font-weight:700;text-align:center;}
+.eng-pr-coq{color:#7b2d8e;font-size:10.5px;}
+.eng-pr-empty{padding:30px 18px;text-align:center;color:var(--ink-3);font-size:12px;line-height:1.75;}
+.eng-pr-empty-ic{font-size:26px;opacity:.35;margin-bottom:6px;}
+.eng-pr-empty code{background:var(--line-2);padding:1px 6px;border-radius:4px;
+  font-family:'Courier New',monospace;color:var(--ink-2);}
+.eng-pr-cnt{margin-right:auto;font-size:11.5px;font-weight:700;color:var(--ink-2);}
+
+/* Chip các lot đã chọn — giữ nguyên khi tìm lot khác */
+.eng-pr-chips-wrap{margin-top:10px;padding-top:9px;border-top:1.5px dashed var(--line);}
+.eng-pr-chips-lbl{font-size:11px;color:var(--ink-3);font-weight:600;margin-bottom:6px;}
+.eng-pr-chips-lbl b{color:var(--green);font-size:13px;font-family:'Oswald',sans-serif;}
+.eng-pr-chips{display:flex;flex-wrap:wrap;gap:5px;min-height:24px;align-items:center;}
+.eng-pr-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 5px 3px 9px;border-radius:14px;
+  background:#eaf5ec;border:1.5px solid #bfe3cc;color:#157a40;font-size:11px;font-weight:700;
+  font-family:'Courier New',monospace;}
+.eng-pr-chip button{width:15px;height:15px;line-height:13px;padding:0;border:none;border-radius:50%;
+  background:#157a40;color:#fff;font-size:9px;cursor:pointer;}
+.eng-pr-chip button:hover{background:var(--red);}
+.eng-pr-chip-clr{border:none;background:none;color:var(--red);font-size:10.5px;font-weight:700;
+  cursor:pointer;text-decoration:underline;padding:0 4px;}
+.eng-pr-chip-none{font-size:11px;color:var(--ink-3);font-style:italic;}
+
+/* ---- Modal in phiếu · BƯỚC 2: xem trước & sửa ----
+   core.css khoá .modal{width:680px} và KHÔNG có max-height → khổ giấy 190mm
+   tràn ra ngoài, đẩy header/footer khỏi màn hình. Ràng buộc lại ở đây. */
+#engPrintModal .modal{max-height:93vh;}
+#engPrintModal .modal-body{flex:1;min-height:0;overflow:auto;}
+#engPrintModal .modal.pr-wide{width:1120px;max-width:97vw;}
+
+.eng-pr-rv{display:flex;gap:12px;align-items:flex-start;}
+.eng-pr-side{flex:0 0 224px;position:sticky;top:0;background:var(--panel-2);border:1.5px solid var(--line);
+  border-radius:10px;padding:11px;}
+.eng-pr-side-h{font-family:'Oswald',sans-serif;font-size:10.5px;letter-spacing:1px;color:var(--navy);
+  font-weight:700;text-transform:uppercase;}
+.eng-pr-side-sub{font-size:10px;color:var(--ink-3);margin:2px 0 7px;}
+.eng-pr-side-note{font-size:10.5px;color:var(--ink-2);line-height:1.55;margin-top:5px;}
+.eng-pr-sec{display:flex;gap:7px;align-items:flex-start;padding:4px 5px;border-radius:6px;
+  font-size:11px;color:var(--ink);cursor:pointer;transition:background .12s;}
+.eng-pr-sec:hover{background:var(--blue-soft);}
+.eng-pr-sec input{width:14px;height:14px;margin-top:1px;cursor:pointer;accent-color:var(--blue);flex-shrink:0;}
+.eng-pr-paper-wrap{flex:1;min-width:0;overflow:auto;background:#8d99a6;
+  border-radius:10px;padding:14px 10px;}
+/* Tờ giấy được ENG._prFit() tự đặt zoom theo chỗ trống thực tế (JS),
+   nên ở đây chỉ xử lý việc xếp lại cột khi màn hình quá hẹp. */
+@media (max-width:1120px){
+  .eng-pr-rv{flex-direction:column;}
+  .eng-pr-side{flex:none;width:100%;position:static;}
+}
+
+/* Thanh chọn nhanh vùng in (cột trái, bước 2) */
+.eng-pr-sec-bar{display:flex;align-items:center;gap:5px;margin-bottom:5px;}
+.eng-pr-sec-b{flex:1;padding:4px 6px;border:1.5px solid var(--line);border-radius:6px;
+  background:var(--panel);color:var(--ink-2);font-family:inherit;font-size:10px;font-weight:700;
+  cursor:pointer;transition:.12s;}
+.eng-pr-sec-b:hover{background:var(--blue-soft);border-color:var(--blue);color:var(--blue);}
+.eng-pr-sec-cnt{font-family:'Oswald',sans-serif;font-size:11px;font-weight:700;color:var(--green);
+  min-width:34px;text-align:right;}

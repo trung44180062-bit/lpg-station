@@ -65,28 +65,69 @@ const MIXNOTIFY = (function(){
      lúc confirm ta đánh dấu luôn cờ ST của đúng lot+tank trong Tank Log
      (eng_tkmix cột 53). Từ thời điểm đó ALLOC thôi cộng lot này vào bồn vì
      SAP/WMS đã ghi nhận. Ghi cờ TRƯỚC khi xoá node để còn đọc được lot/tank. */
+  /* v4.77 — CONFIRM AN TOÀN. Trước đây node /mix_notify bị xoá NGAY, không
+     cần biết cờ ST có lên được Tank Log hay không; nếu lot không tìm thấy
+     (hoặc Firebase từ chối ghi) thì thông báo mất luôn mà ST vẫn trống →
+     ALLOC cộng trùng lot và không ai biết. Giờ: chỉ xoá thông báo SAU KHI
+     ENG xác nhận đã ghi cờ ST thành công; thất bại thì GIỮ thông báo lại
+     để nhân viên bấm lại hoặc tick tay ở Tank Log. */
+  const _CONFIRM_TIMEOUT = 12000;    // ENG phải kéo hết Tank Log nếu lot cũ
+  const _busy = Object.create(null); // pk đang xử lý → chặn double-click
+
+  function _say(msg, type){ try{ if(typeof toast==='function') toast(msg, type); }catch(_){} }
+
   function confirm(pk){
     if(!_fbRef) return;
+    if(_busy[pk]) return;
     const item = PEND[pk] || null;
-    let stOk = false;
-    if(item){
-      try{
-        if(typeof ENG !== 'undefined' && ENG.setStockTransfer){
-          stOk = ENG.setStockTransfer(item.lot, item.tkName, true);
-        }
-      }catch(e){ console.warn('[MIXNOTIFY] setStockTransfer', e); }
+
+    /* Không còn dữ liệu trong PEND (thông báo cũ / đã xử lý nơi khác) →
+       dọn node cho sạch, không có gì để tick. */
+    if(!item){
+      _fbRef.child(pk).remove()
+        .then(()=> _say('✓ Đã xoá thông báo (không còn dữ liệu lot)','warn'))
+        .catch(e=>{ if(typeof fbErr==='function') fbErr(e,'Confirm mix'); });
+      return;
     }
-    _fbRef.child(pk).remove()
-      .then(()=>{
-        try{
-          if(typeof toast==='function'){
-            if(stOk) toast('✓ Mix confirmed · đã đánh dấu stock transfer lot '+String(item.lot||''),'ok');
-            else if(item) toast('✓ Mix confirmed · không tìm thấy lot '+String(item.lot||'')+' trong Tank Log để tick ST','warn');
-            else toast('✓ Mix confirmed','ok');
-          }
-        }catch(_){}
-      })
-      .catch(e => { if(typeof fbErr==='function') fbErr(e,'Confirm mix'); else console.warn('[MIXNOTIFY] confirm', e); });
+
+    const lotTxt = String(item.lot||'');
+    const tkTxt  = String(item.tkName||'');
+
+    if(typeof ENG === 'undefined' || !ENG.setStockTransfer){
+      _say('❌ Module Tank Log chưa sẵn sàng — chờ vài giây rồi bấm ✅ lại','er');
+      return;
+    }
+
+    _busy[pk] = true;
+    let settled = false;
+    const finish = (ok, why) => {
+      if(settled) return; settled = true;
+      delete _busy[pk];
+      if(!ok){
+        /* GIỮ node lại — thông báo vẫn hiện để thao tác lại. */
+        _say(why === 'notfound'
+              ? '❌ Không tìm thấy lot '+lotTxt+' ('+tkTxt+') trong Tank Log — thông báo được GIỮ LẠI. '
+                + 'Hãy kiểm tra số lot / tick tay cột ST ở Tank Log rồi bấm ✅ lại.'
+              : '❌ Ghi cờ Stock Transfer lot '+lotTxt+' thất bại (lỗi mạng/Firebase) — '
+                + 'thông báo được GIỮ LẠI, vui lòng bấm ✅ lại.', 'er');
+        render();
+        return;
+      }
+      _fbRef.child(pk).remove()
+        .then(()=> _say('✓ Đã xác nhận · tick Stock Transfer cho lot '+lotTxt+' ('+tkTxt+') ở Tank Log','ok'))
+        .catch(e => {
+          if(typeof fbErr==='function') fbErr(e,'Confirm mix'); else console.warn('[MIXNOTIFY] confirm', e);
+          _say('⚠ Đã tick ST cho lot '+lotTxt+' nhưng chưa xoá được thông báo — bấm ✅ lại để dọn','warn');
+        });
+    };
+
+    setTimeout(()=> finish(false, 'timeout'), _CONFIRM_TIMEOUT);
+    try{
+      ENG.setStockTransfer(item.lot, item.tkName, true, null, finish);
+    }catch(e){
+      console.warn('[MIXNOTIFY] setStockTransfer', e);
+      finish(false, 'exception');
+    }
   }
 
   function cancel(pk){
