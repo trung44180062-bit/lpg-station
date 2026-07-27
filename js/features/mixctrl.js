@@ -38,8 +38,41 @@ const MC = (function(){
   };
   let MC_D, MC_TV, MC_TANK_R, MC_ODO;
   /* v4.73 — ngưỡng an toàn vận hành theo quy trình (không phải max vật lý).
-     Thể tích cuối > 570 m³ → CẢNH BÁO (vẫn tính); > MC_TV (696.91) → chặn. */
-  const MC_SAFE = 570;
+     v4.78 — MỨC TỐI ĐA CHO PHÉP FILL vào TK-3501 / TK-3502 = 585 m³.
+       • Thể tích cuối > 585 m³ → CHẶN CỨNG: hiện confirm() ngay khi bấm
+         CALCULATE yêu cầu nhân viên xác nhận điều chỉnh con số (OK = phần
+         mềm tự hạ TARGET VOL về 585 và tính lại; Cancel = tự sửa tay).
+       • Trong mọi trường hợp KHÔNG cho ▶START MIX khi còn vượt 585 m³.
+       • Trần tuyệt đối theo dung tích bồn: 90% × MC_TV (696.91) = 627.2 m³
+         — luôn nhỏ hơn nữa thì lấy MC_LIMIT. */
+  /* ══ v4.81 — HAI NGƯỠNG, KHÔNG KẸP VỀ 585 ═════════════════════════
+     Quy định cho phép nạp tới 90% dung tích bồn. Trên 585 m³ là vùng
+     RỦI RO CAO, nhưng đôi khi vẫn cần bơm thêm quá 585 để chỉnh tỉ lệ
+     nên phần mềm KHÔNG chặn và KHÔNG kẹp ô nhập về 585 — chỉ cảnh báo
+     và bắt xác nhận:
+
+       ≤ 585 m³                → bình thường
+       585 < V ≤ 90% (627.2)   → VÙNG RỦI RO CAO: TARGET VOL nháy đỏ +
+                                  banner đỏ + confirm() khi CALCULATE +
+                                  confirm() lần nữa khi ▶START MIX, ghi
+                                  nhật ký tên người xác nhận
+       > 90% dung tích         → VƯỢT QUY ĐỊNH: chặn ▶START MIX,
+                                  ô nhập bị kẹp về đúng 90%              */
+  const MC_WARN    = 585;      // m³ — ngưỡng CẢNH BÁO rủi ro cao
+  const MC_MAX_PCT = 0.90;     // trần QUY ĐỊNH = 90% dung tích bồn
+  function _mcHardCap(){ return MC_TV * MC_MAX_PCT; }   // 696.91 → 627.2 m³
+  function _mcWarnLvl(){ return Math.min(MC_WARN, _mcHardCap()); }
+  const MC_LIMIT = MC_WARN;    // giữ tên cũ cho các chỗ tham chiếu hiển thị
+  const MC_SAFE  = MC_WARN;
+  /* v4.81 — cờ theo tank */
+  const OVER_WARN = { '1':false, '2':false };   // > 585 m³ (rủi ro cao)
+  const OVER_HARD = { '1':false, '2':false };   // > 90% dung tích (chặn START)
+  /* v4.79 (R4) — ẢNH CHỤP dữ liệu đầu vào của LẦN TÍNH GẦN NHẤT.
+     Khi bấm ▶START, so lại với dữ liệu đang hiển thị: nếu có ô đã bị sửa
+     mà kết quả CHƯA được tính lại thì liệt kê rõ từng ô và bắt xác nhận. */
+  const CALC_SIG = { '1':null, '2':null };
+  /* v4.78 — chống hiện confirm() lặp cho cùng một con số */
+  const _overAsked = { '1':null, '2':null };
   function _applyCfg(c){
     MC_D = { c3l:c.c3l, c4l:c.c4l, c3v:c.c3v, c4v:c.c4v };
     MC_TV = c.tv;
@@ -58,6 +91,36 @@ const MC = (function(){
     try{ localStorage.setItem(CFG_KEY, JSON.stringify(c)); }catch(_){}
   }
   _loadCfg();
+  /* ── v4.79 (R7) — ĐỒNG BỘ ⚙ SETTINGS QUA FIREBASE ────────────────
+     Trước đây hằng số (dung tích bồn, bán kính, tỉ trọng, odorant) chỉ
+     nằm trong localStorage TỪNG MÁY ⇒ hai người có thể đọc hai mức
+     STOP khác nhau cho cùng một mẻ. Nay dùng chung node 'eng_mix_cfg'
+     (đúng mẫu 'eng_coq_spec'): 1 object ~150 byte, ghi rất hiếm. */
+  let _cfgFbRef = null, _cfgSelfPush = 0;
+  function _initCfgFb(){
+    try{
+      if(typeof firebase === 'undefined') return;
+      _cfgFbRef = firebase.database().ref('eng_mix_cfg');
+      _cfgFbRef.on('value', snap=>{
+        const v = snap.val();
+        if(!v || typeof v !== 'object') return;
+        const c = Object.assign({}, DEF, v);
+        _applyCfg(c);
+        _saveCfg(c);
+        const src = _cfgSelfPush > 0 ? '' : ' (đồng bộ từ máy khác)';
+        if(_cfgSelfPush > 0) _cfgSelfPush--;
+        else toast('⚙️ Hằng số Mix Calculator đã cập nhật'+src,'warn');
+        /* tính lại mọi panel đang mở để không ai đọc số cũ */
+        ['1','2'].forEach(n=>{
+          if(ST[n] !== 'idle'){
+            _calcSilent = true; _calcOne(n); _calcSilent = false;
+            const gcRes = _gid('mc-gcres'+n);
+            if(gcRes && gcRes.classList.contains('on')){ _gcSilent = true; gcCalcInline(n); _gcSilent = false; }
+          }
+        });
+      });
+    }catch(e){ console.warn('[MC] cfg FB init', e); }
+  }
 
   /* ---------- spherical-tank volume math (R=5.5m default) ---------- */
   function _volAtH(h){ return Math.PI * h * h * (MC_TANK_R - h / 3); }
@@ -92,6 +155,12 @@ const MC = (function(){
      and every volume/stop-level below uses trEff. Used when the new ratio
      differs a lot from the current lot's ratio. Mutually exclusive with LP. */
   const SP  = { '1':false, '2':false };
+  /* v4.78 — RÀNG BUỘC TARGET VOL ↔ TARGET C3 %.
+     Khi 📋 PLAN ghi TARGET VOL vào ô mc-tv, lưu lại kèm %C3 mục tiêu lúc đó.
+     Nếu sau này nhân viên sửa %C3 mà QUÊN chạy lại PLAN → TARGET VOL cũ đã
+     sai (tính theo %C3 cũ). Phần mềm sẽ báo và XÓA TARGET VOL để bắt lấy
+     target mới. { v0:number, tr:number(%), lp:boolean, fill:string|null } */
+  const PLAN_LINK = { '1':null, '2':null };
   const PC  = { '1':false, '2':false };
   /* v4.72 — CHỈ BƠM 1 SẢN PHẨM: 'C3' | 'C4' | null. Khi bật, TARGET VOL
      do phần mềm tự tính (one-way flow Cavern→TK-3501/TK-3502, chỉ bơm thêm). */
@@ -146,7 +215,82 @@ const MC = (function(){
   /* ---------- generic helpers ---------- */
   function _gid(id){ return document.getElementById(id); }
   function _gv(id){ const e = _gid(id); return e ? e.value : ''; }
-  function _gnum(id){ const v = parseFloat(_gv(id)); return isNaN(v) ? 0 : v; }
+  /* ── v4.79 (R3) — ĐỌC SỐ THEO CHUẨN EXCEL US ──────────────────────
+     • Dấu CHẤM  "."  = dấu thập phân
+     • Dấu PHẨY  ","  = phân cách hàng nghìn, BẮT BUỘC đúng nhóm 3 chữ số
+     Trước đây dùng parseFloat() trần nên "54,89" bị đọc thành 54 một cách
+     ÂM THẦM (mất phần thập phân, không báo gì). Nay:
+       "1,234.5" → 1234.5      "570" → 570        ".5" → 0.5
+       "54,89"   → KHÔNG HỢP LỆ (NaN)  → ô tô đỏ + toast cảnh báo
+     Trả về NaN khi chuỗi không phải số hợp lệ. */
+  function _pnum(s){
+    if(s === null || s === undefined) return NaN;
+    let t = String(s).trim().replace(/\s+/g, '');
+    if(t === '') return NaN;
+    if(t.indexOf(',') >= 0){
+      if(!/^[+-]?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) return NaN;  /* phẩy sai nhóm 3 → từ chối */
+      t = t.replace(/,/g, '');
+    }
+    if(!/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(t)) return NaN;
+    const v = parseFloat(t);
+    return isNaN(v) ? NaN : v;
+  }
+  /* true nếu ô có nội dung nhưng KHÔNG đọc được thành số hợp lệ */
+  function _badNum(id){
+    const raw = String(_gv(id) || '').trim();
+    return raw !== '' && isNaN(_pnum(raw));
+  }
+  function _gnum(id){ const v = _pnum(_gv(id)); return isNaN(v) ? 0 : v; }
+
+  /* ── v4.79 (R2) — KIỂM TRA & KẸP GIÁ TRỊ NGAY TẠI Ô NHẬP ─────────
+     Gọi từ onblur trong index.html: MC.chkInp(this,'vol'|'pct'|'pipe')
+       vol  : 0 … mức tối đa cho phép fill (585) — vượt thì KẸP
+       pct  : 0 … 100 — vượt thì KẸP; ngoài 20–70 % chỉ CẢNH BÁO (viền cam)
+       pipe : 0 … 200 m³ — vượt thì KẸP
+     Số không hợp lệ (vd "54,89") → viền đỏ + toast, KHÔNG tự sửa. */
+  function _paintInp(el, cls){
+    if(!el) return;
+    el.classList.remove('mc-inp-bad','mc-inp-warn');
+    if(cls) el.classList.add(cls);
+  }
+  function chkInp(el, kind){
+    if(!el) return true;
+    const raw = String(el.value || '').trim();
+    if(raw === ''){ _paintInp(el, null); return true; }
+    const v = _pnum(raw);
+    const lbl = el.getAttribute('data-lbl') || el.id || 'ô này';
+    if(isNaN(v)){
+      _paintInp(el, 'mc-inp-bad');
+      toast('❌ '+lbl+': "'+raw+'" không phải số hợp lệ. Dùng dấu CHẤM cho thập phân (54.89), dấu PHẨY chỉ để ngăn hàng nghìn (1,234.5).','er');
+      return false;
+    }
+    let lo = 0, hi = null, warnLo = null, warnHi = null, unit = '';
+    /* v4.81 — thể tích: KẸP ở trần quy định 90% dung tích (không kẹp về 585);
+       trên 585 chỉ cảnh báo mềm (viền cam) vì vẫn được phép nạp. */
+    if(kind === 'vol'){ hi = _mcHardCap(); warnLo = 0; warnHi = _mcWarnLvl(); unit = ' m³'; }
+    else if(kind === 'pct'){ hi = 100; warnLo = 20; warnHi = 70; unit = ' %'; }
+    else if(kind === 'pipe'){ hi = 200; unit = ' m³'; }
+    let out = v, clamped = false;
+    if(v < lo){ out = lo; clamped = true; }
+    if(hi !== null && v > hi){ out = hi; clamped = true; }
+    if(clamped){
+      el.value = String(out);
+      _paintInp(el, 'mc-inp-bad');
+      toast('⛔ '+lbl+': '+_fmt(v,2)+unit+' vượt '+(kind==='vol'?'TRẦN QUY ĐỊNH 90% dung tích':'giới hạn cho phép')
+            +' ('+_fmt(lo,0)+'–'+_fmt(hi,hi%1?1:0)+unit+') — đã kẹp về '+_fmt(out,hi%1?1:0)+unit,'er');
+      setTimeout(()=>_paintInp(el, null), 2500);
+      return false;
+    }
+    if(warnLo !== null && (out < warnLo || out > warnHi)){
+      _paintInp(el, 'mc-inp-warn');
+      toast(kind === 'vol'
+        ? '🚨 '+lbl+': '+_fmt(out,1)+' m³ TRÊN ngưỡng cảnh báo '+_fmt(warnHi,0)+' m³ — RỦI RO CAO (trần quy định '+_fmt(hi,1)+' m³)'
+        : '⚠ '+lbl+': '+_fmt(out,2)+'% nằm ngoài dải vận hành thường '+warnLo+'–'+warnHi+'% — kiểm tra lại','warn');
+      return true;
+    }
+    _paintInp(el, null);
+    return true;
+  }
   function _fmt(v, d){
     if(v == null || isNaN(v)) return '—';
     return Number(v).toLocaleString('en-US', { maximumFractionDigits: (d != null ? d : 3) });
@@ -436,17 +580,31 @@ const MC = (function(){
          tankMax @ normal ratio t:  x(C3) = t·M − s·Vr ;  y(C4) = (1−t)·M − (1−s)·Vr.
        • Direction-aware: special 70:30 (s > t) recovers by pumping C4. */
   let _sppTank = null;
+  /* ── v4.80 — PLANNER LUÔN MỞ VỚI Ô TRỐNG ─────────────────────────
+     KHÔNG nhớ số liệu của lần PLAN trước (đã bỏ node 'eng_mix_plan').
+     Lý do vận hành: hai mẻ liên tiếp gần như luôn khác nhau về sản lượng
+     bán và dự phòng; điền sẵn số cũ dễ khiến nhân viên bấm qua mà quên
+     sửa → PLAN ra TARGET VOL sai. Bắt nhập lại từ đầu mỗi lần là an toàn
+     hơn. Lịch sử vẫn được ghi trong nhật ký 'eng_mix_audit'. */
   function spPlanOpen(n){
     _sppTank = n;
     const m = _gid('spp-modal'); if(!m) return;
     const ttl = _gid('spp-title');
     if(ttl) ttl.textContent = '★ SPECIAL RATIO MIX PLANNER — TK-'+(n==='1'?'3501':'3502');
+    /* XÓA TRẮNG số liệu của lần mở trước — ép nhập lại cho đúng mẻ này */
+    const _set0 = (id,v)=>{ const e=_gid(id); if(e){ e.value=v; e.classList.remove('mc-inp-bad','mc-inp-warn'); } };
+    _set0('spp-sell', '');              // sản lượng bán — LUÔN phải nhập lại
+    _set0('spp-resv', '0');             // dự phòng hủy
+    _set0('spp-norm', '53.5');          // tỉ lệ thường
+    _set0('spp-fail', '12');            // dự phòng mix hỏng (gợi ý)
+    _set0('spp-max',  String(MC_LIMIT));// trần bồn
     const se = _gid('spp-special');
     const tr = _gnum('mc-tr'+n);
-    if(se && tr > 0) se.value = tr.toFixed(2);
-    const f = _gid('spp-fail');
-    if(f && String(f.value).trim()==='') f.value = '12';     /* suggested, editable */
+    if(se) se.value = tr > 0 ? tr.toFixed(2) : '';
+    const res = _gid('spp-res');
+    if(res){ res.innerHTML = ''; delete res.dataset.v0; }
     m.classList.add('on');
+    _gid('spp-sell')?.focus?.();
     spPlanCalc();
   }
   function spPlanClose(){
@@ -461,7 +619,9 @@ const MC = (function(){
     const sellT = pf('spp-sell');            // sale plan (ton)
     const resvT = pf('spp-resv');            // cancel reserve (ton)
     const failT = pf('spp-fail');            // mix-fail reserve (ton)
-    const M = pf('spp-max') || 570;          // tank max mix volume
+    let   M = pf('spp-max') || MC_LIMIT;     // tank max mix volume
+    /* v4.78 — không cho planner vượt mức tối đa cho phép fill */
+    if(M > _mcHardCap() + 1e-9) M = _mcHardCap();
     if(!(s>0 && s<1) || !(t>0 && t<1) || !(sellT>0)){
       res.innerHTML = '<div class="spp-dim">Enter the SALE PLAN (ton). Special ratio is pre-filled from FINAL TARGET C3 %.</div>';
       delete res.dataset.v0;
@@ -538,25 +698,137 @@ const MC = (function(){
   function spPlanApply(){
     const n = _sppTank;
     const res = _gid('spp-res');
-    const v0 = res ? parseFloat(res.dataset.v0) : NaN;
+    let   v0  = res ? parseFloat(res.dataset.v0) : NaN;
     if(!n || isNaN(v0) || v0<=0){ toast('⚠ Enter the sale plan first','er'); return; }
+    /* v4.81 — chỉ kẹp ở TRẦN QUY ĐỊNH 90% dung tích; trên 585 chỉ cảnh báo */
+    const cap = _mcHardCap(), warn = _mcWarnLvl();
+    if(v0 > cap + 1e-9){
+      toast('⛔ PLAN ra '+v0.toFixed(1)+' m³ > trần quy định 90% ('+_fmt(cap,1)+' m³) — đã kẹp về '+_fmt(cap,1)+' m³','er');
+      v0 = cap;
+    } else if(v0 > warn + 1e-9){
+      toast('🚨 PLAN ra '+v0.toFixed(1)+' m³ — TRÊN ngưỡng cảnh báo '+_fmt(warn,0)+' m³, rủi ro cao (trần 90% = '+_fmt(cap,1)+' m³)','warn');
+    }
     const tvEl = _gid('mc-tv'+n);
     if(tvEl){ tvEl.value = v0.toFixed(1); }
-    toast('🎯 TARGET VOL = '+v0.toFixed(1)+' m³ (max safe mix)','ok');
+    /* v4.78 — gắn TARGET VOL vừa lấy với %C3 mục tiêu hiện hành */
+    _planLinkSet(n, v0);
+    /* v4.79 — ghi nhật ký PLAN (không lưu lại số liệu để điền sẵn lần sau) */
+    _mlog('PLAN', n, 'V0='+v0.toFixed(1)+' m³ · C3='+_gnum('mc-tr'+n).toFixed(2)+'% · bán='+_gv('spp-sell')
+                    +'t · dp hủy='+_gv('spp-resv')+'t · dp hỏng='+_gv('spp-fail')+'t · trần='+_gv('spp-max'));
+    toast('🎯 TARGET VOL = '+v0.toFixed(1)+' m³ (max safe mix) — đã gắn với TARGET C3 '+_gnum('mc-tr'+n).toFixed(2)+'%','ok');
     spPlanClose();
     autoCalc(n);
+  }
+
+  /* ── v4.78 — RÀNG BUỘC TARGET VOL (từ PLAN) ↔ TARGET C3 % ───────────
+     _planLinkSet   : ghi nhận liên kết + tô ô TARGET VOL màu xanh.
+     _planLinkClear : bỏ liên kết + trả ô về bình thường.
+     _planLinkCheck : gọi trong autoCalc — nếu %C3 (hoặc mode mix) đổi so
+                      với lúc lấy PLAN thì BÁO + XÓA TARGET VOL cũ. */
+  function _planLinkSet(n, v0){
+    PLAN_LINK[n] = {
+      v0: +(+v0).toFixed(1),
+      tr: _gnum('mc-tr'+n),
+      sp: !!SP[n],
+      vp: _gnum('mc-spvpipe'+n),
+      fill: FILL[n]
+    };
+    _planLinkPaint(n);
+  }
+  function _planLinkClear(n){
+    PLAN_LINK[n] = null;
+    _planLinkPaint(n);
+  }
+  function _planLinkPaint(n){
+    const el = _gid('mc-tv'+n); if(!el) return;
+    const L = PLAN_LINK[n];
+    if(L){
+      el.classList.add('mc-tv-planned');
+      el.title = '📋 TARGET VOL lấy từ PLAN theo TARGET C3 = '+L.tr.toFixed(2)+'% '
+               + '(pipe '+_fmt(L.vp,1)+' m³). Đổi TARGET C3 % → số này sẽ bị xóa, phải chạy lại PLAN.';
+    } else {
+      el.classList.remove('mc-tv-planned');
+      if(!el.readOnly) el.title = '';
+    }
+  }
+  /* Trả về true nếu vừa xóa TARGET VOL (caller nên dừng vòng tính) */
+  function _planLinkCheck(n){
+    const L = PLAN_LINK[n]; if(!L) return false;
+    const tk  = n==='1' ? '3501' : '3502';
+    const el  = _gid('mc-tv'+n); if(!el) return false;
+    const cur = parseFloat(String(el.value||'').replace(/,/g,''));
+    /* Nhân viên tự sửa TARGET VOL bằng tay → không còn là số của PLAN nữa */
+    if(isNaN(cur) || Math.abs(cur - L.v0) > 0.05){ _planLinkClear(n); return false; }
+    const trNow = _gnum('mc-tr'+n);
+    const vpNow = _gnum('mc-spvpipe'+n);
+    const changed =
+      (Math.abs(trNow - L.tr) > 0.005) ||
+      (SP[n] !== L.sp) ||
+      (FILL[n] !== L.fill) ||
+      (SP[n] && Math.abs(vpNow - L.vp) > 0.05);
+    if(!changed) return false;
+    const why = (Math.abs(trNow - L.tr) > 0.005)
+      ? 'TARGET C3 % đã đổi '+L.tr.toFixed(2)+'% → '+trNow.toFixed(2)+'%'
+      : (SP[n] && Math.abs(vpNow - L.vp) > 0.05)
+        ? 'thể tích pipe đã đổi '+_fmt(L.vp,1)+' → '+_fmt(vpNow,1)+' m³'
+        : 'chế độ mix đã đổi';
+    _planLinkClear(n);
+    el.value = '';
+    const resEl = _gid('mc-r'+n); if(resEl) resEl.classList.remove('on');
+    const gcRes = _gid('mc-gcres'+n); if(gcRes) gcRes.classList.remove('on');
+    OVER_WARN[n] = false; OVER_HARD[n] = false; _overAsked[n] = null;
+    toast('🧹 TK-'+tk+': '+why+' — TARGET VOL cũ ('+L.v0.toFixed(1)+' m³) đã bị XÓA. Bấm 📋 PLAN để lấy TARGET VOL mới.','er');
+    try{
+      alert('TK-'+tk+' — TARGET VOL KHÔNG CÒN HỢP LỆ\n\n'
+        + why + '.\n\n'
+        + 'TARGET VOL '+L.v0.toFixed(1)+' m³ trước đó được PLAN tính theo TARGET C3 = '+L.tr.toFixed(2)+'%,\n'
+        + 'nên nó KHÔNG còn đúng với tỉ lệ mới.\n\n'
+        + '→ Phần mềm đã xóa TARGET VOL cũ.\n'
+        + '→ Bấm 📋 PLAN để lấy TARGET VOL mới, hoặc tự nhập TARGET VOL bằng tay.');
+    }catch(_){}
+    return true;
   }
 
   /* v4.67 — SPECIAL RATIO toggle (exclusive with LOW PRESSURE)
      v4.77 — also exclusive with FILL C3/C4 ONLY */
   function toggleSP(n){
+    /* ── v4.79 (R9) — Ô "TARGET C3 %" ĐỔI NGHĨA khi bật/tắt SPECIAL RATIO
+       • TẮT SP: số nhập = tỉ lệ C3 PHA TRONG BỒN
+       • BẬT SP: số nhập = tỉ lệ C3 CUỐI CÙNG **sau khi tuần hoàn ống**
+       Cùng một con số nhưng hai ý nghĩa khác nhau → phải nhập lại, không
+       được để nguyên số cũ. */
+    const tk = n==='1' ? '3501' : '3502';
+    const trEl = _gid('mc-tr'+n);
+    const hadVal = trEl && String(trEl.value||'').trim() !== '';
+    if(hadVal){
+      const toOn = !SP[n];
+      let ok = true;
+      try{
+        ok = confirm('TK-'+tk+' — '+(toOn ? 'BẬT' : 'TẮT')+' ★ MIX TỈ LỆ ĐẶC BIỆT\n\n'
+          + 'Ô TARGET C3 % sẽ ĐỔI Ý NGHĨA:\n'
+          + (toOn
+              ? '  • Trước: tỉ lệ C3 pha TRONG BỒN\n  • Sau  : tỉ lệ C3 CUỐI CÙNG (sau khi tuần hoàn ống)\n'
+              : '  • Trước: tỉ lệ C3 CUỐI CÙNG (sau khi tuần hoàn ống)\n  • Sau  : tỉ lệ C3 pha TRONG BỒN\n')
+          + '\nSố đang có ('+trEl.value+'%) KHÔNG còn đúng nghĩa nữa nên sẽ bị xóa\n'
+          + 'để anh/chị nhập lại cho đúng.\n\nOK = đổi chế độ và xóa  ·  Cancel = giữ nguyên');
+      }catch(_){ ok = true; }
+      if(!ok){ toast('Giữ nguyên chế độ mix','warn'); return; }
+      trEl.value = '';
+      _planLinkClear(n);
+      const tvEl0 = _gid('mc-tv'+n); if(tvEl0 && !tvEl0.readOnly) { /* giữ TARGET VOL nhập tay */ }
+      _gid('mc-r'+n)?.classList.remove('on');
+      _gid('mc-gcres'+n)?.classList.remove('on');
+      CALC_SIG[n] = null;
+    }
     SP[n] = !SP[n];
     if(SP[n] && LP[n]){ LP[n] = false; _gid('mc-lp'+n)?.classList.remove('on'); _gid('mc-lp-box'+n)?.classList.remove('on'); }
     if(SP[n] && FILL[n]){ _setFill(n, null); }   /* v4.77: mode exclusivity */
     _gid('mc-sp'+n)?.classList.toggle('on', SP[n]);
     _gid('mc-sp-box'+n)?.classList.toggle('on', SP[n]);
     _updateTrLabel(n);
-    if(SP[n]) toast('★ TK-'+(n==='1'?'3501':'3502')+': SPECIAL RATIO — FINAL TARGET C3 % input = FINAL result after pipe circulation','warn');
+    if(SP[n]) toast('★ TK-'+tk+': MIX TỈ LỆ ĐẶC BIỆT — nhập TARGET C3 % là tỉ lệ CUỐI CÙNG sau tuần hoàn ống','warn');
+    else if(hadVal) toast('TK-'+tk+': đã tắt MIX TỈ LỆ ĐẶC BIỆT — nhập lại TARGET C3 % (tỉ lệ pha trong bồn)','warn');
+    if(hadVal && trEl) trEl.focus?.();
     autoCalc(n);
   }
   function togglePC(n){
@@ -624,6 +896,10 @@ const MC = (function(){
     const crC3 = _gnum('mc-cr'+n) / 100;
     const resEl = _gid('mc-r'+n);
     if(!resEl) return;
+    OVER_WARN[n] = false; OVER_HARD[n] = false;   /* v4.81 — reset cờ mỗi lần tính */
+    CALC_SIG[n] = null;    /* v4.79 — chỉ ghi lại khi tính THÀNH CÔNG */
+    _gid('mc-tv'+n)?.classList.remove('mc-tv-over');
+    resEl.classList.remove('mc-res-over');
     const fm = FILL[n];   /* v4.72: 'C3' | 'C4' | null — TARGET VOL tự tính khi bật */
     if(!(iv > 0) || (!fm && !(tv > 0)) || !(trC3 > 0) || !(crC3 > 0)){
       if(!_calcSilent) toast('⚠ TK-'+tk+': '+(fm ? 'fill INIT VOL + TARGET C3 % (TARGET VOL is auto)' : 'fill all four inputs'),'er');
@@ -768,16 +1044,82 @@ const MC = (function(){
         '<span style="padding:2px 8px;border-radius:4px;background:#ffedd5;color:#c2410c;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">FINAL VOLUME <span style="font-family:monospace;font-size:14px">'+_fmt(tvEff,1)+' m³</span> (TARGET VOL '+_fmt(tv,0)+' m³ not feasible at C3 '+(sFin*100).toFixed(1)+'%)</span>'+
       '</div>';
     }
-    /* ══ v4.73 — NGƯỠNG AN TOÀN 570 m³ (quy trình vận hành) ══════════
-       Áp dụng cho MỌI chế độ (kể cả TARGET VOL nhập tay > 570):
-       vẫn tính toán bình thường nhưng hiện cảnh báo đỏ. */
-    if(tvEff > MC_SAFE + 1e-9){
+    /* ══ v4.81 — HAI NGƯỠNG: 585 m³ CẢNH BÁO · 90% DUNG TÍCH LÀ TRẦN ══
+       KHÔNG chặn ở 585 (đôi khi cần bơm thêm để chỉnh tỉ lệ), chỉ cảnh
+       báo + bắt xác nhận. Chỉ chặn ▶START khi vượt trần quy định 90%. */
+    const WARN = _mcWarnLvl();          // 585 m³
+    const CAP  = _mcHardCap();          // 90% dung tích → 627.2 m³
+    OVER_WARN[n] = tvEff > WARN + 1e-9;
+    OVER_HARD[n] = tvEff > CAP  + 1e-9;
+    /* ô TARGET VOL đổi màu đỏ + NHẤP NHÁY để nhận biết ngay */
+    _gid('mc-tv'+n)?.classList.toggle('mc-tv-over', OVER_WARN[n]);
+    resEl.classList.toggle('mc-res-over', OVER_WARN[n]);
+    if(OVER_WARN[n]){
+      const overBy = tvEff - WARN;
+      const room   = CAP - tvEff;       // còn cách trần quy định bao nhiêu
+      const hard   = OVER_HARD[n];
       owHTML += '<div style="margin-top:4px;padding:5px 10px;background:#fef2f2;border:2px solid #dc2626;border-radius:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">'+
-        '<span style="font-family:Oswald;font-size:11px;letter-spacing:1px;color:#dc2626;font-weight:800">🚨 EXCEEDS PROCEDURE SAFETY LIMIT</span>'+
-        '<span style="padding:2px 8px;border-radius:4px;background:#fee2e2;color:#b91c1c;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">FINAL VOLUME <span style="font-family:monospace;font-size:14px">'+_fmt(tvEff,1)+' m³</span> &gt; <span style="font-family:monospace;font-size:14px">'+_fmt(MC_SAFE,0)+' m³</span></span>'+
-        '<span style="font-size:10px;color:#b91c1c;font-weight:600">Review per operating procedure — consider splitting into batches or exporting before mixing</span>'+
+        '<span style="font-family:Oswald;font-size:11px;letter-spacing:1px;color:#dc2626;font-weight:800">'
+          + (hard ? '⛔ VƯỢT TRẦN QUY ĐỊNH 90% DUNG TÍCH' : '🚨 VÙNG RỦI RO CAO — TRÊN '+_fmt(WARN,0)+' m³')+'</span>'+
+        '<span style="padding:2px 8px;border-radius:4px;background:#fee2e2;color:#b91c1c;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">FINAL VOLUME <span style="font-family:monospace;font-size:14px">'+_fmt(tvEff,1)+' m³</span> &gt; <span style="font-family:monospace;font-size:14px">'+_fmt(WARN,0)+' m³</span> (+'+_fmt(overBy,1)+')</span>'+
+        (hard
+          ? '<span style="padding:2px 8px;border-radius:4px;background:#7f1d1d;color:#fff;font-family:Oswald;letter-spacing:1px;font-weight:800;font-size:11px">TRẦN 90% = <span style="font-family:monospace;font-size:14px">'+_fmt(CAP,1)+' m³</span></span>'+
+            '<span style="font-size:10px;color:#7f1d1d;font-weight:700">KHÔNG được ▶START MIX — bắt buộc hạ xuống dưới '+_fmt(CAP,1)+' m³</span>'
+          : '<span style="padding:2px 8px;border-radius:4px;background:#fef3c7;color:#92400e;font-family:Oswald;letter-spacing:1px;font-weight:700;font-size:11px">CÒN CÁCH TRẦN 90% <span style="font-family:monospace;font-size:14px">'+_fmt(room,1)+' m³</span> (trần '+_fmt(CAP,1)+')</span>'+
+            '<span style="font-size:10px;color:#b91c1c;font-weight:600">Vẫn nạp được, nhưng ▶START MIX sẽ phải XÁC NHẬN THÊM LẦN NỮA và ghi nhật ký</span>')+
       '</div>';
-      if(!_calcSilent) toast('🚨 TK-'+tk+': final volume '+_fmt(tvEff,1)+' m³ EXCEEDS procedure safety limit '+_fmt(MC_SAFE,0)+' m³','er');
+      if(!_calcSilent){
+        toast(hard
+          ? '⛔ TK-'+tk+': '+_fmt(tvEff,1)+' m³ VƯỢT TRẦN QUY ĐỊNH 90% ('+_fmt(CAP,1)+' m³) — không thể START'
+          : '🚨 TK-'+tk+': '+_fmt(tvEff,1)+' m³ TRÊN ngưỡng cảnh báo '+_fmt(WARN,0)+' m³ — rủi ro cao','er');
+        /* confirm() chỉ hỏi 1 lần cho mỗi con số, tránh phiền khi tính lại */
+        const key = _fmt(tvEff,1)+'|'+_fmt(WARN,0);
+        if(_overAsked[n] !== key){
+          _overAsked[n] = key;
+          const autoTv = !fm;   /* chế độ CHỈ BƠM: TARGET VOL tự tính, không sửa được */
+          try{
+            const ok = confirm(
+              (hard ? '⛔ TK-'+tk+' — VƯỢT TRẦN QUY ĐỊNH 90% DUNG TÍCH'
+                    : '🚨 TK-'+tk+' — VÙNG RỦI RO CAO (trên '+_fmt(WARN,0)+' m³)')+'\n\n'
+              + 'Thể tích cuối tính ra    : '+_fmt(tvEff,1)+' m³\n'
+              + 'Ngưỡng cảnh báo          : '+_fmt(WARN,0)+' m³   (trên mức này = rủi ro cao)\n'
+              + 'Trần quy định (90% bồn)  : '+_fmt(CAP,1)+' m³\n'
+              + (hard ? 'VƯỢT TRẦN               : '+_fmt(tvEff-CAP,1)+' m³\n'
+                      : 'Còn cách trần            : '+_fmt(room,1)+' m³\n')
+              + '\n'
+              + (hard
+                  ? '⛔ KHÔNG được phép nạp quá 90% dung tích bồn.\n'
+                    + (autoTv ? 'Bấm OK để phần mềm hạ TARGET VOL về '+_fmt(CAP,1)+' m³ và tính lại.\nBấm Cancel để tự điều chỉnh bằng tay.'
+                              : 'Ở chế độ CHỈ BƠM 1 SẢN PHẨM, TARGET VOL do phần mềm tự tính từ\nTARGET C3 %. Phải đổi TARGET C3 % hoặc xuất bớt hàng trước.')
+                    + '\n\n▶START MIX sẽ BỊ CHẶN cho tới khi xuống dưới '+_fmt(CAP,1)+' m³.'
+                  : 'Mức này VẪN NẠP ĐƯỢC (quy định cho phép tới 90% dung tích),\nnhưng trên '+_fmt(WARN,0)+' m³ là RỦI RO CAO.\n\n'
+                    + 'Phần mềm KHÔNG tự sửa số của anh/chị.\n'
+                    + '[OK] / [Cancel] đều giữ nguyên '+_fmt(tvEff,1)+' m³ — muốn hạ thì tự sửa\nTARGET VOL rồi tính lại.\n\n'
+                    + '⚠ Khi bấm ▶START MIX sẽ phải xác nhận thêm một lần nữa\n   và tên người xác nhận sẽ được GHI LẠI.'));
+            _mlog('OVERLIM', n, _fmt(tvEff,1)+' m³ (cảnh báo '+_fmt(WARN,0)+' · trần '+_fmt(CAP,1)+') — '
+                   + (hard ? (ok && autoTv ? 'hạ về trần '+_fmt(CAP,1) : 'giữ nguyên, VƯỢT TRẦN')
+                           : (ok ? 'giữ nguyên, chấp nhận rủi ro' : 'hạ về '+_fmt(WARN,0))));
+            /* Cancel KHÔNG BAO GIỜ tự sửa số của người dùng.
+               Vùng cảnh báo 585: chỉ xác nhận, phần mềm không đổi gì.
+               Vượt trần 90%    : OK = hạ về trần · Cancel = tự sửa tay. */
+            const doLower = hard && ok;
+            const target  = CAP;
+            if(doLower && autoTv){
+              const tvEl2 = _gid('mc-tv'+n);
+              if(tvEl2){
+                tvEl2.value = target.toFixed(1);
+                _planLinkClear(n);
+                OVER_WARN[n] = false; OVER_HARD[n] = false; _overAsked[n] = null;
+                toast('✔ TK-'+tk+': đã hạ TARGET VOL về '+_fmt(target,1)+' m³ — đang tính lại','ok');
+                setTimeout(()=>{ try{ _calcOne(n); autoGcRecalc(n); }catch(_){} }, 0);
+                return;
+              }
+            }
+          }catch(_){}
+        }
+      }
+    } else {
+      _overAsked[n] = null;
     }
     /* Pre-C3 adjustment (RECEIVE C3 before mixing) */
     let preC3 = 0, startVol = iv, addC3 = aC3, addC4 = aC4;
@@ -879,6 +1221,7 @@ const MC = (function(){
         '</div>'+
       '</div>'+ owHTML + lpHTML;
     resEl.classList.add('on');
+    CALC_SIG[n] = _calcSig(n);   /* v4.79 — chốt ảnh chụp đầu vào của kết quả này */
     /* Tank height hint (only update when in MANUAL mode — AUTO already shows "← TK-... Lot ...") */
     if(CR_MODE[n] !== 'auto'){
       const hEl = _gid('mc-h'+n);
@@ -887,9 +1230,49 @@ const MC = (function(){
     if(!_calcSilent) toast('✅ TK-'+tk+': calculation done','ok');
   }
 
+  /* ── v4.79 (R4) — ẢNH CHỤP ĐẦU VÀO & ĐỐI CHIẾU TRƯỚC KHI START ────
+     Mọi dữ liệu ảnh hưởng tới kết quả đều nằm trong chữ ký này. Nếu một
+     ô bị sửa mà auto-calc chưa kịp/không chạy (mất focus, lỗi, người dùng
+     bấm START ngay), _sigDiff() sẽ chỉ đúng ô đó ra cho nhân viên. */
+  const _SIG_FLD = [
+    ['mc-iv',    'INIT VOL (m³)'],
+    ['mc-tv',    'TARGET VOL (m³)'],
+    ['mc-tr',    'TARGET C3 %'],
+    ['mc-cr',    'CURRENT C3 %'],
+    ['mc-prec3', 'RECEIVE C3 (m³)'],
+    ['mc-vpipe', 'LOW PRESSURE — Pipe (m³)'],
+    ['mc-spvpipe','SPECIAL RATIO — Pipe (m³)'],
+    ['mc-fcpipe','SINGLE-PRODUCT FILL — Pipe (m³)']
+  ];
+  function _calcSig(n){
+    const f = {};
+    _SIG_FLD.forEach(([id,lbl])=>{ f[id] = String(_gv(id+n) || '').trim(); });
+    return {
+      f: f,
+      mode: [ LP[n]?'LP':'', SP[n]?'SP':'', PC[n]?'PC':'',
+              FILL[n]?('FILL'+FILL[n]):'', (FILL[n]&&FILL_CIRC[n])?'CIRC':'',
+              'ORD'+ORD[n] ].filter(Boolean).join('+') || 'NORMAL',
+      cfg: [MC_D.c3l,MC_D.c4l,MC_D.c3v,MC_D.c4v,MC_TV,MC_TANK_R,
+            MC_ODO.ppm,MC_ODO.ref,MC_ODO.bd].join('/')
+    };
+  }
+  function _sigDiff(a, b){
+    const out = [];
+    if(!a || !b) return out;
+    _SIG_FLD.forEach(([id,lbl])=>{
+      const x = a.f[id] || '(trống)', y = b.f[id] || '(trống)';
+      if(x !== y) out.push('• '+lbl+':  lúc tính = '+x+'   →   hiện tại = '+y);
+    });
+    if(a.mode !== b.mode) out.push('• Chế độ mix:  lúc tính = '+a.mode+'   →   hiện tại = '+b.mode);
+    if(a.cfg  !== b.cfg)  out.push('• Hằng số trong ⚙ Settings đã thay đổi sau khi tính');
+    return out;
+  }
+
   function calcOne(n){
     if(ST[n] === 'mixing'){ toast('⚠ TK-'+(n==='1'?'3501':'3502')+' is mixing — cannot recalculate','er'); return; }
     if(ST[n] === 'idle'){ ST[n] = 'calc'; _renderStatus(n); }
+    if(_planLinkCheck(n)) return;   /* v4.78 */
+    _overAsked[n] = null;           /* v4.78 — bấm CALCULATE thì luôn hỏi lại */
     _calcOne(n);
     autoGcRecalc(n);
   }
@@ -897,6 +1280,9 @@ const MC = (function(){
   function autoCalc(n){
     clearTimeout(_calcTimer[n]);
     _calcTimer[n] = setTimeout(()=>{
+      /* v4.78 — TARGET VOL lấy từ PLAN phải khớp TARGET C3 % hiện hành.
+         Nếu %C3 đã đổi → xóa TARGET VOL cũ và dừng (bắt chạy lại PLAN). */
+      if(_planLinkCheck(n)) return;
       const iv = _gnum('mc-iv'+n);
       const tv = _gnum('mc-tv'+n);
       const tr = _gnum('mc-tr'+n);
@@ -922,6 +1308,7 @@ const MC = (function(){
     if(ST[n] === 'mixing'){ toast('⚠ '+tk+' is mixing — cannot reset','er'); return; }
     if(ST[n] !== 'calc') return;
     ['mc-iv'+n,'mc-sd'+n,'mc-s'+n,'mc-fd'+n,'mc-f'+n,'mc-l'+n,'mc-prec3'+n].forEach(id=>{ const e = _gid(id); if(e) e.value = ''; });
+    OVER_WARN[n] = false; OVER_HARD[n] = false; _overAsked[n] = null; _planLinkClear(n);   /* v4.81 */
     const tvEl = _gid('mc-tv'+n); if(tvEl) tvEl.value = '570';
     const trEl = _gid('mc-tr'+n); if(trEl) trEl.value = '55';
     const vpEl = _gid('mc-vpipe'+n); if(vpEl) vpEl.value = '74';
@@ -1046,6 +1433,95 @@ const MC = (function(){
   function _startMix(n){
     if(ST[n] !== 'calc'){ toast('⚠ Click TK header to activate calculation first','er'); return; }
     const tk = n==='1' ? '3501' : '3502';
+    /* v4.78 — TARGET VOL từ PLAN đã lệch %C3 → chặn luôn ở bước START */
+    if(_planLinkCheck(n)) return;
+
+    /* ══ v4.79 (R4) — KẾT QUẢ ĐANG HIỂN THỊ CÓ ĐÚNG VỚI DỮ LIỆU KHÔNG? ══
+       Phần mềm tự tính lại khi gõ, nhưng có đường không kích hoạt được
+       auto-calc (đổi hằng số ⚙, sửa xong bấm START ngay, tính lỗi...).
+       Nếu lệch → LIỆT KÊ rõ từng ô rồi hỏi: TÍNH LẠI hay BỎ QUA. */
+    let _sigSkipped = false;
+    const resOn = _gid('mc-r'+n)?.classList.contains('on');
+    if(!resOn || !CALC_SIG[n]){
+      toast('⛔ TK-'+tk+': chưa có kết quả tính hợp lệ — bấm 🖩 CALCULATE trước khi START','er');
+      try{
+        alert('TK-'+tk+' — CHƯA TÍNH TOÁN\n\n'
+          + 'Chưa có kết quả tính hợp lệ cho các thông số đang nhập.\n'
+          + 'Bấm 🖩 CALCULATE, kiểm tra STOP C3 / STOP C4 rồi mới ▶START MIX.');
+      }catch(_){}
+      return;
+    }
+    const diff = _sigDiff(CALC_SIG[n], _calcSig(n));
+    if(diff.length){
+      const msg = 'TK-'+tk+' — DỮ LIỆU ĐÃ THAY ĐỔI SAU KHI TÍNH\n\n'
+        + 'Kết quả STOP C3 / STOP C4 đang hiển thị được tính từ bộ số CŨ.\n'
+        + 'Những ô sau đã bị sửa nhưng CHƯA được tính lại:\n\n'
+        + diff.join('\n') + '\n\n'
+        + '──────────────────────────────\n'
+        + '[OK]     = TÍNH LẠI theo dữ liệu hiện tại rồi bắt đầu  (khuyến nghị)\n'
+        + '[Cancel] = BỎ QUA, giữ nguyên kết quả cũ';
+      let doRecalc = true;
+      try{ doRecalc = confirm(msg); }catch(_){}
+      if(doRecalc){
+        _calcOne(n);
+        autoGcRecalc(n);
+        if(!_gid('mc-r'+n)?.classList.contains('on')){
+          toast('⛔ TK-'+tk+': tính lại KHÔNG thành công — kiểm tra lại dữ liệu','er');
+          return;
+        }
+        toast('🔄 TK-'+tk+': đã tính lại theo dữ liệu mới — kiểm tra STOP C3 / STOP C4 trước khi xác nhận','warn');
+      } else {
+        let ok2 = false;
+        try{
+          ok2 = confirm('TK-'+tk+' — XÁC NHẬN BỎ QUA\n\n'
+            + 'Bắt đầu pha với kết quả CŨ, KHÔNG khớp dữ liệu đang nhập?\n\n'
+            + diff.join('\n') + '\n\n'
+            + 'Thao tác này sẽ được ghi lại kèm tên người xác nhận.');
+        }catch(_){ ok2 = false; }
+        if(!ok2){ toast('Đã hủy — hãy bấm 🖩 CALCULATE để tính lại','warn'); return; }
+        _sigSkipped = true;
+      }
+    }
+
+    /* ══ v4.81 — HAI NGƯỠNG TẠI BƯỚC ▶START ═══════════════════════════
+       • > 90% dung tích bồn  → CHẶN, không cho bắt đầu (vượt quy định)
+       • 585 < V ≤ 90%        → VẪN CHO START nhưng phải xác nhận thêm
+                                 một lần nữa, ghi lại tên người xác nhận */
+    const WARN = _mcWarnLvl(), CAP = _mcHardCap();
+    if(OVER_HARD[n]){
+      toast('⛔ TK-'+tk+': VƯỢT TRẦN QUY ĐỊNH 90% dung tích ('+_fmt(CAP,1)+' m³) — không thể START','er');
+      try{
+        alert('⛔ TK-'+tk+' — KHÔNG THỂ BẮT ĐẦU PHA\n\n'
+          + 'Thể tích cuối của mẻ này vượt TRẦN QUY ĐỊNH 90% dung tích bồn.\n\n'
+          + '   Trần quy định (90%) : '+_fmt(CAP,1)+' m³\n'
+          + '   Thể tích cuối       : '+_fmt(_gnum('mc-tv'+n),1)+' m³\n\n'
+          + 'Hãy hạ TARGET VOL, đổi TARGET C3 %, hoặc xuất bớt hàng trong bồn\n'
+          + 'rồi tính lại trước khi bắt đầu pha.');
+      }catch(_){}
+      return;
+    }
+    let _overConfirmed = false;
+    if(OVER_WARN[n]){
+      const tvNow = _gnum('mc-tv'+n);
+      let okOver = false;
+      try{
+        okOver = confirm('⚠⚠ TK-'+tk+' — XÁC NHẬN PHA TRONG VÙNG RỦI RO CAO ⚠⚠\n\n'
+          + 'Thể tích cuối của mẻ này TRÊN ngưỡng cảnh báo '+_fmt(WARN,0)+' m³.\n\n'
+          + '   Ngưỡng cảnh báo     : '+_fmt(WARN,0)+' m³\n'
+          + '   TARGET VOL hiện tại : '+_fmt(tvNow,1)+' m³   (+'+_fmt(Math.max(0,tvNow-WARN),1)+')\n'
+          + '   Trần quy định (90%) : '+_fmt(CAP,1)+' m³   (còn '+_fmt(Math.max(0,CAP-tvNow),1)+' m³)\n\n'
+          + 'Mức này vẫn nằm trong quy định (≤ 90% dung tích) nhưng RỦI RO CAO.\n'
+          + 'Anh/chị đã kiểm tra và chấp nhận?\n\n'
+          + '[OK]     = bắt đầu pha — tên người xác nhận sẽ được GHI LẠI\n'
+          + '[Cancel] = quay lại chỉnh số');
+      }catch(_){ okOver = false; }
+      if(!okOver){
+        toast('Đã hủy — hạ TARGET VOL / đổi TARGET C3 % rồi tính lại','warn');
+        return;
+      }
+      _overConfirmed = true;
+      toast('⚠ TK-'+tk+': BẮT ĐẦU PHA TRÊN '+_fmt(WARN,0)+' m³ (rủi ro cao) — đã ghi nhật ký người xác nhận','er');
+    }
     const sdEl = _gid('mc-sd'+n), sEl = _gid('mc-s'+n);
     if(!sdEl.value) sdEl.value = _todayDDMMYY();
     if(!sEl.value || !sEl.value.trim()) sEl.value = _nowHHMM();
@@ -1072,6 +1548,14 @@ const MC = (function(){
     updateLotNames();
     _renderStatus(n);
     _pushMixingFb(n);
+    /* v4.79 (R8) — ghi nhật ký: ai bắt đầu, với bộ số nào */
+    _mlog('START', n, 'IV='+_gv('mc-iv'+n)+' TV='+_gv('mc-tv'+n)+' TR='+_gv('mc-tr'+n)
+                     +' CR='+_gv('mc-cr'+n)+' mode='+_calcSig(n).mode
+                     + (_sigSkipped ? ' ⚠BỎ-QUA-TÍNH-LẠI' : '')
+                     + (_overConfirmed ? ' ⚠RỦI-RO-CAO->'+_fmt(_mcWarnLvl(),0) : ''));
+    if(_sigSkipped) _mlog('SKIP', n, 'Bắt đầu với kết quả CŨ: '+diff.join(' | ').slice(0,160));
+    if(_overConfirmed) _mlog('OVERSTART', n, 'CHẤP NHẬN pha trên ngưỡng cảnh báo '+_fmt(_mcWarnLvl(),0)
+                     +' m³ — TARGET VOL='+_gv('mc-tv'+n)+' m³ (trần 90% = '+_fmt(_mcHardCap(),1)+' m³)');
     toast('🔄 TK-'+tk+' → MIXING ('+_lotName(MIXING_LOT[n])+')','ok');
   }
 
@@ -1407,11 +1891,44 @@ const MC = (function(){
       if(ev.warns.length) toast('⚠ '+ev.warns[0],'warn');
     }
     if(!_saveToTankLog(n, quality, /*silent*/ false)) return;
+    /* v4.79 (R8) — nhật ký kết thúc mẻ */
+    _mlog('FINISH', n, 'lot='+lotNum+' quality='+quality+' FVOL='+_gv('gc'+n+'-fvol')
+                      +' C3='+_gv('gc'+n+'-c3h8')+(warns.length?' ⚠'+warns.length+' cảnh báo':''));
     if(ST[n] === 'mixing'){
       ST[n] = 'calc';
       _clearMixingFb(n);
     }
     _renderStatus(n);
+  }
+
+  /* ============================================================
+     v4.79 (R8) — NHẬT KÝ THAO TÁC (audit trail)  ·  eng_mix_audit
+     ------------------------------------------------------------
+     CHỈ GHI, KHÔNG ĐỌC (không gắn listener) ⇒ không tốn băng thông
+     đọc của Firebase. Mỗi bản ghi ~110 byte:
+       { t, u, tk, lot, a, d }
+     Ước tính: 3–5 mẻ/ngày × ~3 sự kiện ≈ 15 bản/ngày ≈ 5.500 bản/năm
+     ≈ 0,6 MB/năm — không đáng kể với hạn mức Spark (1 GB lưu trữ).
+     Xem lại nhật ký bằng Firebase Console, hoặc thêm màn hình đọc sau.
+     ============================================================ */
+  function _auditUser(){
+    try{
+      const u = (typeof CURRENT_USER !== 'undefined' && CURRENT_USER) ? CURRENT_USER : (window.CURRENT_USER || {});
+      return String(u.name || u.email || '?').slice(0, 40);
+    }catch(_){ return '?'; }
+  }
+  function _mlog(act, n, detail){
+    try{
+      if(typeof firebase === 'undefined') return;
+      firebase.database().ref('eng_mix_audit').push({
+        t  : Date.now(),
+        u  : _auditUser(),
+        tk : (n === '1' ? '3501' : '3502'),
+        lot: MIXING_LOT[n] || 0,
+        a  : String(act || '').slice(0, 16),
+        d  : String(detail || '').slice(0, 180)
+      }).catch(()=>{});
+    }catch(e){ console.warn('[MC] audit', e); }
   }
 
   /* ============================================================
@@ -1896,8 +2413,14 @@ const MC = (function(){
     });
     _applyCfg(c);
     _saveCfg(c);
+    /* v4.79 (R7) — đẩy lên Firebase cho mọi máy dùng chung */
+    if(_cfgFbRef){
+      _cfgSelfPush++;
+      _cfgFbRef.set(c).catch(e=>{ _cfgSelfPush = Math.max(0,_cfgSelfPush-1); console.warn('[MC] cfg push', e); });
+      _mlog('CFG', '1', 'tv='+c.tv+' r='+c.r+' c3l='+c.c3l+' c4l='+c.c4l+' odoRef='+c.odoRef+' odoBd='+c.odoBd);
+    }
     closeSettings();
-    toast('⚙️ Mix Calculator settings saved','ok');
+    toast('⚙️ Đã lưu hằng số Mix Calculator — đồng bộ cho tất cả máy','ok');
     /* Re-run any visible calculations to reflect new constants */
     ['1','2'].forEach(n=>{
       if(ST[n] !== 'idle'){
@@ -1908,9 +2431,11 @@ const MC = (function(){
     });
   }
   function resetSettings(){
-    if(!confirm('Reset all Mix Calculator constants to defaults?\n\n(C3/C4 densities, tank radius, max volume, odorant constants)')) return;
+    if(!confirm('Reset all Mix Calculator constants to defaults?\n\n(C3/C4 densities, tank radius, max volume, odorant constants)\n\n⚠ Thay đổi này áp dụng cho TẤT CẢ máy.')) return;
     _applyCfg(DEF);
     _saveCfg(DEF);
+    if(_cfgFbRef){ _cfgSelfPush++; _cfgFbRef.set(DEF).catch(()=>{ _cfgSelfPush = Math.max(0,_cfgSelfPush-1); }); }
+    _mlog('CFG', '1', 'reset về mặc định');
     openSettings();    // re-populate the form with defaults
     toast('↺ Constants reset to defaults','ok');
   }
@@ -1950,6 +2475,8 @@ const MC = (function(){
     /* v4.55 — COQ spec table: localStorage fallback + Firebase sync */
     _loadSpecLocal();
     _initSpecFb();
+    /* v4.79 (R7) — hằng số Mix Calculator dùng chung mọi máy */
+    _initCfgFb();
     /* Initial UI sync */
     refresh();
     console.log('[MC] ✅ Init OK · Mix Calculator ready');
@@ -2018,6 +2545,7 @@ const MC = (function(){
       const el = _gid(id);
       if(el && val !== null && val !== undefined && val !== '') el.value = val;
     };
+    OVER_WARN[n] = false; OVER_HARD[n] = false; _overAsked[n] = null; _planLinkClear(n);   /* v4.81 */
     _set('mc-l'+n,  rowLotNum || '');
     _set('mc-iv'+n, _numStr(rowSnap[10]));
     _set('mc-tv'+n, _numStr(rowSnap[30]) || '570');
@@ -2146,6 +2674,8 @@ const MC = (function(){
   return {
     init, refresh,
     activate, calcOne, autoCalc, resetCalc,
+    chkInp,           /* v4.79 (R2/R3) — kiểm tra & kẹp giá trị tại ô nhập */
+    parseNum: _pnum,  /* v4.79 (R3) — parser chuẩn Excel US, dùng lại nơi khác */
     toggleOrder, toggleLP, toggleSP, togglePC, toggleCrMode,
     fillCircChange,   /* v4.74 — checkbox tuần hoàn về trạm (CHỈ BƠM) */
     modeClick, modeDbl,   /* v4.67 — double-click guard for mode buttons */

@@ -1723,22 +1723,22 @@
               <div class="mc-input-grid">
                 <div class="mc-fld">
                   <div class="mc-lbl">INIT VOL (m³)</div>
-                  <input class="mc-inp" id="mc-iv1" type="text" inputmode="decimal" oninput="MC.autoCalc('1')">
+                  <input class="mc-inp" id="mc-iv1" type="text" inputmode="decimal" oninput="MC.autoCalc('1')" data-lbl="INIT VOL" onblur="MC.chkInp(this,'vol')">
                 </div>
                 <div class="mc-fld">
                   <div class="mc-lbl">TARGET VOL</div>
-                  <input class="mc-inp" id="mc-tv1" type="text" inputmode="decimal" value="570" oninput="MC.autoCalc('1')">
+                  <input class="mc-inp" id="mc-tv1" type="text" inputmode="decimal" value="570" oninput="MC.autoCalc('1')" data-lbl="TARGET VOL" onblur="MC.chkInp(this,'vol')">
                 </div>
                 <div class="mc-fld">
                   <div class="mc-lbl" id="mc-trlbl1">TARGET C3 %</div>
-                  <input class="mc-inp" id="mc-tr1" type="text" inputmode="decimal" value="55" oninput="MC.autoCalc('1')">
+                  <input class="mc-inp" id="mc-tr1" type="text" inputmode="decimal" value="55" oninput="MC.autoCalc('1')" data-lbl="TARGET C3 %" onblur="MC.chkInp(this,'pct')">
                 </div>
                 <div class="mc-fld">
                   <div class="mc-lbl">
                     CURRENT C3 %
                     <button type="button" id="mc-crm1" class="mc-cr-mode-btn" onclick="MC.toggleCrMode('1')">AUTO</button>
                   </div>
-                  <input class="mc-inp" id="mc-cr1" type="text" inputmode="decimal" placeholder="auto" readonly>
+                  <input class="mc-inp" id="mc-cr1" type="text" inputmode="decimal" placeholder="auto" readonly data-lbl="CURRENT C3 %" onblur="MC.chkInp(this,'pct')">
                   <div class="mc-cr-hint" id="mc-h1"></div>
                 </div>
               </div>
@@ -1746,7 +1746,7 @@
                 <div class="mc-lp-row">
                   <span class="mc-lp-ttl">📐 LOW PRESSURE</span>
                   <span class="mc-lp-hint">Pipe</span>
-                  <input class="mc-lp-inp" id="mc-vpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')">
+                  <input class="mc-lp-inp" id="mc-vpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')" data-lbl="LOW PRESSURE Pipe" onblur="MC.chkInp(this,'pipe')">
                   <span class="mc-lp-hint">m³</span>
                   <span class="mc-lp-hint">Expected C3:</span>
                   <input class="mc-lp-inp" id="mc-expc31" type="text" placeholder="auto" readonly>
@@ -1756,7 +1756,7 @@
                 <div class="mc-lp-row">
                   <span class="mc-sp-ttl">★ MIX TỈ LỆ ĐẶC BIỆT</span>
                   <span class="mc-lp-hint">Pipe</span>
-                  <input class="mc-lp-inp" id="mc-spvpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')">
+                  <input class="mc-lp-inp" id="mc-spvpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')" data-lbl="SPECIAL RATIO Pipe" onblur="MC.chkInp(this,'pipe')">
                   <span class="mc-lp-hint">m³</span>
                   <span class="mc-lp-hint" title="C3 ratio to mix IN-TANK — BEFORE pipe circulation. After circulating, the tank ends at exactly the Final Target C3 % (after circulate) entered above.">Blend target C3 (before circulate):</span>
                   <input class="mc-lp-inp" id="mc-sptr1" type="text" placeholder="auto" readonly title="C3 ratio mixed in-tank BEFORE circulation — NOT the final result">
@@ -1766,7 +1766,7 @@
               <div class="mc-pc-box" id="mc-pc-box1">
                 <div class="mc-pc-row">
                   <span class="mc-pc-ttl">📥 RECEIVE C3</span>
-                  <input class="mc-pc-inp" id="mc-prec31" type="text" inputmode="decimal" oninput="MC.autoCalc('1')">
+                  <input class="mc-pc-inp" id="mc-prec31" type="text" inputmode="decimal" oninput="MC.autoCalc('1')" data-lbl="RECEIVE C3" onblur="MC.chkInp(this,'vol')">
                   <span class="mc-pc-hint">m³</span>
                   <span class="mc-pc-hint">C3 % after:</span>
                   <input class="mc-pc-inp" id="mc-newcr1" type="text" placeholder="auto" readonly>
@@ -1780,7 +1780,7 @@
                     <input type="checkbox" id="mc-fccirc1" checked onchange="MC.fillCircChange('1')"> 🔁 Circulate back
                   </label>
                   <span class="mc-lp-hint">Pipe</span>
-                  <input class="mc-lp-inp" id="mc-fcpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')">
+                  <input class="mc-lp-inp" id="mc-fcpipe1" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('1')" data-lbl="SINGLE-FILL Pipe" onblur="MC.chkInp(this,'pipe')">
                   <span class="mc-lp-hint">m³ (old ratio in pipe)</span>
                 </div>
               </div>
@@ -1962,22 +1962,22 @@
               <div class="mc-input-grid">
                 <div class="mc-fld">
                   <div class="mc-lbl">INIT VOL (m³)</div>
-                  <input class="mc-inp" id="mc-iv2" type="text" inputmode="decimal" oninput="MC.autoCalc('2')">
+                  <input class="mc-inp" id="mc-iv2" type="text" inputmode="decimal" oninput="MC.autoCalc('2')" data-lbl="INIT VOL" onblur="MC.chkInp(this,'vol')">
                 </div>
                 <div class="mc-fld">
                   <div class="mc-lbl">TARGET VOL</div>
-                  <input class="mc-inp" id="mc-tv2" type="text" inputmode="decimal" value="570" oninput="MC.autoCalc('2')">
+                  <input class="mc-inp" id="mc-tv2" type="text" inputmode="decimal" value="570" oninput="MC.autoCalc('2')" data-lbl="TARGET VOL" onblur="MC.chkInp(this,'vol')">
                 </div>
                 <div class="mc-fld">
                   <div class="mc-lbl" id="mc-trlbl2">TARGET C3 %</div>
-                  <input class="mc-inp" id="mc-tr2" type="text" inputmode="decimal" value="55" oninput="MC.autoCalc('2')">
+                  <input class="mc-inp" id="mc-tr2" type="text" inputmode="decimal" value="55" oninput="MC.autoCalc('2')" data-lbl="TARGET C3 %" onblur="MC.chkInp(this,'pct')">
                 </div>
                 <div class="mc-fld">
                   <div class="mc-lbl">
                     CURRENT C3 %
                     <button type="button" id="mc-crm2" class="mc-cr-mode-btn" onclick="MC.toggleCrMode('2')">AUTO</button>
                   </div>
-                  <input class="mc-inp" id="mc-cr2" type="text" inputmode="decimal" placeholder="auto" readonly>
+                  <input class="mc-inp" id="mc-cr2" type="text" inputmode="decimal" placeholder="auto" readonly data-lbl="CURRENT C3 %" onblur="MC.chkInp(this,'pct')">
                   <div class="mc-cr-hint" id="mc-h2"></div>
                 </div>
               </div>
@@ -1985,7 +1985,7 @@
                 <div class="mc-lp-row">
                   <span class="mc-lp-ttl">📐 LOW PRESSURE</span>
                   <span class="mc-lp-hint">Pipe</span>
-                  <input class="mc-lp-inp" id="mc-vpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')">
+                  <input class="mc-lp-inp" id="mc-vpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')" data-lbl="LOW PRESSURE Pipe" onblur="MC.chkInp(this,'pipe')">
                   <span class="mc-lp-hint">m³</span>
                   <span class="mc-lp-hint">Expected C3:</span>
                   <input class="mc-lp-inp" id="mc-expc32" type="text" placeholder="auto" readonly>
@@ -1995,7 +1995,7 @@
                 <div class="mc-lp-row">
                   <span class="mc-sp-ttl">★ MIX TỈ LỆ ĐẶC BIỆT</span>
                   <span class="mc-lp-hint">Pipe</span>
-                  <input class="mc-lp-inp" id="mc-spvpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')">
+                  <input class="mc-lp-inp" id="mc-spvpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')" data-lbl="SPECIAL RATIO Pipe" onblur="MC.chkInp(this,'pipe')">
                   <span class="mc-lp-hint">m³</span>
                   <span class="mc-lp-hint" title="C3 ratio to mix IN-TANK — BEFORE pipe circulation. After circulating, the tank ends at exactly the Final Target C3 % (after circulate) entered above.">Blend target C3 (before circulate):</span>
                   <input class="mc-lp-inp" id="mc-sptr2" type="text" placeholder="auto" readonly title="C3 ratio mixed in-tank BEFORE circulation — NOT the final result">
@@ -2005,7 +2005,7 @@
               <div class="mc-pc-box" id="mc-pc-box2">
                 <div class="mc-pc-row">
                   <span class="mc-pc-ttl">📥 RECEIVE C3</span>
-                  <input class="mc-pc-inp" id="mc-prec32" type="text" inputmode="decimal" oninput="MC.autoCalc('2')">
+                  <input class="mc-pc-inp" id="mc-prec32" type="text" inputmode="decimal" oninput="MC.autoCalc('2')" data-lbl="RECEIVE C3" onblur="MC.chkInp(this,'vol')">
                   <span class="mc-pc-hint">m³</span>
                   <span class="mc-pc-hint">C3 % after:</span>
                   <input class="mc-pc-inp" id="mc-newcr2" type="text" placeholder="auto" readonly>
@@ -2019,7 +2019,7 @@
                     <input type="checkbox" id="mc-fccirc2" checked onchange="MC.fillCircChange('2')"> 🔁 Circulate back
                   </label>
                   <span class="mc-lp-hint">Pipe</span>
-                  <input class="mc-lp-inp" id="mc-fcpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')">
+                  <input class="mc-lp-inp" id="mc-fcpipe2" type="text" inputmode="decimal" value="74" oninput="MC.autoCalc('2')" data-lbl="SINGLE-FILL Pipe" onblur="MC.chkInp(this,'pipe')">
                   <span class="mc-lp-hint">m³ (old ratio in pipe)</span>
                 </div>
               </div>
@@ -2157,11 +2157,11 @@
             <div class="spp-inputs">
               <div class="spp-fld">
                 <div class="spp-lbl" title="Pre-filled from FINAL TARGET C3 % of the panel — the special ratio being mixed (e.g. 30 for 30:70, 70 for 70:30)">SPECIAL RATIO C3 %</div>
-                <input class="spp-inp" id="spp-special" type="text" inputmode="decimal" oninput="MC.spPlanCalc()">
+                <input class="spp-inp" id="spp-special" type="text" inputmode="decimal" oninput="MC.spPlanCalc()" data-lbl="SPECIAL RATIO C3 %" onblur="MC.chkInp(this,'pct')">
               </div>
               <div class="spp-fld">
                 <div class="spp-lbl" title="The normal commercial ratio the tank must return to after the special sale (typically 53–54)">NORMAL RATIO C3 %</div>
-                <input class="spp-inp" id="spp-norm" type="text" inputmode="decimal" value="53.5" oninput="MC.spPlanCalc()">
+                <input class="spp-inp" id="spp-norm" type="text" inputmode="decimal" value="53.5" oninput="MC.spPlanCalc()" data-lbl="NORMAL RATIO C3 %" onblur="MC.chkInp(this,'pct')">
               </div>
               <div class="spp-fld">
                 <div class="spp-lbl" title="Planned special-product sales in tons">SALE PLAN (ton)</div>
@@ -2177,7 +2177,7 @@
               </div>
               <div class="spp-fld">
                 <div class="spp-lbl" title="Maximum mix volume of one tank">TANK MAX (m³)</div>
-                <input class="spp-inp" id="spp-max" type="text" inputmode="decimal" value="570" oninput="MC.spPlanCalc()">
+                <input class="spp-inp" id="spp-max" type="text" inputmode="decimal" value="585" oninput="MC.spPlanCalc()" data-lbl="TANK MAX" onblur="MC.chkInp(this,'vol')">
               </div>
             </div>
             <div class="spp-res" id="spp-res"></div>
