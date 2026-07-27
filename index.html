@@ -2176,8 +2176,8 @@
                 <input class="spp-inp" id="spp-fail" type="text" inputmode="decimal" value="12" oninput="MC.spPlanCalc()">
               </div>
               <div class="spp-fld">
-                <div class="spp-lbl" title="Maximum mix volume of one tank">TANK MAX (m³)</div>
-                <input class="spp-inp" id="spp-max" type="text" inputmode="decimal" value="585" oninput="MC.spPlanCalc()" data-lbl="TANK MAX" onblur="MC.chkInp(this,'vol')">
+                <div class="spp-lbl" title="Mức thể tích mix NHẮM TỚI cho mẻ này. Mặc định 570 m³ = mức mix thường ngày của trạm.&#10;585 m³ = ngưỡng bắt đầu CẢNH BÁO rủi ro cao (không phải mục tiêu).&#10;627.2 m³ = trần quy định 90% dung tích bồn — không được vượt.">MỨC MIX NHẮM TỚI (m³)</div>
+                <input class="spp-inp" id="spp-max" type="text" inputmode="decimal" value="570" oninput="MC.spPlanCalc()" data-lbl="MỨC MIX NHẮM TỚI" onblur="MC.chkInp(this,'vol')">
               </div>
             </div>
             <div class="spp-res" id="spp-res"></div>

@@ -58,6 +58,7 @@ const MC = (function(){
                                   nhật ký tên người xác nhận
        > 90% dung tích         → VƯỢT QUY ĐỊNH: chặn ▶START MIX,
                                   ô nhập bị kẹp về đúng 90%              */
+  const MC_TARGET  = 570;      // m³ — MỨC MIX THƯỜNG NGÀY (mục tiêu của trạm)
   const MC_WARN    = 585;      // m³ — ngưỡng CẢNH BÁO rủi ro cao
   const MC_MAX_PCT = 0.90;     // trần QUY ĐỊNH = 90% dung tích bồn
   function _mcHardCap(){ return MC_TV * MC_MAX_PCT; }   // 696.91 → 627.2 m³
@@ -597,7 +598,7 @@ const MC = (function(){
     _set0('spp-resv', '0');             // dự phòng hủy
     _set0('spp-norm', '53.5');          // tỉ lệ thường
     _set0('spp-fail', '12');            // dự phòng mix hỏng (gợi ý)
-    _set0('spp-max',  String(MC_LIMIT));// trần bồn
+    _set0('spp-max',  String(MC_TARGET));// mức mix thường ngày (KHÔNG phải trần)
     const se = _gid('spp-special');
     const tr = _gnum('mc-tr'+n);
     if(se) se.value = tr > 0 ? tr.toFixed(2) : '';
@@ -619,7 +620,7 @@ const MC = (function(){
     const sellT = pf('spp-sell');            // sale plan (ton)
     const resvT = pf('spp-resv');            // cancel reserve (ton)
     const failT = pf('spp-fail');            // mix-fail reserve (ton)
-    let   M = pf('spp-max') || MC_LIMIT;     // tank max mix volume
+    let   M = pf('spp-max') || MC_TARGET;    // mức thể tích mix nhắm tới (mặc định 570)
     /* v4.78 — không cho planner vượt mức tối đa cho phép fill */
     if(M > _mcHardCap() + 1e-9) M = _mcHardCap();
     if(!(s>0 && s<1) || !(t>0 && t<1) || !(sellT>0)){
@@ -670,6 +671,11 @@ const MC = (function(){
            + _td(optA) + _td(optB) + '</tr>';
     };
     let h = '';
+    /* v4.81 — nhắc rõ 570 là mức thường ngày, 585 mới là ngưỡng cảnh báo */
+    if(M > MC_WARN + 1e-9){
+      h += '<div class="spp-warn-band">🚨 MỨC MIX NHẮM TỚI '+_fmt(M,1)+' m³ ĐANG TRÊN NGƯỠNG CẢNH BÁO '+_fmt(MC_WARN,0)+' m³ — rủi ro cao. '
+         + 'Mức mix thường ngày là '+_fmt(MC_TARGET,0)+' m³ (trần quy định 90% = '+_fmt(_mcHardCap(),1)+' m³).</div>';
+    }
     h += '<div class="spp-sum">'
        + '<div class="spp-sum-main">🎯 MAX SAFE MIX <b>'+_fmt(V0,1)+'</b> m³ <span class="spp-sum-sub">≈ '+_fmt(V0*rho,1)+' t @ C3 '+(s*100).toFixed(0)+'%</span></div>'
        + '<div class="spp-sum-note">Limited by: '+binding+'</div>'
@@ -714,7 +720,7 @@ const MC = (function(){
     _planLinkSet(n, v0);
     /* v4.79 — ghi nhật ký PLAN (không lưu lại số liệu để điền sẵn lần sau) */
     _mlog('PLAN', n, 'V0='+v0.toFixed(1)+' m³ · C3='+_gnum('mc-tr'+n).toFixed(2)+'% · bán='+_gv('spp-sell')
-                    +'t · dp hủy='+_gv('spp-resv')+'t · dp hỏng='+_gv('spp-fail')+'t · trần='+_gv('spp-max'));
+                    +'t · dp hủy='+_gv('spp-resv')+'t · dp hỏng='+_gv('spp-fail')+'t · mức nhắm='+_gv('spp-max'));
     toast('🎯 TARGET VOL = '+v0.toFixed(1)+' m³ (max safe mix) — đã gắn với TARGET C3 '+_gnum('mc-tr'+n).toFixed(2)+'%','ok');
     spPlanClose();
     autoCalc(n);
