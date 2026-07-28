@@ -1,6 +1,13 @@
 /* fleet.css — Bảng fleet, cert-badge, plan-blink. Nguồn ~1842–1860 + Tabulator overrides.
    Nguồn: khối <style> trong lpg-station-v4_54_0-cavern-collapsible-sections.html (tách theo tiền tố selector).
-   TODO[P1]: dán các quy tắc CSS tương ứng vào đây. */
+   TODO[P1]: dán các quy tắc CSS tương ứng vào đây.
+
+   ⚠⚠ FILE NÀY HIỆN KHÔNG ĐƯỢC NẠP ⚠⚠
+   <link> tới nó nằm trong khối COMMENT ở <head> của index.html (chờ phase
+   tách CSS). Sửa ở đây không ảnh hưởng gì tới giao diện đang chạy — muốn
+   đổi style bảng Fleet thì viết vào core.css.
+   (v4.82 đã dính đúng bẫy này: style cột ⛔ BLOCK viết ở đây, chạy không lên;
+    đã chuyển sang core.css — xem mục "⛔ BLOCK — hai cột trên bảng Fleet".) */
 
 /* ===== Cỡ chữ bảng Fleet — to & dễ nhìn như V406 (chỉ áp dụng cho #fleetGrid,
    không ảnh hưởng các bảng Tabulator khác) ===== */
@@ -15,3 +22,5 @@
 /* Ngày + chấm trạng thái cũng to theo */
 #fleetGrid .dc{font-size:18px;}
 #fleetGrid .dc .dcd{width:12px;height:12px;}
+
+/* Style cột ⛔ BLOCK đã chuyển sang core.css (file này không được nạp). */

@@ -1,0 +1,9 @@
+/* ============================================================
+   fnote.css — KHÔNG DÙNG NỮA (v4.82)
+   ------------------------------------------------------------
+   Style của modal 📝 FLEET NOTES đã chuyển hết vào core.css.
+   Lý do: <link> tới các file CSS tách nhỏ (plan/fleet/scale/…)
+   nằm trong khối COMMENT ở <head> của index.html, nên chúng
+   KHÔNG BAO GIỜ được nạp. Viết style ở đây = không có tác dụng.
+   Giữ file rỗng để không ai vô tình link lại và tưởng nó chạy.
+   ============================================================ */

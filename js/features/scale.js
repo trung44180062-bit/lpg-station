@@ -694,15 +694,19 @@ const SCALE = (function(){
       let badgeHtml='';
       if(warn&&warn.badges&&warn.badges.length){
         badgeHtml='<div class="sc-res-badges">'+warn.badges.map(b=>{
-          const cls=b.type==='exp'?'b-exp':(b.type==='miss'?'b-miss':'b-warn');
-          const ic=b.type==='exp'?'🔴':(b.type==='miss'?'❌':'⚠');
+          /* v4.80 — 'blk' = xe/tài xế bị nhà máy CẤM nhận hàng (cột ⛔ BLOCK
+             trên bảng Fleet). Badge đen-đỏ để nổi hơn cert hết hạn. */
+          const cls=b.type==='blk'?'b-blk':(b.type==='exp'?'b-exp':(b.type==='miss'?'b-miss':'b-warn'));
+          const ic=b.type==='blk'?'⛔':(b.type==='exp'?'🔴':(b.type==='miss'?'❌':'⚠'));
           return `<span class="sc-res-badge ${cls}">${ic} ${esc(b.text)}</span>`;
         }).join('')+'</div>';
       }
       const saleNote=(r.note||'').toString().trim();
       const noteHtml=saleNote?`<div class="sc-res-note">📝 ${esc(saleNote)}</div>`:'';
-      const plateCls=(warn&&warn.badges&&warn.badges.some(b=>b.type==='miss'))?'style="color:#d62839"':'';
-      return `<div id="sc-res-row-${stId}-${idx}" data-warn="${warn&&warn.hasWarn?1:0}"
+      const _isBlk=!!(warn&&warn.badges&&warn.badges.some(b=>b.type==='blk'));
+      const plateCls=(_isBlk||(warn&&warn.badges&&warn.badges.some(b=>b.type==='miss')))?'style="color:#d62839"':'';
+      return `<div id="sc-res-row-${stId}-${idx}" data-warn="${warn&&warn.hasWarn?1:0}" data-blk="${_isBlk?1:0}"
+        class="${_isBlk?'sc-res-blocked':''}"
         style="padding:5px 9px;border-bottom:1px solid #f0f4f8;cursor:pointer;font-size:11px;transition:background .1s"
         onmouseover="if(!this.classList.contains('sc-res-armed'))this.style.background='#f0f8ff'" onmouseout="if(!this.classList.contains('sc-res-armed'))this.style.background=''"
         onclick="SCALE.assignFromSearch(${stId},${idx})">
@@ -716,7 +720,7 @@ const SCALE = (function(){
           </div>
         </div>
         ${badgeHtml}${noteHtml}
-        <div class="sc-res-confirm">⚠ Click again to assign anyway</div>
+        <div class="sc-res-confirm">${_isBlk?'⛔ XE/TÀI XẾ BỊ CẤM — click lần nữa nếu vẫn muốn assign':'⚠ Click again to assign anyway'}</div>
       </div>`;
     }).join('');
     res.style.display='block';
@@ -749,6 +753,9 @@ const SCALE = (function(){
     if(window._scArmed[stId]===idx){
       window._scArmed[stId]=null;
       scHideResults(stId);
+      /* v4.80 — click thứ 2 ở đây ĐÃ là xác nhận của staff cho lệnh cấm ⛔;
+         đánh dấu để scAssignToStation không hỏi confirm() lần nữa. */
+      if(warn.badges.some(b=>b.type==='blk')) row._blkOK=true;
       scAssignToStation(stId,row);
     }else{
       window._scArmed[stId]=idx;
@@ -919,6 +926,28 @@ const SCALE = (function(){
        (done / cancel / allowLoad=NO / no-DO) can never reach a station. */
     const _block = _assignBlockReason(row);
     if(_block){ toast(_block.msg,'er'); return; }
+    /* ═══ v4.80 — ⛔ FLEET BLOCK GATE ═══════════════════════════════════
+       Cột ⛔ BLOCK trên bảng Fleet đánh dấu xe / rmooc / tài xế bị nhà máy
+       CẤM nhận hàng, kèm lý do. Theo yêu cầu vận hành đây là cảnh báo có
+       xác nhận (không chặn cứng): mọi đường assign — search click, queue 📍,
+       multi-DO picker, waitPop — đều phải đi qua đây, nên một lệnh cấm không
+       thể lọt vào trạm mà staff chưa nhìn thấy. Đường search đã bấm 2 lần
+       thì set row._blkOK ⇒ không hỏi lại. Ghi audit để truy nguồn về sau. */
+    try{
+      const _blk = (typeof FCHECK!=='undefined' && FCHECK.orderBlocked) ? FCHECK.orderBlocked(row) : [];
+      if(_blk.length && !row._blkOK){
+        const _txt = '⛔ CẤM NHẬN HÀNG\n\n'
+          + _blk.map(b=>'• '+b.label+' ('+b.subject+')'+(b.note?'\n   Lý do: '+b.note:'')).join('\n')
+          + '\n\nVẫn assign vào Station '+stId+'?';
+        if(!confirm(_txt)){ toast('⛔ Đã huỷ assign — xe/tài xế đang bị cấm nhận hàng','er'); return; }
+      }
+      if(_blk.length){
+        try{ if(typeof logAudit==='function')
+          logAudit('scale:assign_blocked', row._oid||row.doNum||'_', '_blocked', '',
+                   FCHECK.compactBlocked(_blk), 'override'); }catch(_){}
+        toast('⛔ Đã assign xe/tài xế ĐANG BỊ CẤM — kiểm tra lại với nhà máy','er');
+      }
+    }catch(_){}
     /* The unified order identifier (_oid) is the source of truth. Use the real DO only
        when the DO column actually holds one; otherwise (empty or a placeholder like
        "after loading") fall back to the temp id (_oid). SYNC links station↔plan by _oid. */
@@ -1072,10 +1101,19 @@ const SCALE = (function(){
       const primary=tab==='driver'?(r.name||'—'):(r.plate||r.name||'—');
       const label=`${icon} ${esc(primary)}`;
       const sub=tab==='driver'?esc(r.phone||('#'+stt)):('#'+esc(String(stt)));
-      return `<div class="sc-cert-item" onclick="SCALE.certModalOpen('${tab}','${esc(r._rid||'')}',${idx})">
+      /* v4.82 — ⛔ BLOCK hiện ngay trong danh sách tìm cert, không phải mở
+         modal mới biết. Lý do đưa vào title để hover đọc được. */
+      const _blk=!!r.blocked;
+      const _bnote=String(r.blockNote||'').trim();
+      const blkH=_blk
+        ? `<span class="sc-cert-blk" title="${esc('BLOCKED — '+(_bnote||'no reason given'))}">⛔ BLOCKED</span>`
+        : '';
+      const blkNoteH=(_blk&&_bnote)?`<div class="sc-cert-blknote">${esc(_bnote)}</div>`:'';
+      return `<div class="sc-cert-item${_blk?' blocked':''}" onclick="SCALE.certModalOpen('${tab}','${esc(r._rid||'')}',${idx})">
         <div style="flex:1;min-width:0">
-          <div class="sc-cert-plate">${label}</div>
+          <div class="sc-cert-plate">${label}${blkH}</div>
           <div class="sc-cert-rmooc">${sub}</div>
+          ${blkNoteH}
         </div>
         <div class="sc-cert-dots">${dots}</div>
       </div>`;
@@ -1156,6 +1194,19 @@ const SCALE = (function(){
     /* remark */
     document.getElementById('scCmRemark').value=row.remark||'';
 
+    /* v4.82 — BLOCK tick + reason (mirrors the ⛔ / BLOCK NOTE Fleet columns).
+       Tô đỏ cả khối khi đang bị cấm để operator không bỏ sót. */
+    const blkChk=document.getElementById('scCmBlocked');
+    const blkNote=document.getElementById('scCmBlockNote');
+    const blkBox=document.getElementById('scCmBlkBox');
+    if(blkChk&&blkNote&&blkBox){
+      const _on=(typeof isRowBlocked==='function') ? isRowBlocked(row) : !!row.blocked;
+      blkChk.checked=_on;
+      blkNote.value=(typeof rowBlockNote==='function') ? rowBlockNote(row) : (row.blockNote||'');
+      blkBox.classList.toggle('on',_on);
+      blkChk.onchange=()=>blkBox.classList.toggle('on',blkChk.checked);
+    }
+
     document.getElementById('scCertModalBg').classList.add('on');
   }
 
@@ -1184,11 +1235,27 @@ const SCALE = (function(){
       const newRemark=remarkEl.value.trim();
       if(newRemark!==String(row.remark||'')) changes.push({tab, rid, field:'remark', value:newRemark});
     }
+    /* v4.82 — BLOCK tick + reason */
+    const blkChk=document.getElementById('scCmBlocked');
+    const blkNote=document.getElementById('scCmBlockNote');
+    let _blkTurnedOn=false;
+    if(blkChk&&blkNote){
+      const wasOn=!!row.blocked, nowOn=!!blkChk.checked;
+      const wasNote=String(row.blockNote||''), nowNote=blkNote.value.trim();
+      if(nowOn!==wasOn){ changes.push({tab, rid, field:'blocked', value:nowOn}); _blkTurnedOn=nowOn; }
+      if(nowNote!==wasNote) changes.push({tab, rid, field:'blockNote', value:nowNote});
+    }
     if(!changes.length){ toast('No changes',''); certModalClose(); return; }
     /* write via SC.editBatch (fleet write path) */
     if(typeof SC!=='undefined' && typeof SC.editBatch==='function'){
       SC.editBatch(changes, 'scale-cert-check');
       toast('✅ Saved '+changes.length+' field'+(changes.length>1?'s':''),'ok');
+      /* Lệnh cấm đổi trạng thái → mọi badge ⛔ (plan grid, thẻ trạm, panel)
+         phải vẽ lại ngay, đừng đợi user chuyển tab. */
+      try{ if(typeof FCHECK!=='undefined') FCHECK.recompute(); }catch(_){}
+      if(_blkTurnedOn && !(blkNote&&blkNote.value.trim())){
+        toast('⛔ Blocked without a reason — add one so operators know why','er');
+      }
     } else {
       toast('SC module not ready','er');
     }

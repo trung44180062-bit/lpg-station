@@ -1277,6 +1277,21 @@ function _makePlanModule(opts){
         return `<span class="tp-plate-wg-diff" title="${tip}">${escapeHtml(v)}</span>`;
       }
     }catch(_){}
+    /* Layer 1b (v4.80): ⛔ BLOCK — xe bị nhà máy cấm nhận hàng. Đặt TRƯỚC
+       layer "missing in Fleet" vì lệnh cấm có thể được ghi ở tab TW AVG cho
+       một biển số chưa có trong TANK LORRY/TRACTOR; nếu để sau, nhánh missing
+       return sớm và badge ⛔ không bao giờ hiện. */
+    try{
+      if(typeof FCHECK !== 'undefined' && FCHECK.blockedForPlate){
+        const bl = FCHECK.blockedForPlate(v);
+        if(bl.length){
+          const btip = bl.map(b => 'CẤM NHẬN HÀNG: ' + (b.note || '(chưa ghi lý do)'))
+                         .join('\n').replace(/"/g,'&quot;');
+          return `<span class="tp-cert-blink">${escapeHtml(v)}</span>`
+               + `<span class="tp-cert-badge blk" title="${btip}">⛔</span>`;
+        }
+      }
+    }catch(_){}
     // Layer 2: missing in Fleet
     let missing = false;
     try{ if(typeof FCHECK!=='undefined') missing = !FCHECK.plateInFleet(v); }catch(_){}

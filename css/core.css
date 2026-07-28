@@ -1154,6 +1154,8 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .sc-warn-exp{background:#fdecec;color:#d62839;}
 .sc-warn-miss{background:#fdecec;color:#d62839;}
 .sc-warn-warn{background:#fff6e6;color:#b5790a;}
+/* v4.80 — ⛔ xe/tài xế bị cấm nhận hàng đang đứng trên trạm */
+.sc-warn-blk{background:#1f1f1f;color:#ff6b6b;font-weight:800;}
 .sc-note-line{font-size:13px;line-height:1.35;color:#445;background:#eef4fb;border-radius:4px;padding:3px 7px;}
 
 /* Fixed live fleet-check panel — now rendered inside the EXPIRED CERTS box */
@@ -1165,6 +1167,7 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
   display:flex;align-items:center;gap:8px;}
 .fc-panel-counts{margin-left:auto;display:flex;gap:6px;font-family:'Inter',sans-serif;font-size:11px;}
 .fc-panel-counts .fc-c-exp,.fc-panel-counts .fc-c-miss{color:#d62839;}
+.fc-panel-counts .fc-c-blk{color:#fff;background:#1f1f1f;border-radius:3px;padding:0 5px;font-weight:800;}
 .fc-panel-rows{border:1px solid #f3c7c7;border-top:none;border-radius:0 0 6px 6px;background:#fff;
   max-height:130px;overflow:auto;}
 .fc-panel-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:5px;padding:3px 9px;
@@ -1177,6 +1180,7 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .fc-prob{line-height:1.4;}
 .fc-prob-exp,.fc-prob-miss{color:#d62839;}
 .fc-prob-warn{color:#b5790a;}
+.fc-prob-blk{color:#fff;background:#1f1f1f;border-radius:3px;padding:0 4px;font-weight:800;}
 
 /* FCHECK Issue Editor — clickable panel rows + modal */
 .fc-panel-row{cursor:pointer;transition:background .12s;}
@@ -1266,6 +1270,13 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 #fcheck-editor .fce-li-exp{color:#c0392b;}
 #fcheck-editor .fce-li-miss{color:#c0392b;font-weight:600;}
 #fcheck-editor .fce-li-dup{color:#7b2d8e;}
+/* v4.80 — ⛔ cấm nhận hàng trong popup Fleet Check */
+#fcheck-editor .fce-li-blk{color:#1f1f1f;background:#ffe9e9;border-left:3px solid #d62839;
+  padding:2px 6px;border-radius:3px;margin:2px 0;list-style:none;}
+#fcheck-editor .fce-sum-pill.fce-sum-blocked{background:#1f1f1f;color:#ff6b6b;font-weight:800;}
+#fcheck-editor .fce-badge.fce-b-blk{background:#1f1f1f;color:#ff6b6b;font-weight:800;}
+#fcheck-editor .fce-subject.fce-st-blocked{border-color:#d62839;background:#fff5f5;}
+#fcheck-editor .fce-blk-note{font-size:11px;color:#c0392b;font-weight:600;margin-top:3px;}
 
 /* EXPIRED CERTS Today/Tomorrow toggle */
 .fc-mode-btn{font-family:'Inter',system-ui,sans-serif;font-size:9px;font-weight:700;letter-spacing:.3px;
@@ -1316,12 +1327,17 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .tp-cert-badge{display:inline-flex;align-items:center;gap:2px;padding:1px 5px;border-radius:8px;font-size:8.5px;font-weight:700;font-family:'Oswald',sans-serif;letter-spacing:.3px;background:#fdecea;color:#d62839;border:1px solid #ef9a9a;margin-left:3px;vertical-align:middle;cursor:help;}
 .tp-cert-badge.miss{background:#fff3e0;color:#e76f00;border-color:#ffcc80;}
 .tp-cert-badge.dup{background:#fff3e0;color:#e76f00;border-color:#ffcc80;}
+/* v4.80 — ⛔ cấm nhận hàng: badge tối màu trong ô Plate / Rmooc / Driver */
+.tp-cert-badge.blk{background:#1f1f1f;color:#ff6b6b;border-color:#000;font-size:9.5px;}
 
 /* Search-result (assign) warning badges + two-click arm state */
 .sc-res-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px;}
 .sc-res-badge{font-size:8.5px;font-weight:700;border-radius:3px;padding:1px 5px;line-height:1.5;letter-spacing:.2px;}
 .sc-res-badge.b-miss,.sc-res-badge.b-exp{background:#fdecec;color:#d62839;}
 .sc-res-badge.b-warn{background:#fff6e6;color:#b5790a;}
+/* v4.80 — ⛔ BLOCK: nền đen chữ đỏ, nổi hơn mọi badge cert khác */
+.sc-res-badge.b-blk{background:#1f1f1f;color:#ff6b6b;font-weight:800;letter-spacing:.4px;}
+.sc-res-row-blocked,#sc-res-list .sc-res-blocked{background:#fff5f5;box-shadow:inset 3px 0 0 #d62839;}
 .sc-res-note{font-size:9px;color:#345;background:#eef4fb;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block;}
 @keyframes fcRowBlink{
   0%,100%{background:#ffe2e2;box-shadow:inset 0 0 0 2px rgba(214,40,57,.55);}
@@ -1569,6 +1585,26 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .sc-cm-remark:focus{border-color:#0077b6;outline:none;}
 .sc-cm-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:10px;}
 
+/* v4.82 — BLOCK box inside the cert detail modal */
+.sc-cm-blk{border:1.5px solid var(--border);border-radius:7px;padding:9px 11px;margin-bottom:10px;
+  background:#fafbfc;display:flex;flex-direction:column;gap:7px;transition:background .15s,border-color .15s;}
+.sc-cm-blk.on{background:#fff4f4;border-color:#e9b4b4;}
+.sc-cm-blk-tick{display:flex;align-items:center;gap:8px;font-size:12px;color:#334;cursor:pointer;}
+.sc-cm-blk-tick input{width:16px;height:16px;accent-color:#d62839;cursor:pointer;}
+.sc-cm-blk.on .sc-cm-blk-tick{color:#c0392b;}
+.sc-cm-blk-note{width:100%;font-size:11.5px;padding:6px 8px;border:1.5px solid var(--border);
+  border-radius:5px;font-family:'Barlow',sans-serif;box-sizing:border-box;}
+.sc-cm-blk-note:focus{border-color:#d62839;outline:none;box-shadow:0 0 0 3px rgba(214,40,57,.1);}
+
+/* v4.82 — ⛔ trong danh sách kết quả tìm cert */
+.sc-cert-item.blocked{background:#fff5f5;box-shadow:inset 3px 0 0 #d62839;}
+.sc-cert-item.blocked:hover{background:#ffecec;}
+.sc-cert-blk{display:inline-block;margin-left:6px;background:#1f1f1f;color:#ff6b6b;
+  font-family:'Oswald',sans-serif;font-size:8.5px;font-weight:800;letter-spacing:.5px;
+  border-radius:3px;padding:1px 5px;vertical-align:middle;}
+.sc-cert-blknote{font-size:9.5px;color:#c0392b;font-weight:600;line-height:1.3;margin-top:1px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
 /* Row 5 (tank mix placeholder + active mix-notify slot).
    v4.28.3 — Single-line layout. The TK · lot header shrinks
    (was 18px, now 13px) and the C3/C4/total numbers grow (was
@@ -1812,6 +1848,126 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .kt-tbl td{padding:5px 8px;border:1px solid var(--border);white-space:nowrap;}
 .kt-tbl tr:hover td{background:#f0f7ff;}
 .kt-tbl th:first-child,.kt-tbl td:first-child{width:1%;}
+
+/* ============================================================
+   ⛔ BLOCK — hai cột trên bảng Fleet  (v4.82)
+   ------------------------------------------------------------
+   ĐỂ Ở ĐÂY, KHÔNG ở css/fleet.css: link tới fleet.css nằm trong
+   khối comment ở <head> nên file đó KHÔNG BAO GIỜ được nạp.
+     .cell-blk-tick → ô tick, click để bật/tắt lệnh cấm
+     .cell-blk-note → lý do, editor input, nằm sau cột Remark
+   ============================================================ */
+#fleetGrid .cell-blk-tick{cursor:pointer;padding:8px 4px;}
+#fleetGrid .cell-blk-tick:hover{background:#fff1f1;}
+#fleetGrid .blk-tick{font-size:20px;line-height:1;user-select:none;}
+#fleetGrid .blk-tick.off{color:#c9d2dc;}
+#fleetGrid .cell-blk-tick:hover .blk-tick.off{color:#e08a8a;}
+#fleetGrid .blk-tick.on{filter:drop-shadow(0 0 2px rgba(214,40,57,.5));}
+#fleetGrid .cell-blk-note{font-size:15px;}
+#fleetGrid .blk-note-txt{color:#c0392b;font-weight:600;white-space:normal;line-height:1.3;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+#fleetGrid .blk-note-txt.none{color:#c9d2dc;font-weight:400;}
+#fleetGrid .blk-note-txt.miss{color:#e07b39;font-style:italic;font-weight:500;}
+#fleetGrid .tabulator-row.row-blocked{background:#fff0f0 !important;box-shadow:inset 4px 0 0 #d62839;}
+#fleetGrid .tabulator-row.row-blocked:hover{background:#ffe4e4 !important;}
+
+/* ============================================================
+   📝 FLEET NOTES modal  (v4.82)
+   Dùng đúng ngôn ngữ thị giác của modal KTPTVC (.kt-modal-*):
+   lớp phủ mờ, thẻ trắng bo góc, header tint + tiêu đề màu,
+   toolbar 1 hàng, bảng .kt-tbl. Nhờ vậy nó "thuộc về" app thay
+   vì trông như một popup lạ ghép vào.
+   ============================================================ */
+.fn-modal-bg{position:fixed;inset:0;z-index:11400;background:rgba(11,31,66,.45);display:none;
+  align-items:flex-start;justify-content:center;backdrop-filter:blur(2px);padding:40px 20px;}
+.fn-modal-bg.on{display:flex;}
+.fn-modal{width:1120px;max-width:96vw;max-height:85vh;background:#fff;border-radius:12px;
+  box-shadow:0 12px 32px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden;}
+.fn-hdr{padding:10px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;
+  gap:12px;background:#fff4e6;}
+.fn-hdr-l{flex:1;min-width:0;}
+.fn-ttl{font-family:'Oswald',sans-serif;font-size:14px;font-weight:700;color:#b5650a;letter-spacing:.7px;}
+.fn-sub{font-size:10.5px;color:var(--muted);margin-top:1px;}
+.fn-x-close{border:none;background:none;font-size:18px;cursor:pointer;color:var(--muted);
+  padding:4px 10px;border-radius:4px;}
+.fn-x-close:hover{color:var(--ink);background:rgba(0,0,0,.05);}
+.fn-state{font-size:10px;font-weight:700;letter-spacing:.3px;white-space:nowrap;border-radius:20px;
+  padding:3px 10px;background:#fff;border:1px solid #e8c99a;color:#b5650a;}
+.fn-state.on{background:#eafaf0;border-color:#bce7cd;color:#1d8a4e;}
+
+.fn-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 14px;background:#fff;
+  border-bottom:1px solid var(--border);}
+.fn-vsep{width:1px;height:20px;background:var(--border);}
+.fn-seg{display:flex;background:#eef2f7;border-radius:6px;padding:2px;gap:2px;}
+.fn-chip{border:none;background:transparent;border-radius:5px;padding:5px 11px;font-size:11px;
+  font-weight:700;color:#5b6a7d;cursor:pointer;white-space:nowrap;}
+.fn-chip:hover{background:#e2e9f2;}
+.fn-chip.on{background:#0b1f42;color:#fff;}
+.fn-field{display:flex;align-items:center;gap:6px;background:#fff;border:1.5px solid var(--border);
+  border-radius:5px;padding:3px 9px;}
+.fn-field:focus-within{border-color:#0077b6;}
+.fn-field-ic{font-size:11px;opacity:.5;}
+.fn-field-lbl{font-size:9.5px;font-weight:700;letter-spacing:.6px;color:var(--muted);text-transform:uppercase;}
+.fn-dash{color:var(--muted);font-size:11px;}
+.fn-search{border:none;outline:none;font-size:12px;width:230px;font-family:inherit;background:transparent;padding:4px 0;}
+.fn-date{border:none;outline:none;font-size:11.5px;font-family:inherit;color:var(--ink);background:transparent;padding:4px 0;}
+.fn-count{font-size:11px;color:var(--muted);font-weight:700;white-space:nowrap;}
+.fn-btn{border:none;border-radius:5px;padding:6px 13px;cursor:pointer;white-space:nowrap;
+  font-family:'Oswald',sans-serif;font-size:11px;font-weight:700;letter-spacing:.5px;}
+.fn-btn:disabled{opacity:.4;cursor:not-allowed;}
+.fn-btn-load{background:#0077b6;color:#fff;}
+.fn-btn-load:hover:not(:disabled){background:#005f92;}
+.fn-btn-add{background:#eaf6ff;color:#0077b6;border:1px solid #b9dcf5;margin-left:auto;}
+.fn-btn-add:hover{background:#d8ecfc;}
+.fn-btn-save{background:#eef1f5;color:#96a1af;}
+.fn-btn-save.hot{background:#1d8a4e;color:#fff;}
+.fn-btn-save.hot:hover{background:#166b3d;}
+.fn-btn-ghost{background:#fff;color:var(--muted);border:1px solid var(--border);padding:6px 10px;}
+.fn-btn-ghost:hover{background:#f1f5f9;color:var(--ink);}
+
+.fn-body{flex:1;overflow:auto;padding:14px;background:#f7f9fc;}
+/* KHÔNG dùng overflow:hidden ở đây — nó cắt đứt sticky header của .fn-table
+   (ancestor có overflow ẩn làm hỏng position:sticky). */
+.fn-body > div{background:#fff;border:1px solid var(--border);border-radius:6px;}
+.fn-table{width:100%;border-collapse:collapse;font-size:12px;}
+.fn-table thead th{position:sticky;top:0;z-index:2;background:#f7f9fc;text-align:left;font-weight:700;
+  font-size:10px;letter-spacing:.5px;color:var(--ink);padding:7px 8px;border:1px solid var(--border);white-space:nowrap;}
+.fn-th-hint{font-weight:400;color:var(--muted);letter-spacing:0;}
+.fn-table tbody td{border:1px solid var(--border);padding:2px 5px;vertical-align:middle;}
+.fn-table tbody tr:hover td{background:#f0f7ff;}
+.fn-th-kind,.fn-td-kind{width:34px;text-align:center;font-size:14px;}
+.fn-th-subj{width:240px;}
+.fn-th-date{width:150px;}
+.fn-th-by,.fn-td-by{width:120px;font-size:10.5px;color:var(--muted);}
+.fn-th-del,.fn-td-del{width:38px;text-align:center;}
+.fn-inp{width:100%;border:1.5px solid transparent;background:transparent;border-radius:4px;
+  padding:5px 6px;font-family:inherit;font-size:12px;color:var(--ink);box-sizing:border-box;}
+.fn-inp::placeholder{color:#bcc6d2;}
+.fn-inp:hover{border-color:var(--border);background:#fff;}
+.fn-inp:focus{outline:none;border-color:#0077b6;background:#fff;}
+.fn-inp-subj{font-weight:700;}
+.fn-inp-date{font-size:11.5px;}
+.fn-inp.fn-dirty{background:#fffbe6;border-color:#f0d48a;font-weight:700;}
+.fn-table tr.fn-draft td{background:#fffaf2;border-bottom-color:#f4e2c8;}
+.fn-table tr.fn-draft:hover td{background:#fff5e8;}
+.fn-table tr.fn-draft td:first-child{box-shadow:inset 3px 0 0 #e07b39;}
+.fn-new{font-family:'Oswald',sans-serif;font-size:9px;font-weight:700;letter-spacing:.6px;
+  background:#e07b39;color:#fff;border-radius:3px;padding:2px 6px;}
+.fn-x{border:none;background:transparent;color:#ccd4de;font-size:13px;cursor:pointer;
+  padding:3px 6px;border-radius:4px;line-height:1;}
+.fn-x:hover{background:#fdecec;color:#d62839;}
+
+.fn-empty{padding:26px 20px;text-align:center;color:var(--muted);font-size:12px;background:#fff;}
+.fn-empty-idle{padding:52px 20px;}
+.fn-empty-ic{font-size:40px;line-height:1;margin-bottom:10px;opacity:.85;}
+.fn-empty-t{font-family:'Oswald',sans-serif;font-size:14px;font-weight:700;letter-spacing:1px;
+  color:var(--navy,#0b1f42);margin-bottom:6px;}
+.fn-empty-s{font-size:11.5px;line-height:1.7;margin-bottom:18px;color:var(--muted);}
+.fn-empty-idle .fn-btn-load{padding:10px 24px;font-size:12.5px;}
+.fn-spin{width:20px;height:20px;margin:0 auto 10px;border-radius:50%;
+  border:3px solid #e2e8f0;border-top-color:#0077b6;animation:fnspin .8s linear infinite;}
+@keyframes fnspin{to{transform:rotate(360deg);}}
+.sc-sc-btn.sc-sc-btn-fnote{background:#fff4e6;color:#b5650a;border-color:#f2d3a8;}
 .kt-cb{width:16px;height:16px;cursor:pointer;}
 /* PTT Overlay on Scale */
 #pttOvBg{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;overflow-y:auto;padding:20px;}

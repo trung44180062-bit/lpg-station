@@ -10,14 +10,15 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=470">
+<link rel="stylesheet" href="css/core.css?v=484">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
 <link rel="stylesheet" href="css/alloc.css?v=468"><!-- Allocation planner (LPG Sales) — link ACTIVE -->
-<!-- P1: toàn bộ app CSS đang tạm gom trong core.css (an toàn cascade).
-     Tách mịn 8 file (plan/fleet/scale/cavern/report/engineer/inventory) là bước tuỳ chọn sau.
-     Xem docs/PROGRESS.md. Khi tách xong thì bỏ comment các dòng dưới:
+<!-- ⚠ BẪY: khối dưới đây là COMMENT — mọi <link> trong nó KHÔNG được nạp.
+     Toàn bộ app CSS thực sự nằm trong core.css. Khi thêm style mới thì viết
+     vào core.css, ĐỪNG thêm link ở đây rồi tưởng là đã nạp (v4.82 dính đúng
+     Tách mịn 8 file là bước tuỳ chọn sau — xem docs/PROGRESS.md.
 <link rel="stylesheet" href="css/plan.css">
 <link rel="stylesheet" href="css/fleet.css">
 <link rel="stylesheet" href="css/scale.css">
@@ -443,9 +444,75 @@
         <button class="sc-sc-btn sc-sc-btn-ktptvc"  onclick="scOpenKtptvc()"  title="Open KTPTVC form (print)">🔍 KTPTVC</button>
         <button class="sc-sc-btn sc-sc-btn-early"   onclick="PTT_EARLY.open()" title="Bulk print PTT for early-morning orders (Tomorrow Plan note contains '8' = arrive before 8AM). Date = plan date; lot/tank are placeholders.">🖨 EARLY-8AM PTT</button>
         <button class="sc-sc-btn sc-sc-btn-ptoday"  onclick="PTT_EARLY.open('today')" title="Bulk print PTT from Today Plan — every order still Pending / Entered. Tick/untick in the list to choose which to print. Lot/tank are placeholders.">🖨 PTT TODAY <span class="sc-sc-badge" id="peTodayCntScale">0</span></button>
+        <!-- v4.81 — Sổ ghi chú trường hợp đặc biệt của XE / TÀI XẾ.
+             CỐ TÌNH không tự tải: modal mở ra trống, phải bấm ⬇ TẢI DỮ LIỆU
+             mới đọc Firebase (tiết kiệm quota Spark). -->
+        <button class="sc-sc-btn sc-sc-btn-fnote"   onclick="FNOTE.open()"    title="Log of special cases for trucks / drivers. Nothing is fetched until you press LOAD inside.">📝 FLEET NOTES</button>
         <span class="sc-sc-sep"></span>
         <button class="sc-sc-btn sc-sc-btn-tk1"     onclick="TKV.open('3501')" title="View outgoing orders from TK-3501 (compact TL viewer)">🛢 TK-3501</button>
         <button class="sc-sc-btn sc-sc-btn-tk2"     onclick="TKV.open('3502')" title="View outgoing orders from TK-3502 (compact TL viewer)">🛢 TK-3502</button>
+      </div>
+    </div>
+
+    <!-- ============================================================
+         v4.81 — FLEET NOTES (Sổ ghi chú xe / tài xế)
+         Mở từ Quick Actions: 📝 GHI CHÚ XE/TX  →  FNOTE.open()
+         Cột: ĐỐI TƯỢNG (datalist gợi ý từ Fleet) · NGÀY · NỘI DUNG.
+         Lưu ở Firebase node `fleet_notes` nhưng CHỈ đọc khi bấm
+         ⬇ TẢI DỮ LIỆU — mở modal không phát sinh lượt đọc nào.
+         Thêm dòng / sửa ô là thao tác RAM, 💾 LƯU mới đẩy lên.
+         Độc lập với cột ⛔ BLOCK: ghi chú KHÔNG sinh cảnh báo assign.
+         ============================================================ -->
+    <!-- style="display:none" là CỐ Ý: nếu CSS lỡ không nạp (đúng lỗi v4.82 —
+         link nằm trong khối comment) thì modal vẫn ẩn thay vì đổ ra giữa trang.
+         FNOTE.open()/close() set thẳng style.display nên không phụ thuộc class. -->
+    <div class="fn-modal-bg" id="fn-modal" style="display:none" onclick="if(event.target===this)FNOTE.close()">
+      <div class="fn-modal">
+        <div class="fn-hdr">
+          <div class="fn-hdr-l">
+            <div class="fn-ttl">📝 FLEET NOTES — Trucks &amp; Drivers</div>
+            <div class="fn-sub">Special-case log. Reference only — never blocks or warns on assign.</div>
+          </div>
+          <span class="fn-state" id="fn-loadstate">not loaded</span>
+          <button class="fn-x-close" onclick="FNOTE.close()" title="Close">✕</button>
+        </div>
+
+        <div class="fn-toolbar">
+          <button class="fn-btn fn-btn-load" id="fn-load-btn" onclick="FNOTE.load()"
+            title="Read from Firebase once. Nothing is fetched until you press this.">⬇ LOAD</button>
+          <span class="fn-count" id="fn-count">—</span>
+
+          <span class="fn-vsep"></span>
+
+          <div class="fn-seg">
+            <button class="fn-chip on" data-kind="all"     onclick="FNOTE.setKind('all')">All</button>
+            <button class="fn-chip"    data-kind="vehicle" onclick="FNOTE.setKind('vehicle')">🚚 Truck</button>
+            <button class="fn-chip"    data-kind="driver"  onclick="FNOTE.setKind('driver')">👤 Driver</button>
+            <button class="fn-chip"    data-kind="other"   onclick="FNOTE.setKind('other')">📌 Other</button>
+          </div>
+
+          <div class="fn-field fn-field-search">
+            <span class="fn-field-ic">🔍</span>
+            <input type="text" id="fn-q" class="fn-search" placeholder="Search plate · driver · note…"
+              oninput="FNOTE.setSearch(this.value)">
+          </div>
+
+          <div class="fn-field">
+            <span class="fn-field-lbl">Date</span>
+            <input type="date" id="fn-from" class="fn-date" oninput="FNOTE.setFrom(this.value)" title="From date">
+            <span class="fn-dash">→</span>
+            <input type="date" id="fn-to"   class="fn-date" oninput="FNOTE.setTo(this.value)"   title="To date">
+          </div>
+          <button class="fn-btn fn-btn-ghost" onclick="FNOTE.clearFilters()" title="Clear all filters">↺ Reset</button>
+
+          <button class="fn-btn fn-btn-add"  onclick="FNOTE.addDraft()" title="Add a new note row">＋ ADD ROW</button>
+          <button class="fn-btn fn-btn-save" id="fn-save-btn" onclick="FNOTE.save()" disabled
+            title="Push new / edited rows to Firebase">💾 SAVE</button>
+        </div>
+
+        <!-- subject suggestions come from the Fleet data already in RAM (no Firebase read) -->
+        <datalist id="fn-subjects"></datalist>
+        <div class="fn-body"><div id="fn-tbl"></div></div>
       </div>
     </div>
 
@@ -578,6 +645,17 @@
           <thead><tr><th>Certificate</th><th>Expiry Date</th><th>Status</th></tr></thead>
           <tbody id="scCmCertBody"></tbody>
         </table>
+        <!-- v4.82 — BLOCK (banned from loading). Same two fields as the
+             ⛔ / BLOCK NOTE columns on the Fleet tab, surfaced here so the
+             scale operator can flag a truck without leaving the Scale tab. -->
+        <div class="sc-cm-blk" id="scCmBlkBox">
+          <label class="sc-cm-blk-tick">
+            <input type="checkbox" id="scCmBlocked">
+            <span>⛔ <b>BLOCK</b> — banned from loading by the plant</span>
+          </label>
+          <input type="text" class="sc-cm-blk-note" id="scCmBlockNote"
+                 placeholder="Reason — shown on every warning (e.g. Safety violation 12/07, banned until further notice)">
+        </div>
         <div style="margin-bottom:8px">
           <div class="sc-cm-vol-lbl" style="margin-bottom:4px">REMARK</div>
           <textarea class="sc-cm-remark" id="scCmRemark" placeholder="Additional notes…"></textarea>
@@ -4087,12 +4165,12 @@
      ============================================================ -->
 <!-- core (thứ tự: nav → config → helpers → sync → auth → globals; globals PHẢI trước data) -->
 <script src="js/core/nav.js"></script>
-<script src="js/core/config.js"></script>
+<script src="js/core/config.js?v=484"></script>
 <script src="js/core/helpers.js"></script>
 <script src="js/core/sync.js"></script>
 <script src="js/core/forcesync.js"></script>
 <script src="js/core/auth.js"></script>
-<script src="js/core/globals.js"></script>
+<script src="js/core/globals.js?v=484"></script>
 <!-- paste-guard (chống paste nhầm tab) — nạp sớm, dùng runtime bởi data modules -->
 <script src="js/checks/pasteguard.js"></script>
 <!-- data -->
@@ -4104,12 +4182,13 @@
 <script src="js/data/ct.js"></script>
 <script src="js/data/pp.js"></script>
 <!-- checks -->
-<script src="js/checks/fcheck.js"></script>
+<script src="js/checks/fcheck.js?v=484"></script>
 <script src="js/checks/wgcheck.js"></script>
 <!-- features -->
 <script src="js/features/fleet.js"></script>
-<script src="js/features/plan.js"></script>
-<script src="js/features/scale.js"></script>
+<script src="js/features/plan.js?v=484"></script>
+<script src="js/features/scale.js?v=484"></script>
+<script src="js/features/fnote.js?v=484"></script><!-- Sổ ghi chú xe/tài xế — lazy, không tự đọc Firebase -->
 <script src="js/features/eng.js"></script>
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>

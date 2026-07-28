@@ -47,8 +47,16 @@ const FCHECK = (function(){
   var _fidx = null;
   function _fleetIdx(){
     if(_fidx) return _fidx;
-    var idx = { tanklorry:{}, tractor:{}, rmooc:{}, driver:{} };
+    var idx = { tanklorry:{}, tractor:{}, rmooc:{}, driver:{}, twavg:{} };
     if(typeof DATA !== 'undefined'){
+      /* v4.80 — TW AVG cũng có cột ⛔ BLOCK; nó lưu biển số ở field `truck`.
+         Index riêng để _blockedFor() đọc được lệnh cấm ghi ở tab đó. */
+      var tw = DATA.twavg || {};
+      Object.keys(tw).forEach(function(rid){
+        var row = tw[rid]; if(!row) return;
+        var kt = plateKey(row.truck);
+        if(kt && !idx.twavg[kt]) idx.twavg[kt] = row;
+      });
       ['tanklorry','tractor','rmooc'].forEach(function(tab){
         var store = DATA[tab] || {};
         Object.keys(store).forEach(function(rid){
@@ -114,12 +122,59 @@ const FCHECK = (function(){
     return out;
   }
 
+  /* ── v4.80 — ⛔ BLOCK (cấm nhận hàng) ───────────────────────────────
+     Cột ⛔ BLOCK trên các bảng Fleet cho phép staff tích chọn + điền lý
+     do khi nhà máy cấm một xe / rmooc / tài xế nhận hàng. Ở đây chỉ ĐỌC
+     cờ đó (RAM, qua _fleetIdx) và trả về danh sách cảnh báo; quyết định
+     chặn/không thuộc về caller (trạm cân yêu cầu xác nhận 2 lần).
+     Một biển số có thể xuất hiện ở nhiều tab (vd. vừa ở TANK LORRY vừa ở
+     TW AVG) → gom mọi lệnh cấm tìm được, khử trùng lặp theo nội dung. */
+  function _blkSafe(row){
+    /* config.js có isRowBlocked/rowBlockNote; fallback để module tự chạy được
+       trong harness test không nạp config. */
+    if(typeof isRowBlocked === 'function') return isRowBlocked(row);
+    return !!(row && row.blocked);
+  }
+  function _blkNote(row){
+    if(typeof rowBlockNote === 'function') return rowBlockNote(row);
+    return String((row && row.blockNote) || '').trim();
+  }
+  /* Mọi lệnh cấm áp lên một PHƯƠNG TIỆN (quét cả tanklorry/tractor/rmooc/twavg). */
+  function blockedForPlate(plate, tabs){
+    var key = plateKey(plate);
+    if(!key) return [];
+    var idx = _fleetIdx();
+    var out = [], seen = {};
+    (tabs || ['tanklorry','tractor','rmooc','twavg']).forEach(function(t){
+      var row = idx[t] && idx[t][key];
+      if(!row || !_blkSafe(row)) return;
+      var note = _blkNote(row);
+      if(seen[note]) return;
+      seen[note] = 1;
+      out.push({ tab: t, note: note });
+    });
+    return out;
+  }
+  /* Lệnh cấm áp lên TÀI XẾ (có thể trùng tên → gom mọi row khớp). */
+  function blockedForDriver(name){
+    var out = [], seen = {};
+    findDrivers(name).forEach(function(r){
+      if(!_blkSafe(r)) return;
+      var note = _blkNote(r);
+      if(seen[note]) return;
+      seen[note] = 1;
+      out.push({ tab:'driver', note: note });
+    });
+    return out;
+  }
+
   /* Core per-order check. Returns:
-     { missing: ['Vehicle'|'Rmooc'|'Driver'], expired: [{vehicle,subject,cert,...}], dupDriver: int } */
+     { missing: ['Vehicle'|'Rmooc'|'Driver'], expired: [{vehicle,subject,cert,...}],
+       dupDriver: int, blocked: [{subject,label,note}] } */
   function checkOrder(plate, rmooc, driver, checkDate){
     var cd = checkDate ? new Date(checkDate) : new Date();
     cd.setHours(0,0,0,0);
-    var res = { missing: [], expired: [], dupDriver: 0 };
+    var res = { missing: [], expired: [], dupDriver: 0, blocked: [] };
 
     var hasRmooc = !!(rmooc && rmooc.trim());
 
@@ -133,6 +188,11 @@ const FCHECK = (function(){
           expiredCerts(veh.row, veh.tab, cd, normPlate(plate)+' ('+(veh.tab==='tractor'?'Tractor':'Tank Lorry')+')', plate)
         );
       }
+      /* Lệnh cấm đọc độc lập với kết quả findVehicle: một xe có thể chỉ nằm ở
+         tab TW AVG mà vẫn bị cấm. */
+      blockedForPlate(plate).forEach(function(b){
+        res.blocked.push({ subject:'Vehicle', label: normPlate(plate), note: b.note });
+      });
     }
 
     // Rmooc (only when a tractor pulls one).
@@ -145,6 +205,9 @@ const FCHECK = (function(){
           expiredCerts(rm.row, 'rmooc', cd, normPlate(rmooc)+' (Rmooc)', rmooc)
         );
       }
+      blockedForPlate(rmooc, ['rmooc','twavg']).forEach(function(b){
+        res.blocked.push({ subject:'Rmooc', label: normPlate(rmooc), note: b.note });
+      });
     }
 
     // Driver.
@@ -160,9 +223,28 @@ const FCHECK = (function(){
           );
         });
       }
+      blockedForDriver(driver).forEach(function(b){
+        res.blocked.push({ subject:'Driver', label: String(driver).trim(), note: b.note });
+      });
     }
 
     return res;
+  }
+
+  /* Gộp lệnh cấm thành 1 dòng gọn: "51D-05867 (Vehicle): lý do | Nguyễn A (Driver): lý do" */
+  function compactBlocked(blocked){
+    if(!blocked || !blocked.length) return '';
+    return blocked.map(function(b){
+      return b.label + ' (' + b.subject + ')' + (b.note ? ': ' + b.note : '');
+    }).join(' | ');
+  }
+  /* Tiện ích cho caller ngoài (scale.js): đơn này có ai bị cấm không? */
+  function orderBlocked(row){
+    if(!row) return [];
+    try{
+      var c = checkOrder(row.plate||'', row.rmooc||row.romooc||'', row.driver||'', _modeCheckDate());
+      return c.blocked || [];
+    }catch(_){ return []; }
   }
 
   /* Group expired certs into a compact one-line string, grouped by subject. */
@@ -208,7 +290,7 @@ const FCHECK = (function(){
          fallback) showed it. Keep both reads identical everywhere. */
       var _rmoocVal = r.rmooc||r.romooc||'';
       var c = checkOrder(r.plate||'', _rmoocVal, r.driver||'', checkDate);
-      if(c.missing.length || c.expired.length || c.dupDriver){
+      if(c.missing.length || c.expired.length || c.dupDriver || (c.blocked && c.blocked.length)){
         /* v4.30.1 — surface dupDriver to the editor (was lost before).
            Editor needs it to render the duplicate-driver warning per
            order, even when the order has no expired certs at all. */
@@ -266,7 +348,23 @@ const FCHECK = (function(){
                counts:{expired,missing,dup} } */
   function _buildEditorRowsForOrder(o, checkDate){
     var subjects = [];
-    var counts = { expired: 0, missing: 0, dup: 0 };
+    var counts = { expired: 0, missing: 0, dup: 0, blocked: 0 };
+
+    /* v4.80 — ⛔ BLOCK lên đầu danh sách: đây là vấn đề nặng nhất trong popup,
+       staff cần thấy trước cả cert hết hạn. Read-only ở đây — gỡ lệnh cấm chỉ
+       làm được trên bảng Fleet (tránh bỏ cấm nhầm ngay lúc đang vội xuất hàng). */
+    try{
+      var _bl = checkOrder(o.plate||'', o.rmooc||o.romooc||'', o.driver||'', checkDate).blocked || [];
+      _bl.forEach(function(b){
+        counts.blocked++;
+        subjects.push({
+          kind: String(b.subject||'').toLowerCase(), status: 'blocked',
+          icon: '⛔',
+          label: b.label + ' (' + b.subject + ')',
+          note: b.note || ''
+        });
+      });
+    }catch(_){}
 
     // Vehicle (tank lorry OR tractor)
     if(o.plate && o.plate.trim()){
@@ -406,8 +504,9 @@ const FCHECK = (function(){
       acc.expired += b.counts.expired;
       acc.missing += b.counts.missing;
       acc.dup     += b.counts.dup;
+      acc.blocked += (b.counts.blocked||0);
       return acc;
-    }, { expired:0, missing:0, dup:0 });
+    }, { expired:0, missing:0, dup:0, blocked:0 });
 
     /* Count editable cert inputs (only relevant in edit mode). */
     var totalEditable = blocks.reduce(function(s,b){
@@ -416,7 +515,7 @@ const FCHECK = (function(){
       }, 0);
     }, 0);
 
-    if(!totals.expired && !totals.missing && !totals.dup){
+    if(!totals.expired && !totals.missing && !totals.dup && !totals.blocked){
       if(typeof toast === 'function') toast('Fleet check: all clean','ok');
       return;
     }
@@ -441,6 +540,7 @@ const FCHECK = (function(){
     /* Top summary banner */
     h += '<div class="fce-summary">'
        + '<span class="fce-sum-pill fce-sum-orders">' + orderArray.length + ' order' + (orderArray.length>1?'s':'') + '</span>'
+       + (totals.blocked ? '<span class="fce-sum-pill fce-sum-blocked">⛔ ' + totals.blocked + ' BLOCKED</span>' : '')
        + (totals.expired ? '<span class="fce-sum-pill fce-sum-expired">\u26A0 ' + totals.expired + ' expired cert' + (totals.expired>1?'s':'') + '</span>' : '')
        + (totals.missing ? '<span class="fce-sum-pill fce-sum-missing">\u274C ' + totals.missing + ' missing in Fleet</span>' : '')
        + (totals.dup     ? '<span class="fce-sum-pill fce-sum-dup">\u26A0 ' + totals.dup + ' duplicate driver' + (totals.dup>1?'s':'') + '</span>' : '')
@@ -456,7 +556,10 @@ const FCHECK = (function(){
         var o = b.order;
         var bullets = [];
         b.subjects.forEach(function(sub){
-          if(sub.status === 'expired' && sub.certs && sub.certs.length){
+          if(sub.status === 'blocked'){
+            bullets.push('<li class="fce-li-blk">⛔ <b>' + esc(sub.label) + ' — CẤM NHẬN HÀNG</b>'
+                       + (sub.note ? ': ' + esc(sub.note) : '') + '</li>');
+          } else if(sub.status === 'expired' && sub.certs && sub.certs.length){
             sub.certs.forEach(function(c){
               bullets.push('<li class="fce-li-exp">\uD83D\uDD34 ' + esc(sub.label) + ' \u2013 ' + esc(c.name) + ' exp ' + esc(c.cur) + '</li>');
             });
@@ -480,6 +583,7 @@ const FCHECK = (function(){
       var o = b.order;
       var c = b.counts;
       var probs = [];
+      if(c.blocked) probs.push('\u26D4 ' + c.blocked + ' BLOCKED');
       if(c.expired) probs.push('\u26A0 ' + c.expired + ' expired');
       if(c.missing) probs.push('\u274C ' + c.missing + ' missing');
       if(c.dup)     probs.push('\u26A0 dup driver');
@@ -502,6 +606,7 @@ const FCHECK = (function(){
           case 'missing':  badge = '<span class="fce-badge fce-b-missing">\u274C NOT IN FLEET</span>'; break;
           case 'expired':  badge = '<span class="fce-badge fce-b-expired">\u26A0 ' + (sub.certs?sub.certs.length:0) + ' EXPIRED</span>'; break;
           case 'dup':      badge = '<span class="fce-badge fce-b-dup">\u26A0 DUPLICATE NAME (' + (sub.dup||'?') + ')</span>'; break;
+          case 'blocked':  badge = '<span class="fce-badge fce-b-blk">\u26D4 BLOCKED</span>'; break;
         }
 
         /* data-tab/data-rid only needed in edit mode for SAVE plumbing. */
@@ -529,6 +634,9 @@ const FCHECK = (function(){
             }
           });
           h += '</div>';
+        } else if(sub.status === 'blocked'){
+          h += '<div class="fce-blk-note">⛔ ' + (sub.note ? esc(sub.note) : 'Bị cấm nhận hàng (chưa ghi lý do)') + '</div>';
+          if(isEdit) h += '<div class="fce-hint">Chỉ gỡ được lệnh cấm ở tab Fleet — bỏ tick cột ⛔ BLOCK.</div>';
         } else if(isEdit && sub.status === 'missing'){
           h += '<div class="fce-hint">Add this on the Fleet tab before its certs can be edited here.</div>';
         } else if(isEdit && sub.status === 'dup'){
@@ -637,6 +745,13 @@ const FCHECK = (function(){
     var c = checkOrder(row.plate||'', row.rmooc||row.romooc||'', row.driver||'', checkDate);
 
     var lines = [];
+    /* \u26D4 BLOCK \u0111\u1EE9ng \u0111\u1EA7u \u2014 l\u00FD do n\u1EB7ng nh\u1EA5t \u0111\u1EC3 kh\u00F4ng cho xe v\u00E0o tr\u1EA1m. */
+    if(c.blocked && c.blocked.length){
+      c.blocked.forEach(function(b){
+        lines.push('\u26D4 C\u1EA4M NH\u1EACN H\u00C0NG \u2014 ' + b.label + ' (' + b.subject + ')'
+                 + (b.note ? ': ' + b.note : ''));
+      });
+    }
     if(c.missing.length){
       lines.push('\u274C No Fleet data found for: ' + c.missing.join(', '));
     }
@@ -701,12 +816,20 @@ const FCHECK = (function(){
     const missing = c.missing || [];
     const expired = c.expired || [];
     const dup     = c.dupDriver || 0;
+    const blocked = c.blocked || [];
 
     const subjLabel = field==='plate' ? 'Vehicle' : field==='rmooc' ? 'Rmooc' : 'Driver';
     const missHit = missing.includes(subjLabel);
     const hasExp  = expired.length > 0;
     const hasDup  = field==='driver' && dup > 0;
 
+    /* ⛔ BLOCK — badge đứng trước mọi badge khác trong ô Plate/Rmooc/Driver. */
+    if(blocked.length){
+      out.blink = true;
+      const btip = blocked.map(b => 'CẤM NHẬN HÀNG: ' + (b.note || '(chưa ghi lý do)'))
+                          .join('\n').replace(/"/g,'&quot;');
+      out.badges += '<span class="tp-cert-badge blk" title="'+btip+'">⛔</span>';
+    }
     if(missHit){
       out.blink = true;
       out.badges += '<span class="tp-cert-badge miss" title="Not found in Fleet — verify">\u274C</span>';
@@ -734,13 +857,18 @@ const FCHECK = (function(){
     var cd = checkDate || _modeCheckDate();
     var c = checkOrder(row.plate||'', row.rmooc||row.romooc||'', row.driver||'', cd);
     var badges = [];
+    (c.blocked||[]).forEach(function(b){
+      badges.push({ type:'blk', text:'CẤM NHẬN HÀNG — '+b.label+' ('+b.subject+')'+(b.note?': '+b.note:'') });
+    });
     c.missing.forEach(function(m){ badges.push({ type:'miss', text:'No '+m+' in Fleet' }); });
     var compact = compactExpired(c.expired);
     if(compact) badges.push({ type:'exp', text: compact });
     if(c.dupDriver) badges.push({ type:'warn', text:'Dup driver ('+c.dupDriver+')' });
-    var level = badges.some(function(b){ return b.type==='exp'||b.type==='miss'; }) ? 'bad'
-              : (badges.length ? 'warn' : '');
-    return { badges: badges, hasWarn: badges.length>0, level: level };
+    var level = badges.some(function(b){ return b.type==='blk'; }) ? 'blk'
+              : (badges.some(function(b){ return b.type==='exp'||b.type==='miss'; }) ? 'bad'
+              : (badges.length ? 'warn' : ''));
+    return { badges: badges, hasWarn: badges.length>0, level: level,
+             blocked: (c.blocked||[]).slice() };
   }
 
   function stationWarning(stationObj){
@@ -748,9 +876,13 @@ const FCHECK = (function(){
     var checkDate = _modeCheckDate();   // follows the Today/Tomorrow toggle
     var c = checkOrder(stationObj.plate||'', stationObj.rmooc||stationObj.romooc||'', stationObj.driver||'', checkDate);
     var parts = [], level = '';
-    if(c.missing.length){ parts.push('\u274C Missing in Fleet: ' + c.missing.join(', ')); level = 'miss'; }
+    if(c.blocked && c.blocked.length){
+      parts.push('\u26D4 C\u1EA4M NH\u1EACN H\u00C0NG \u2014 ' + compactBlocked(c.blocked));
+      level = 'blk';
+    }
+    if(c.missing.length){ parts.push('\u274C Missing in Fleet: ' + c.missing.join(', ')); if(level!=='blk') level = 'miss'; }
     var compact = compactExpired(c.expired);
-    if(compact){ parts.push('\uD83D\uDD34 ' + compact); level = 'exp'; }
+    if(compact){ parts.push('\uD83D\uDD34 ' + compact); if(level!=='blk') level = 'exp'; }
     if(c.dupDriver && !level){ parts.push('\u26A0 Duplicate driver name'); level = 'warn'; }
     else if(c.dupDriver){ parts.push('\u26A0 Duplicate driver name'); }
     if(!parts.length) return null;
@@ -782,6 +914,9 @@ const FCHECK = (function(){
          the tractor warning). */
       var c = checkOrder(r.plate||'', r.rmooc||r.romooc||'', r.driver||'', checkDate);
       var probs = [];
+      (c.blocked||[]).forEach(function(b){
+        probs.push({ type:'blk', detail:'CẤM NHẬN HÀNG — '+b.label+' ('+b.subject+')'+(b.note?': '+b.note:'') });
+      });
       c.missing.forEach(function(m){ probs.push({ type:'miss', detail:'Missing in Fleet: '+m }); });
       if(c.dupDriver){ probs.push({ type:'warn', detail:'Duplicate driver name ('+c.dupDriver+' matches)' }); }
       if(c.expired.length){
@@ -808,15 +943,17 @@ const FCHECK = (function(){
     }
     var nExp = issues.reduce(function(s,i){ return s + i.probs.filter(function(p){return p.type==='exp';}).length; }, 0);
     var nMiss = issues.reduce(function(s,i){ return s + i.probs.filter(function(p){return p.type==='miss';}).length; }, 0);
+    var nBlk = issues.reduce(function(s,i){ return s + i.probs.filter(function(p){return p.type==='blk';}).length; }, 0);
     var h = '<div class="fc-panel-head">\u26A0 ' + issues.length + ' order(s) \u2014 vs <b>'+modeLbl+'</b>'
           + '<span class="fc-panel-counts">'
+          + (nBlk ? '<span class="fc-c-blk">\u26D4 '+nBlk+'</span>' : '')
           + (nExp ? '<span class="fc-c-exp">\uD83D\uDD34 '+nExp+'</span>' : '')
           + (nMiss ? '<span class="fc-c-miss">\u274C '+nMiss+'</span>' : '')
           + '</span></div>';
     h += '<div class="fc-panel-rows">';
     issues.forEach(function(iss){
       var probHtml = iss.probs.map(function(p){
-        var icon = p.type==='exp' ? '\uD83D\uDD34' : (p.type==='miss' ? '\u274C' : '\u26A0');
+        var icon = p.type==='blk' ? '\u26D4' : (p.type==='exp' ? '\uD83D\uDD34' : (p.type==='miss' ? '\u274C' : '\u26A0'));
         return '<span class="fc-prob fc-prob-'+p.type+'">'+icon+' '+esc(p.detail)+'</span>';
       }).join('');
       /* Each row carries its order tuple so the click handler can call openIssueEditor without recomputing. */
@@ -885,6 +1022,10 @@ const FCHECK = (function(){
     normPlate: normPlate,
     checkOrder: checkOrder,
     compactExpired: compactExpired,
+    compactBlocked: compactBlocked,
+    orderBlocked: orderBlocked,
+    blockedForPlate: blockedForPlate,
+    blockedForDriver: blockedForDriver,
     runPasteCheck: runPasteCheck,
     assignWarningText: assignWarningText,
     stationWarning: stationWarning,
@@ -906,7 +1047,7 @@ document.addEventListener('DOMContentLoaded', function(){
   var grid = document.getElementById('scCtrlGrid');
   if(!grid) return;
   grid.addEventListener('click', function(ev){
-    var line = ev.target && ev.target.closest && ev.target.closest('.sc-warn-line.sc-warn-exp,.sc-warn-line.sc-warn-miss');
+    var line = ev.target && ev.target.closest && ev.target.closest('.sc-warn-line.sc-warn-exp,.sc-warn-line.sc-warn-miss,.sc-warn-line.sc-warn-blk');
     if(!line) return;
     var card = line.closest('[data-st-id]');
     if(!card) return;

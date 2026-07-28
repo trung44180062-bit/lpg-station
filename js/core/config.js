@@ -54,6 +54,26 @@ function isDateField(tab, field){
 }
 
 /* ============================================================
+   BLOCK FLAG  (v4.80)  —  "⛔ BLOCK" column on every Fleet tab
+   ------------------------------------------------------------
+   Hỗ trợ trường hợp đặc biệt: nhà máy CẤM một xe / rmooc / tài xế
+   nhận hàng (vi phạm an toàn, nợ hồ sơ, bị đình chỉ…). Staff tích
+   chọn ô ⛔ BLOCK trên bảng Fleet và điền lý do; từ đó mọi nơi
+   trong app (Plan grid, kết quả tìm kiếm trạm cân, thẻ trạm,
+   panel Fleet Check, popup paste) đều hiện cảnh báo ⛔ kèm lý do,
+   và assign vào trạm phải xác nhận 2 lần.
+
+   Lưu trên Firebase như 2 field thường của row:
+     blocked   : true | false   (tick)
+     blockNote : string         (nội dung lý do cấm)
+   KHÔNG phải date field → applyAndPush không normalize.
+   ============================================================ */
+const BLOCK_F = 'blocked';      /* boolean tick  */
+const BLOCK_N = 'blockNote';    /* reason text   */
+function isRowBlocked(row){ return !!(row && row[BLOCK_F]); }
+function rowBlockNote(row){ return String((row && row[BLOCK_N]) || '').trim(); }
+
+/* ============================================================
    DATA  (RAM mirror)
    Shape: DATA[tab] = { <rid>: {row...}, ... }  (keyed object, NOT array)
    Why keyed: lets Firebase multi-path update touch a single row/field

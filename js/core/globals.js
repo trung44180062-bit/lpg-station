@@ -143,6 +143,67 @@ function lastEditFormatter(cell){
     <span class="le-who">${initials}</span><span class="le-when">${rel}</span></span>`;
 }
 
+/* ============================================================
+   ⛔ BLOCK COLUMNS (v4.80 → tách đôi ở v4.82)
+   ------------------------------------------------------------
+   HAI cột riêng trên MỌI bảng Fleet, sửa THẲNG trong ô (v4.82 —
+   bản đầu dùng modal, thao tác chậm nên bỏ). Cả hai nằm liền nhau
+   ngay SAU cột Remark, theo thứ tự đọc tự nhiên "lý do rồi mới tick"
+   (v4.83 — trước đó ô tick bị tách lên đầu bảng, phải nhìn hai nơi):
+     • BLOCK NOTE  — lý do cấm, editor input bình thường.
+     • ⛔          — ô tick, CLICK 1 phát là bật/tắt lệnh cấm.
+   Khi tick, xe/rmooc/tài xế đó bị đánh dấu CẤM NHẬN HÀNG — FCHECK
+   phát cảnh báo ⛔ kèm nội dung ở Plan grid / trạm cân / panel /
+   popup paste, và assign vào trạm phải xác nhận 2 lần.
+   ============================================================ */
+function blockTickFormatter(cell){
+  const on = !!cell.getValue();
+  if(!on) return `<span class="blk-tick off" title="Click to BLOCK this vehicle / driver">☐</span>`;
+  const note = rowBlockNote(cell.getRow().getData());
+  return `<span class="blk-tick on" title="${escapeHtml('BLOCKED' + (note ? ' — ' + note : ' — no reason yet'))}">⛔</span>`;
+}
+/* Click ô ⛔ → đảo trạng thái ngay, không hỏi han. Bỏ tick KHÔNG xoá
+   lý do: thường bị cấm lại vì cùng lý do, giữ chữ đỡ phải gõ lại. */
+function toggleBlock(cell){
+  const row = cell.getRow().getData();
+  const rid = row._rid;
+  if(!rid) return;
+  const on = !isRowBlocked(row);
+  SC.edit(curTab, rid, BLOCK_F, on, on ? 'block' : 'unblock');
+  try{ cell.getRow().reformat(); }catch(_){}
+  try{ rowFormatter(cell.getRow()); }catch(_){}
+  try{ if(typeof FCHECK!=='undefined') FCHECK.recompute(); }catch(_){}
+  if(on && !rowBlockNote(row)){
+    toast('⛔ BLOCKED — fill in "BLOCK NOTE" (after Remark) with the reason','er');
+  } else {
+    toast(on ? '⛔ BLOCKED' : '✅ Unblocked', on ? 'er' : 'ok');
+  }
+}
+function blockTickColumn(){
+  return {
+    title:'⛔', field:BLOCK_F, width:56, hozAlign:'center', headerSort:true,
+    cssClass:'cell-blk-tick',
+    headerTooltip:'BLOCK — banned from loading. Click a cell to toggle.',
+    sorter:(a,b)=>(a?1:0)-(b?1:0),
+    formatter:blockTickFormatter,
+    cellClick:(e,cell)=>{ toggleBlock(cell); }
+  };
+}
+function blockNoteColumn(){
+  return {
+    title:'⛔ BLOCK NOTE', field:BLOCK_N, minWidth:220, editor:'input',
+    headerSort:false, cssClass:'cell-blk-note',
+    headerTooltip:'Reason shown everywhere the block is warned about',
+    formatter:c=>{
+      const v = c.getValue();
+      if(v) return `<span class="blk-note-txt">${escapeHtml(v)}</span>`;
+      return isRowBlocked(c.getRow().getData())
+        ? `<span class="blk-note-txt miss">⚠ no reason — click to fill</span>`
+        : `<span class="blk-note-txt none">—</span>`;
+    }
+  };
+}
+
 function buildColumns(){
   const d=CERT_DEFS[curTab];
   if(curTab==='twavg'){
@@ -154,6 +215,8 @@ function buildColumns(){
       {title:'Avg Wt (kg)',field:'avgWt',width:130,editor:'number',cssClass:'cell-avgwt',
         formatter:c=>c.getValue()?Number(c.getValue()).toLocaleString():''},
       {title:'Remark',field:'remark',editor:'input'},
+      blockNoteColumn(),
+      blockTickColumn(),
       {title:'Last Edit',field:'lastAt',width:90,headerSort:true,formatter:lastEditFormatter,cssClass:'cell-lastedit-wrap'},
       {title:'🗑',width:44,hozAlign:'center',headerSort:false,formatter:()=>'✕',cssClass:'cell-del',
         cellClick:(e,cell)=>{ requestDeleteRow(cell.getRow().getData()); }}
@@ -185,6 +248,9 @@ function buildColumns(){
   }
   d.certs.forEach(c=>{ cols.push({title:c.name,field:c.k,minWidth:118,editor:'input',formatter:dateFormatter,headerSort:false}); });
   cols.push({title:'Remark',field:'remark',width:90,editor:'input'});
+  /* v4.83 — cặp BLOCK đứng liền nhau ngay sau Remark: lý do trước, tick sau. */
+  cols.push(blockNoteColumn());
+  cols.push(blockTickColumn());
   cols.push({title:'Last Edit',field:'lastAt',width:90,headerSort:true,formatter:lastEditFormatter,cssClass:'cell-lastedit-wrap'});
   // Delete column — rightmost
   cols.push({title:'🗑',width:44,hozAlign:'center',headerSort:false,formatter:()=>'✕',cssClass:'cell-del',
@@ -193,9 +259,11 @@ function buildColumns(){
 }
 function rowFormatter(row){
   const el=row.getElement();
-  el.classList.remove('row-exp','row-due','row-missing');
+  el.classList.remove('row-exp','row-due','row-missing','row-blocked');
+  const data = row.getData();
+  /* ⛔ BLOCK thắng mọi trạng thái cert — tô nền xám-đỏ cho cả dòng. */
+  if(isRowBlocked(data)) el.classList.add('row-blocked');
   if(curTab!=='twavg'){
-    const data = row.getData();
     const miss = missingCount(data);
     const st = rowState(data);
     if(miss>0) el.classList.add('row-missing');
@@ -210,8 +278,10 @@ function destroyTable(){ if(table){ try{ table.destroy(); }catch(e){} table=null
 function tabRows(){
   if(curTab==='twavg') return Object.values(DATA.twavg||{});
   const rows = Object.values(DATA[curTab]||{});
-  // sort: missing certs first; among complete rows: exp → due → ok by soonest expiry
+  // sort: BLOCKED first; then missing certs; among complete rows: exp → due → ok by soonest expiry
   rows.sort((a,b)=>{
+    const ba = isRowBlocked(a)?0:1, bb = isRowBlocked(b)?0:1;
+    if(ba !== bb) return ba - bb;
     const ka = rowSortKey(a), kb = rowSortKey(b);
     if(ka.miss !== kb.miss)     return kb.miss - ka.miss;        // more missing → top
     if(ka.stRank !== kb.stRank) return ka.stRank - kb.stRank;    // exp → due → ok
@@ -413,6 +483,27 @@ function doPaste(){
   const hdr=lines[0].split(delim).map(x=>x.trim().toLowerCase());
   const hasSafeFillCol=hdr.some(h=>h.includes('safe fill'));
   const rows=lines.slice(1).map((l,i)=>{ const c=l.split(delim).map(x=>x.trim()); return mapPasteRow(c,i+1,hasSafeFillCol); });
+  /* v4.80 — Excel KHÔNG có cột ⛔ BLOCK, mà replaceTab xoá sạch tab rồi ghi lại.
+     Nếu không gánh lại cờ cấm thì mỗi lần paste cert mới là lệnh cấm biến mất
+     âm thầm — đúng thứ tuyệt đối không được mất. Snapshot theo khoá định danh
+     (plate / tên tài xế / truck) rồi gắn lại vào row mới cùng khoá. */
+  try{
+    const _bKey = r => String(r.plate || r.name || r.truck || '')
+                        .trim().toUpperCase().replace(/\s+/g,' ');
+    const keep = {};
+    Object.values(DATA[curTab]||{}).forEach(r=>{
+      if(!isRowBlocked(r)) return;
+      const k = _bKey(r); if(k) keep[k] = rowBlockNote(r);
+    });
+    let carried = 0;
+    rows.forEach(r=>{
+      const k = _bKey(r);
+      if(k && Object.prototype.hasOwnProperty.call(keep,k)){
+        r[BLOCK_F] = true; r[BLOCK_N] = keep[k]; carried++;
+      }
+    });
+    if(carried) setTimeout(()=>toast('⛔ Giữ lại '+carried+' lệnh cấm sau khi paste','er'), 2700);
+  }catch(_){}
   if(rows.length){
     SC.replaceTab(curTab, rows, 'paste '+rows.length+' rows');
     closePaste();
