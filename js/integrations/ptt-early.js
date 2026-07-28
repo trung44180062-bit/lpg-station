@@ -605,21 +605,47 @@ var PTT_EARLY = (function(){
       if(!chk) missing.push('Check Booth');
       if(typeof toast==='function') toast('ℹ Staff on duty chưa chọn: '+missing.join(' & ')+' — phiếu in trống tên ký, điền tay sau.','ok');
     }
-    var pages = '', printedOids = {};
+    /* v4.79 — every PTT is now followed by its PKTPTVC slip on the next page
+       (PTT = A5 portrait, slip = A5 landscape via the `ktland` named page that
+       KTPTVC.CSS carries), so the engineer receives both at the same time and
+       hand-ticks the safety table before loading. One slip per TRUCK: a truck
+       printed as several separate DO slips still gets a single inspection
+       form (the vehicle is inspected once, not once per DO). */
+    var pages = '', printedOids = {}, ktSeen = {}, ktCount = 0;
+    var ktOn = (typeof KTPTVC !== 'undefined' && KTPTVC && typeof KTPTVC.page === 'function');
+    var eng0 = _staffEng();
     plan.forEach(function(item){
       pages += (item.combined && item.rows.length>1) ? _buildCombinedPage(item.rows) : _buildPage(item.rows[0]);
       item.rows.forEach(function(r){ if(r._oid) printedOids[r._oid] = 1; });
+      if(ktOn){
+        var r0 = item.rows[0] || {};
+        var pk = _plateKey(r0.plate);
+        if(pk && !ktSeen[pk]){
+          try{
+            var kt = KTPTVC.page({
+              truck : r0.plate,
+              rmooc : r0.rmooc,
+              driver: r0.driver,
+              eng   : eng0,
+              date  : r0._forDate
+            }, ktCount+1);
+            if(kt){ ktSeen[pk] = 1; ktCount++; pages += kt; }
+          }catch(e){ if(window.console) console.warn('[PTT_EARLY] KTPTVC page skipped', e); }
+        }
+      }
     });
     var doc = '<!DOCTYPE html><html><head><meta charset="UTF-8">'
       + '<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Barlow:wght@300;400;500;600;700;800;900&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet">'
-      + '<style>'+_CSS+'</style></head><body>'+pages+'</body></html>';
+      + '<style>'+_CSS
+      + (ktOn ? (KTPTVC.CSS + '.pf-ptt-paper+.kt-page{page-break-before:always;break-before:page;}') : '')
+      + '</style></head><body>'+pages+'</body></html>';
     if(typeof _pfPrintViaIframe==='function') _pfPrintViaIframe(doc, 800);
     else { if(typeof toast==='function') toast('Print engine not ready','er'); return; }
     /* RAM-only "printed" mark — never written to Firebase / the row object */
     var orders = Object.keys(printedOids);
     orders.forEach(function(o){ _printedOids[o] = Date.now(); });
     if(typeof logAudit==='function'){ try{ logAudit(_mode==='today' ? 'print:ptt_bulk_today' : 'print:ptt_bulk_early', { pages: plan.length, orders: orders.length }); }catch(_){} }
-    if(typeof toast==='function') toast('\uD83D\uDDA8 Printing '+plan.length+' PTT page(s) \u00B7 '+orders.length+' order(s)','ok');
+    if(typeof toast==='function') toast('\uD83D\uDDA8 Printing '+plan.length+' PTT + '+ktCount+' PKTPTVC page(s) \u00B7 '+orders.length+' order(s)','ok');
     close();
   }
 

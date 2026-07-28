@@ -505,6 +505,36 @@ function _pfPrintViaIframe(htmlDoc, delay){
     catch(e){ console.warn('[pfPrint] iframe print failed', e); }
   }, delay||700);
 }
+/* ── v4.79 — read the vehicle identity off a rendered PTT paper ────────────
+   Works for BOTH ID schemes that end up inside #pf-ptt-paper:
+     • the static Print-Form markup  (#pf-ptt-truck / [data-pf="ptt-truck"])
+     • the Scale overlay copy        (#pttov-plate …, injected by pttOvPrint)
+   Returns null when there is no plate — caller then skips the KTPTVC page. */
+function _pfScrapePttVehicle(paper){
+  if(!paper) return null;
+  const txt = sel => {
+    const el = paper.querySelector(sel);
+    return el ? String(el.textContent||'').trim() : '';
+  };
+  const truck = txt('#pf-ptt-truck, [data-pf="ptt-truck"], #pttov-plate');
+  if(!truck) return null;
+  const day = txt('#pf-ptt-day, [data-pf="ptt-day"], #pttov-day');
+  const mon = txt('#pf-ptt-month, [data-pf="ptt-month"], #pttov-mon');
+  const yr  = txt('#pf-ptt-year, [data-pf="ptt-year"], #pttov-yr');
+  let dt = null;
+  if(day && mon && yr){
+    const d = new Date(+yr, (+mon)-1, +day);
+    if(!isNaN(d)) dt = d;
+  }
+  return {
+    truck : truck,
+    rmooc : txt('#pf-ptt-rmooc, [data-pf="ptt-rmooc"], #pttov-rmooc'),
+    driver: txt('#pf-ptt-sign3, [data-pf="ptt-sign3"], #pttov-sign3'),
+    eng   : txt('#pf-ptt-sign2, [data-pf="ptt-sign2"], #pttov-sign2'),
+    _date : dt
+  };
+}
+
 /* Override pfPrint to use the hidden iframe — keeps the existing CSS / paper sourcing
    but prints in the SAME page instead of opening a new tab. */
 function pfPrint(form, orientation){
@@ -567,7 +597,27 @@ function pfPrint(form, orientation){
     .pf-dn-ssp{height:13.5mm;}.pf-dn-snm{font-size:11pt;font-weight:700;border-top:0.5pt solid #aaa;padding-top:3pt;}
     [contenteditable]{background:none!important;border-bottom:none!important;}
   `;
-  const doc = '<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Barlow:wght@300;400;500;600;700;800;900&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet"><style>'+PRINT_CSS+'</style></head><body>'+paper.outerHTML+'</body></html>';
+  /* v4.79 — every PTT print also produces the KTPTVC inspection slip on the
+     next page, so the engineer gets both at once and ticks by hand before
+     loading. MIXED ORIENTATION: the PTT keeps the default A5 PORTRAIT @page,
+     the slip claims the named page `ktland` = A5 LANDSCAPE (KTPTVC.CSS ships
+     both the rules and that @page). A named-page switch is itself a forced
+     page break in Chromium, but the explicit rule below is kept as a belt. */
+  let extraCSS = '', extraPages = '';
+  if(form === 'ptt'){
+    try{
+      const veh = _pfScrapePttVehicle(paper);
+      if(veh && typeof KTPTVC !== 'undefined'){
+        const kt = KTPTVC.page(veh, 1);
+        if(kt){
+          extraCSS   = KTPTVC.CSS + '.pf-ptt-paper+.kt-page{page-break-before:always;break-before:page;}';
+          extraPages = kt;
+        }
+      }
+    }catch(e){ console.warn('[pfPrint] KTPTVC page skipped', e); }
+  }
+
+  const doc = '<!DOCTYPE html><html><head><meta charset="UTF-8"><link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Barlow:wght@300;400;500;600;700;800;900&family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet"><style>'+PRINT_CSS+extraCSS+'</style></head><body>'+paper.outerHTML+extraPages+'</body></html>';
   _pfPrintViaIframe(doc, 700);
 }
 
@@ -709,7 +759,8 @@ function _ktRenderTable(){
 function _ktUpdateStats(){
   const n = KT_LIST.filter(v=>v.checked).length;
   const stats = document.getElementById('kt-stats');
-  if(stats) stats.textContent = n + ' / ' + KT_LIST.length + ' vehicles · ' + Math.ceil(n/2) + ' A4 page(s)';
+  /* v4.79 — A5, one slip per page. */
+  if(stats) stats.textContent = n + ' / ' + KT_LIST.length + ' vehicles · ' + n + ' A5 page(s)';
 }
 
 function ktLoad(){
@@ -768,7 +819,7 @@ function ktSelectAll(checked){
 /* Build one V406-equivalent KTPTVC form block (Vietnamese — ISO doc LPGT-PD-002).
    No inline width:X% — tables auto-fit; CSS gives labels min-width + nowrap. */
 function _ktBuildOneForm(v, pageNum){
-  const d = KT_DATE_OBJ || new Date();
+  const d = (v && v._date instanceof Date && !isNaN(v._date)) ? v._date : (KT_DATE_OBJ || new Date());
   const dateStr = String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getFullYear()).slice(-2);
   let plateStr = escapeHtml(v.truck);
   if(v.rmooc) plateStr += ' &nbsp;&nbsp; ' + escapeHtml(v.rmooc);
@@ -817,10 +868,10 @@ function _ktBuildOneForm(v, pageNum){
     +'<div class="kt-sec">KIỂM TRA CÁC BIỆN PHÁP AN TOÀN TRƯỚC KHI VÀO TRẠM</div>'
     +'<table class="kt-t kt-ck">'
       +'<tr><td class="kt-ck-hdr">KIỂM TRA CHUNG</td><td class="kt-ck-yn-hdr">Có</td><td class="kt-ck-yn-hdr">Không</td></tr>'
-      +'<tr><td class="kt-ck-txt">Biểu trưng nguy hiểm và cảnh báo dán trên xe, bồn<br>Số điện thoại và số liên hệ khẩn cấp dán trên cabin và thành bồn</td><td class="kt-ck-yn">✓</td><td class="kt-ck-yn"></td></tr>'
-      +'<tr><td class="kt-ck-txt">Thiết bị đo, thiết bị an toàn đầy đủ<br>Bồn có tem kiểm định</td><td class="kt-ck-yn">✓</td><td class="kt-ck-yn"></td></tr>'
-      +'<tr><td class="kt-ck-txt">Xe không có dấu hiệu bị va chạm, hư hỏng<br>Bồn không có dấu hiệu bị ăn mòn, móp méo, hư hỏng, cháy hoặc vệt hồ quang</td><td class="kt-ck-yn"></td><td class="kt-ck-yn">✓</td></tr>'
-      +'<tr><td class="kt-ck-txt">Các thiết bị, phụ kiện gắn trên bồn hoạt động tốt, không có dấu hiệu hư hỏng</td><td class="kt-ck-yn">✓</td><td class="kt-ck-yn"></td></tr>'
+      +'<tr><td class="kt-ck-txt">Biểu trưng nguy hiểm và cảnh báo dán trên xe, bồn<br>Số điện thoại và số liên hệ khẩn cấp dán trên cabin và thành bồn</td><td class="kt-ck-yn kt-pre">✓</td><td class="kt-ck-yn"></td></tr>'
+      +'<tr><td class="kt-ck-txt">Thiết bị đo, thiết bị an toàn đầy đủ<br>Bồn có tem kiểm định</td><td class="kt-ck-yn kt-pre">✓</td><td class="kt-ck-yn"></td></tr>'
+      +'<tr><td class="kt-ck-txt">Xe không có dấu hiệu bị va chạm, hư hỏng<br>Bồn không có dấu hiệu bị ăn mòn, móp méo, hư hỏng, cháy hoặc vệt hồ quang</td><td class="kt-ck-yn"></td><td class="kt-ck-yn kt-pre">✓</td></tr>'
+      +'<tr><td class="kt-ck-txt">Các thiết bị, phụ kiện gắn trên bồn hoạt động tốt, không có dấu hiệu hư hỏng</td><td class="kt-ck-yn kt-pre">✓</td><td class="kt-ck-yn"></td></tr>'
     +'</table>'
     +'<table class="kt-t kt-sig"><tr>'
       +'<td class="kt-sig-lbl">Người kiểm tra:</td>'
@@ -831,56 +882,122 @@ function _ktBuildOneForm(v, pageNum){
   +'</div>';
 }
 
-/* CSS for the printed paper — V406 layout + auto-fit content (table-layout:auto). */
-const _KT_PRINT_CSS = '\
-@page { size: A4 portrait; margin: 4mm 7mm; }\
-* { margin:0; padding:0; box-sizing:border-box; }\
-html, body { margin:0; padding:0; background:#fff; font-family:"Barlow",sans-serif; font-size:9pt; color:#000; }\
-.kt-page { page-break-after:always; height:100vh; display:flex; flex-direction:column; }\
-.kt-page:last-child { page-break-after:auto; }\
-.kt-sep { height:1.5mm; border-bottom:0.3pt dashed #aaa; margin:0.5mm 0; flex-shrink:0; }\
-.kt-form { flex:1; display:flex; flex-direction:column; }\
-.kt-t { width:100%; border-collapse:collapse; border:0.7pt solid #333; table-layout:auto; }\
-.kt-t td { border:0.5pt solid #666; padding:3pt 6pt; vertical-align:middle; font-size:9pt; }\
-.kt-logo-cell { width:26mm; text-align:center; padding:3pt 4pt!important; vertical-align:middle; }\
-.kt-logo-txt { line-height:1.15; }\
-.kt-logo-hy { font-size:12pt; font-weight:900; letter-spacing:.5pt; color:#006838; display:block; }\
-.kt-logo-vc { font-size:6.5pt; font-weight:700; letter-spacing:.3pt; color:#333; display:block; margin-top:1pt; }\
-.kt-h-lbl { background:#e0e0e0; font-size:7pt; font-weight:600; text-align:center; line-height:1.3; white-space:nowrap; min-width:14mm; }\
-.kt-h-s { font-size:5.5pt; color:#555; font-weight:400; }\
-.kt-h-val { font-size:8pt; font-weight:700; text-align:center; }\
-.kt-title { text-align:center; font-size:12.5pt; font-weight:900; padding:4pt 0 2pt; letter-spacing:.03em; }\
-.kt-lbl { background:#e0e0e0; font-size:8pt; font-weight:600; line-height:1.35; white-space:nowrap; min-width:16mm; }\
-.kt-val { font-size:9.5pt; padding:3pt 6pt; word-break:break-word; overflow-wrap:anywhere; }\
-.kt-plate { font-weight:800; font-size:11pt; font-family:"Courier New",Courier,"Barlow",sans-serif; letter-spacing:.5pt; min-width:40mm; }\
-.kt-doc { font-size:8pt; vertical-align:middle; line-height:1.4; padding:2pt 5pt; white-space:nowrap; }\
-.kt-sec { font-size:10pt; font-weight:800; padding:3pt 0 1pt; letter-spacing:.02em; }\
-.kt-ck-hdr { background:#e0e0e0; font-size:9pt; font-weight:800; padding:3pt 6pt; white-space:nowrap; }\
-.kt-ck-yn-hdr { background:#e0e0e0; text-align:center; font-size:9pt; font-weight:700; white-space:nowrap; min-width:14mm; }\
-.kt-ck-txt { font-size:8.5pt; line-height:1.45; padding:3pt 6pt; word-break:break-word; }\
-.kt-ck-yn { text-align:center; font-size:13pt; font-weight:700; vertical-align:middle; min-width:14mm; }\
-.kt-sig td { padding:5pt 6pt; }\
-.kt-sig-lbl { background:#e0e0e0; font-size:9pt; font-weight:800; white-space:nowrap; }\
-.kt-sig-name { font-size:10.5pt; font-weight:700; text-align:center; min-width:32mm; white-space:nowrap; }\
-.kt-sig-sign { min-width:78mm; }\
+/* ── v4.79 — KTPTVC print CSS: A5 LANDSCAPE, ONE slip per page ────────────
+   Process change (Jul-2026): the slip is handed to the engineer together with
+   the PTT and the pre-ticked safety marks print VERY FAINT (.kt-pre) so he can
+   see where to tick by hand once the vehicle passes.
+
+   Orientation: the form is a WIDE table grid (7-column ISO header, 6-column
+   info row) — it was designed for half an A4 (≈196 × 144mm). A5 landscape
+   (204 × 142mm usable) is virtually the same box, so the original V406 type
+   scale is kept verbatim and nothing has to shrink or wrap. The PTT stays A5
+   PORTRAIT; the two orientations coexist in one print job via the CSS named
+   page `ktland` (see _KT_NAMED_PAGE_CSS) — Chromium honours per-page size.
+
+   Rules below are CLASS-SCOPED (no html/body/@page) so this block can be
+   concatenated into the PTT print document without fighting the PTT CSS.    */
+/* Margin note (v4.79.1): laser printers have a ~4–5mm hardware non-printable
+   border. A 3mm @page margin pushed the outer table border into that dead zone
+   and the frame came out clipped even at 98% scale. 8mm side / 7mm top-bottom
+   clears every driver we use, so the operator can print at 100% "Default".
+   Usable box then = 194 × 134mm — the type scale below is sized to that, with
+   nothing relying on `nowrap` wide enough to overflow it.                    */
+const _KT_NAMED_PAGE_CSS = '\
+@page ktland { size: A5 landscape; margin: 7mm 8mm; }\
+.kt-page { page: ktland; }\
 ';
+const _KT_PAGE_CSS = '\
+@page { size: A5 landscape; margin: 7mm 8mm; }\
+* { margin:0; padding:0; box-sizing:border-box; }\
+html, body { margin:0; padding:0; background:#fff; }\
+';
+const _KT_BODY_CSS = '\
+.kt-page { font-family:"Barlow",sans-serif; font-size:8.5pt; color:#000; width:100%; max-width:100%; overflow:hidden; page-break-after:always; break-after:page; }\
+.kt-page:last-child { page-break-after:auto; break-after:auto; }\
+.kt-sep { display:none; }\
+.kt-form { width:100%; max-width:100%; }\
+.kt-t { width:100%; max-width:100%; border-collapse:collapse; border:0.7pt solid #333; table-layout:auto; }\
+.kt-t td { border:0.5pt solid #666; padding:2.5pt 4pt; vertical-align:middle; font-size:8.5pt; word-break:break-word; }\
+.kt-logo-cell { width:22mm; text-align:center; padding:2pt 3pt!important; vertical-align:middle; }\
+.kt-logo-txt { line-height:1.15; }\
+.kt-logo-hy { font-size:10.5pt; font-weight:900; letter-spacing:.3pt; color:#006838; display:block; }\
+.kt-logo-vc { font-size:5.5pt; font-weight:700; letter-spacing:.2pt; color:#333; display:block; margin-top:1pt; }\
+.kt-h-lbl { background:#e0e0e0; font-size:6.5pt; font-weight:600; text-align:center; line-height:1.25; white-space:nowrap; min-width:11mm; padding:2pt 2pt; }\
+.kt-h-s { font-size:5pt; color:#555; font-weight:400; }\
+.kt-h-val { font-size:7.5pt; font-weight:700; text-align:center; padding:2pt 2pt; }\
+.kt-title { text-align:center; font-size:12pt; font-weight:900; padding:4pt 0 3pt; letter-spacing:.03em; }\
+.kt-lbl { background:#e0e0e0; font-size:7.5pt; font-weight:600; line-height:1.3; white-space:nowrap; min-width:13mm; }\
+.kt-val { font-size:9pt; padding:2.5pt 4pt; word-break:break-word; overflow-wrap:anywhere; }\
+.kt-plate { font-weight:800; font-size:10pt; font-family:"Courier New",Courier,"Barlow",sans-serif; letter-spacing:.3pt; min-width:30mm; }\
+.kt-doc { font-size:7pt; vertical-align:middle; line-height:1.35; padding:2pt 3pt; word-break:break-word; }\
+.kt-sec { font-size:9.5pt; font-weight:800; padding:4pt 0 2pt; letter-spacing:.02em; }\
+.kt-ck-hdr { background:#e0e0e0; font-size:8.5pt; font-weight:800; padding:2.5pt 4pt; white-space:nowrap; }\
+.kt-ck-yn-hdr { background:#e0e0e0; text-align:center; font-size:8.5pt; font-weight:700; white-space:nowrap; width:15mm; }\
+.kt-ck-txt { font-size:8pt; line-height:1.4; padding:2.5pt 4pt; word-break:break-word; }\
+.kt-ck-yn { text-align:center; font-size:14pt; font-weight:700; vertical-align:middle; width:15mm; height:9.5mm; }\
+.kt-ck-yn.kt-pre { color:#e2e2e2; font-weight:400; -webkit-print-color-adjust:exact; print-color-adjust:exact; }\
+.kt-sig { margin-top:2pt; }\
+.kt-sig td { padding:4pt 4pt; }\
+.kt-sig-lbl { background:#e0e0e0; font-size:8.5pt; font-weight:800; white-space:nowrap; }\
+.kt-sig-name { font-size:10pt; font-weight:700; text-align:center; min-width:28mm; }\
+.kt-sig-sign { min-width:45mm; height:12mm; }\
+';
+/* Kept as the standalone (whole-document) stylesheet — same name as before so
+   any external reference keeps working. */
+const _KT_PRINT_CSS = _KT_PAGE_CSS + _KT_BODY_CSS;
+
+/* ══════════════════════════════════════════════════════════
+   KTPTVC — shared API so every PTT print path can append the
+   inspection slip. Vehicle object: {truck, rmooc, driver, eng, cap, _date}.
+   ══════════════════════════════════════════════════════════ */
+var KTPTVC = (function(){
+  /* Normalise anything PTT-ish into the vehicle shape _ktBuildOneForm wants.
+     cap is looked up from RAM Fleet when not supplied. */
+  function normalize(o){
+    o = o || {};
+    const truck = String(o.truck || o.plate || '').trim().toUpperCase();
+    const rmooc = String(o.rmooc || '').trim();
+    let dt = o._date || o.date || null;
+    if(dt && !(dt instanceof Date)){
+      dt = (typeof parseDate === 'function') ? parseDate(dt) : new Date(dt);
+    }
+    if(!(dt instanceof Date) || isNaN(dt)) dt = new Date();
+    return {
+      truck: truck,
+      rmooc: rmooc,
+      driver: String(o.driver || '').trim(),
+      eng:    String(o.eng || o.engineer || '').trim(),
+      cap:    (o.cap != null && o.cap !== '') ? o.cap : _ktLookupCap(truck, rmooc),
+      _date:  dt
+    };
+  }
+  /* One full A5 page (wrapper included). */
+  function page(o, pageNum){
+    const v = normalize(o);
+    if(!v.truck) return '';
+    return '<div class="kt-page">' + _ktBuildOneForm(v, pageNum || '') + '</div>';
+  }
+  return {
+    normalize: normalize,
+    page: page,
+    form: _ktBuildOneForm,
+    lookupCap: _ktLookupCap,
+    /* Class-scoped rules + the `ktland` named page, so a KTPTVC slip dropped
+       into an A5-PORTRAIT PTT document still prints A5 LANDSCAPE. */
+    get CSS(){ return _KT_BODY_CSS + _KT_NAMED_PAGE_CSS; },
+    get BODY_CSS(){ return _KT_BODY_CSS; },   /* rules only, no @page at all */
+    get FULL_CSS(){ return _KT_PRINT_CSS; }   /* standalone: @page + reset */
+  };
+})();
+if(typeof window !== 'undefined') window.KTPTVC = KTPTVC;
 
 function ktPrint(){
   const items = KT_LIST.filter(v=>v.checked);
   if(!items.length){ toast('⚠ No vehicle selected','er'); return; }
 
+  /* v4.79 — A5, one slip per page (was A4, two slips per page). */
   let pages = '';
-  let pageNo = 0;
-  for(let i=0; i<items.length; i+=2){
-    pageNo++;
-    pages += '<div class="kt-page">';
-    pages += _ktBuildOneForm(items[i], pageNo);
-    if(i+1 < items.length){
-      pages += '<div class="kt-sep"></div>';
-      pages += _ktBuildOneForm(items[i+1], pageNo);
-    }
-    pages += '</div>';
-  }
+  items.forEach((v,i)=>{ pages += '<div class="kt-page">' + _ktBuildOneForm(v, i+1) + '</div>'; });
 
   const doc = '<!DOCTYPE html><html><head><meta charset="utf-8">'
     + '<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">'
@@ -888,7 +1005,7 @@ function ktPrint(){
 
   /* Inline print via the same hidden iframe pfPrint uses — no new tab. */
   _pfPrintViaIframe(doc, 800);
-  toast('🖨 Printing '+items.length+' KTPTVC slip(s) — '+Math.ceil(items.length/2)+' A4 page(s)','ok');
+  toast('🖨 Printing '+items.length+' KTPTVC slip(s) — '+items.length+' A5 page(s)','ok');
 }
 
 /* Init: default date = today, render empty placeholder so the table isn't blank. */
@@ -966,10 +1083,48 @@ function _pttShowOverlay(d){
   h+='<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Driver</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+ce('sign3',d.driver)+'</div></div>';
   h+='</div><div class="pf-sfoot"></div>';
   h+='</div></div>';
+  /* v4.79 — PKTPTVC preview: printed on the next A5 page together with the PTT */
+  h+='<div class="pttOvKtWrap"><div class="pttOvKtHdr">📋 PKTPTVC — in kèm PTT, khổ A5 (trang 2). Dấu ✓ mờ = kỹ sư tích tay khi xe đạt.</div><div id="pttOvKt"></div></div>';
   /* Inject */
   document.getElementById('pttOvTitle').textContent='📋 PTT — Station '+d.stId+' · '+d.plate;
   document.getElementById('pttOvBody').innerHTML=h;
+  _ktEnsureScreenCSS();
+  _pttOvRenderKt();
+  const _ovPaper = document.getElementById('pttOvPaper');
+  if(_ovPaper && !_ovPaper._ktHooked){
+    _ovPaper._ktHooked = 1;
+    _ovPaper.addEventListener('input', function(){
+      clearTimeout(_pttOvRenderKt._t);
+      _pttOvRenderKt._t = setTimeout(_pttOvRenderKt, 250);
+    });
+  }
   document.getElementById('pttOvBg').classList.add('on');
+}
+
+/* Inject the KTPTVC stylesheet once so the slip renders on screen too. */
+function _ktEnsureScreenCSS(){
+  if(document.getElementById('_ktScreenCSS')) return;
+  const st = document.createElement('style');
+  st.id = '_ktScreenCSS';
+  st.textContent = _KT_BODY_CSS
+    + '.pttOvKtWrap{margin-top:14px;border-top:2px dashed #bbb;padding-top:10px;overflow-x:auto;}'
+    + '.pttOvKtHdr{font-size:11px;font-weight:700;color:#666;margin-bottom:6px;}'
+    /* Preview at the true printable width of A5 landscape minus the @page
+       margins (210 - 2×8 = 194mm), so what you see is what the sheet gets.
+       The wrapper scrolls if the overlay is narrower. */
+    + '.pttOvKtWrap .kt-page{width:194mm;background:#fff;border:1px solid #ddd;}';
+  document.head.appendChild(st);
+}
+
+/* Re-render the PKTPTVC preview from the CURRENT overlay values. */
+function _pttOvRenderKt(){
+  const host = document.getElementById('pttOvKt');
+  if(!host) return;
+  const paper = document.getElementById('pttOvPaper');
+  try{
+    const veh = _pfScrapePttVehicle(paper);
+    host.innerHTML = (veh && typeof KTPTVC !== 'undefined') ? (KTPTVC.page(veh, 1) || '') : '';
+  }catch(e){ console.warn('[pttOv] KTPTVC preview failed', e); host.innerHTML=''; }
 }
 function pttOvClose(){
   document.getElementById('pttOvBg').classList.remove('on');
@@ -981,7 +1136,7 @@ function pttOvPrint(){
   const target = document.getElementById('pf-ptt-paper');
   if(target) target.innerHTML = ovPaper.innerHTML;
   pfPrint('ptt','portrait');
-  toast('🖨 Printing PTT — Station '+_pttOvStId,'ok');
+  toast('🖨 Printing PTT + PKTPTVC (A5) — Station '+_pttOvStId,'ok');
 }
 
 /* ══════════════════════════════════════════════════════════
