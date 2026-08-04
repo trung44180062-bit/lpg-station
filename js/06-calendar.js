@@ -260,7 +260,14 @@ function setCell(code){
   }else if(code&&code!==oldCode&&empId!==meId()&&typeof newNotif==='function'){
     // Đổi sang mã khác → gộp vào thông báo đang chờ cho cùng người + ngày (tránh spam)
     let ex=Object.values(S.notifs||{}).find(n=>n.kind==='schedChange'&&n.to===empId&&n.iso===iso&&n.status==='pending');
-    if(ex){ex.newCode=code;ex.from=meId()||'manager';ex.createdAt=Date.now();}
+    if(ex){
+      ex.newCode=code;ex.from=meId()||'manager';ex.createdAt=Date.now();
+      /* Nhánh này CẬP NHẬT thông báo cũ chứ không gọi newNotif, nên phải tự
+         đẩy sang hàng đợi Zalo — nếu không, sửa đi sửa lại cùng một ô sẽ
+         không bao giờ bắn tin. Ghi đè bản cũ trong hàng đợi vì khoá là
+         notifId, người nhận chỉ thấy đúng một tin với mã mới nhất. */
+      if(typeof zaloEnqueue==='function')zaloEnqueue(ex);
+    }
     else newNotif({kind:'schedChange',to:empId,from:meId()||'manager',iso,oldCode:oldCode||'',newCode:code});
   }
   save();closeCell();renderReal();
