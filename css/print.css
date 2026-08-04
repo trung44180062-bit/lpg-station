@@ -1,0 +1,91 @@
+/* ============================================================
+   LPGT Cong Ca v4 — IN DON
+   Dung theo file goc cua cong ty "2023_HSVC - Timekeeping Form (New) VBA":
+     · Kho giay  : A5 NGANG (paperSize 11, landscape) — 210 x 148 mm
+     · Le giay   : 0.1 inch ~ 2.5 mm
+     · Font      : Times New Roman
+     · Tieu de   : 16pt dam (VN) + 16pt dam nghieng (EN)
+     · Bang      : 11pt, 10 dong du lieu, vien thin
+     · Chu giai  : 8pt
+     · Chu ky    : 3 o co vien — nhan / cho ky / ghi ro ho ten
+   Bo cuc "a5"  : 1 don / to A5 ngang  → DUNG CHUAN CONG TY (mac dinh)
+   Bo cuc "2up" : 2 don xep doc tren 1 to A4 dung → tiet kiem giay,
+                  moi nua to A4 dung ~ 1 to A5 ngang.
+   ============================================================ */
+#printRoot{display:none}
+
+@media print{
+  html,body{background:#fff}
+  body>*:not(#printRoot){display:none!important}
+  #printRoot{display:block!important;color:#000}
+  #printRoot *{color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .print-page{page-break-after:always}
+  .print-page:last-child{page-break-after:auto}
+
+  /* --- 2 don / to A4 dung (mac dinh khi in hang loat) --- */
+  .form-a5{height:136mm;overflow:hidden}
+  .form-a5+.form-a5{border-top:1px dashed #999;margin-top:2mm;padding-top:3mm} /* vach cat doi to A4 */
+
+  /* --- 1 don / to A5 ngang: dung khuon cong ty, chu to hon --- */
+  #printRoot.layout-a5 .form-a5{height:142mm;font-size:8.6pt}
+  #printRoot.layout-a5 .form-a5+.form-a5{border-top:none;margin-top:0;padding-top:0}
+}
+
+/* ===================== KHUNG MOT DON ===================== */
+.form-a5{
+  width:100%;box-sizing:border-box;padding:0.5mm 1mm;
+  font-family:'Times New Roman',Times,Georgia,serif;color:#000;
+  font-size:7.6pt;line-height:1.15;
+}
+.form-a5.solo{font-size:8.6pt}
+
+/* --- dau don: logo → tieu de VN → tieu de EN → ngay lam don --- */
+/* Logo: KHOA CHIEU CAO, chieu rong tu tinh theo ti le that (358 x 86 px)
+   — dat ca width lan max-height de trinh duyet bop anh cho vua khung. */
+.pp-logorow{height:9mm;display:flex;align-items:center}
+.pp-logo{height:8mm;width:auto;display:block}
+.pp-t1{text-align:center;font-weight:700;font-size:1.62em;line-height:1.25;text-transform:uppercase}
+.pp-t2{text-align:center;font-weight:700;font-style:italic;font-size:1.36em;line-height:1.25}
+.pp-date{text-align:right;font-size:1em;margin:0.4mm 0 1mm}
+
+/* ===================== BANG DU LIEU ===================== */
+.pp-tbl{width:100%;border-collapse:collapse;table-layout:fixed;font-size:1em}
+.pp-tbl th,.pp-tbl td{
+  border:0.5pt solid #000;padding:0.3mm 0.6mm;text-align:center;vertical-align:middle;
+  word-wrap:break-word;overflow-wrap:anywhere;
+}
+.pp-tbl thead th{font-weight:400;line-height:1.1;font-size:.94em}
+.pp-tbl tbody tr{height:4.6mm}
+.pp-tbl tbody td{height:4.6mm}
+.pp-tbl td.l{text-align:left}
+.form-a5.solo .pp-tbl tbody tr,.form-a5.solo .pp-tbl tbody td{height:5.2mm}
+
+/* O "Ly do" cua don bo sung cong: danh sach o tich, gop 10 dong */
+.pp-wt-reason{text-align:left;vertical-align:top;font-size:.9em;line-height:1.45;padding:0.8mm 1mm!important}
+
+/* ===================== KHOI CHU KY ===================== */
+.pp-sign{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:1.2mm;font-size:.96em}
+.pp-sign td{border:0.5pt solid #000;text-align:center;padding:0.4mm 0.8mm;vertical-align:middle}
+.pp-sign tr.lb td{line-height:1.15}
+.pp-sign tr.lb i{font-style:italic}
+.pp-sign tr.sp td{height:9mm;border-top:none;border-bottom:none}   /* cho trong de ky */
+.pp-sign tr.nm td{height:7mm;vertical-align:top;font-size:.95em;line-height:1.3}
+.form-a5.solo .pp-sign tr.sp td{height:11mm}
+
+/* ===================== CHU GIAI ===================== */
+.pp-legend{font-size:.75em;margin-top:1.2mm;line-height:1.35}
+.pp-legend-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0 2mm}
+.pp-legend-grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:0 2mm}
+
+/* ===================== MAN HINH CHON DON DE IN ===================== */
+.print-modal-list{max-height:38vh;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px}
+.print-modal-list label{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;padding:5px 2px;border-bottom:1px dashed var(--line)}
+
+/* mobile: input to hon, de cham; bang phu cho cuon ngang trong khung */
+@media(max-width:767px){
+  .inp,select.inp,textarea.inp{min-height:44px}
+  textarea.inp{min-height:66px}
+  .req .acts .btn{min-height:44px;flex:1}
+  #v-mp .tbl,#v-stats .stbl,#v-setup .tbl,#v-data .tbl{display:block}
+  .card{overflow-x:auto}
+}
