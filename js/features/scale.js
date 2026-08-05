@@ -96,6 +96,44 @@ const SCALE = (function(){
     return 'C3';
   }
 
+  /* ══════════════════════════════════════════════════════════════════
+     v4.83 — PRODUCT TYPE GUARD (chống bán nhầm loại hàng)
+     ──────────────────────────────────────────────────────────────────
+     Hàng phổ thông của nhà máy là LPG 50:50 (C3:50/C4:50). Mọi tỉ lệ
+     khác (30:70, 20:80, …) hoặc Pure C3 / Pure C4 là hàng ĐẶC BIỆT:
+     tank / lot / COQ khác nhau, bán nhầm là mất hàng.
+       • _scProdRatio(t)      → '50:50' | '30:70' | 'Pure C3' | 'Pure C4'
+       • _scIsSpecialType(t)  → true khi KHÁC 50:50
+     Chuẩn hoá qua _pfDeriveType (cùng nguồn với PTT/DN/Today Plan), nên
+     ô Type để trống cũng rơi về 50:50 y như lúc in phiếu.
+     ══════════════════════════════════════════════════════════════════ */
+  function _scProdRatio(t){
+    const norm = (typeof _pfDeriveType==='function') ? _pfDeriveType(t||'') : String(t||'');
+    const m = norm.match(/C3:(\d{1,3})\/C4:(\d{1,3})/i);
+    if(m) return parseInt(m[1],10)+':'+parseInt(m[2],10);
+    if(/pure\s*propane/i.test(norm)) return 'Pure C3';
+    if(/pure\s*butane/i.test(norm))  return 'Pure C4';
+    return '';
+  }
+  function _scIsSpecialType(t){
+    const r=_scProdRatio(t);
+    return r!=='' && r!=='50:50';
+  }
+  /* Chip loại hàng dùng chung cho thẻ station + kết quả tìm kiếm. */
+  function _scTypeChip(t, cls){
+    const r=_scProdRatio(t);
+    /* Sale Plan bỏ trống cột Type → _pfDeriveType trả '' nhưng lúc in PTT/DN
+       nó mặc định 50:50. Hiện chip mờ "50:50 ?" để staff biết là ĐANG SUY RA,
+       không phải hợp đồng ghi rõ. */
+    if(!r) return '<span class="'+(cls||'sc-ptype')+' unknown" title="Sale Plan chưa ghi loại hàng — mặc định 50:50 khi in phiếu">50:50 ?</span>';
+    const sp=_scIsSpecialType(t);
+    const title = sp
+      ? 'Product type '+r+' — KHÁC hàng phổ thông 50:50. Kiểm tra tank / lot / COQ trước khi cân!'
+      : 'Product type '+r+' — hàng phổ thông';
+    return '<span class="'+(cls||'sc-ptype')+(sp?' special':'')+'" title="'+esc(title)+'">'
+         + (sp?'⚠ ':'') + esc(r) + '</span>';
+  }
+
   /* ─── Turn from TL Data ─── */
   function getTurnFromTLData(stId){
     /* v4.34.0 — O(1) lookup via TL.getIndex() (today's per-scale counts,
@@ -311,8 +349,15 @@ const SCALE = (function(){
             }
           }
         }catch(_){}
+        /* v4.83 — loại hàng ngay trên thẻ trạm: 50:50 chữ xanh nhạt, mọi loại
+           khác chữ ĐỎ + viền để nhân viên cân không bán nhầm product type. */
+        const _sp=_scIsSpecialType(s.type);
+        if(_sp) cc.classList.add('sc-ptype-alert');
         body=`<div class="sc-card-body" onclick="SCALE.stEditOpen(${i})" title="Click to edit">
-          <div class="sc-line ${rc}"><span class="sc-v cust">${esc(s.customer)||'—'}</span></div>
+          <div class="sc-line ${rc}">
+            <span class="sc-v cust">${esc(s.customer)||'—'}</span>
+            ${_scTypeChip(s.type,'sc-ptype')}
+          </div>
           <div class="sc-line ${rc}">
             <span class="sc-v tk" title="Double-click to swap to the other tank">${esc(s.tank)||'—'}/${lotShort}</span>
             <span class="sc-do-qty">
@@ -685,6 +730,7 @@ const SCALE = (function(){
           <span style="font-family:'Oswald',sans-serif;font-weight:700;font-size:11px">${esc(r.plate||'—')}</span>
           <span style="color:var(--muted);font-size:9px">${idTxt}</span>
           <span style="color:var(--muted);font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0">${esc(r.customer||'—')}</span>
+          ${_scTypeChip(r.type,'sc-res-ptype')}
           ${block.badge}
         </div>`;
       }
@@ -705,8 +751,12 @@ const SCALE = (function(){
       const noteHtml=saleNote?`<div class="sc-res-note">📝 ${esc(saleNote)}</div>`:'';
       const _isBlk=!!(warn&&warn.badges&&warn.badges.some(b=>b.type==='blk'));
       const plateCls=(_isBlk||(warn&&warn.badges&&warn.badges.some(b=>b.type==='miss')))?'style="color:#d62839"':'';
+      /* v4.83 — loại hàng: hiện ngay trên dòng kết quả, tô đỏ khi ≠ 50:50. */
+      const _isSp=_scIsSpecialType(r.type);
+      const _ratio=_scProdRatio(r.type);
       return `<div id="sc-res-row-${stId}-${idx}" data-warn="${warn&&warn.hasWarn?1:0}" data-blk="${_isBlk?1:0}"
-        class="${_isBlk?'sc-res-blocked':''}"
+        data-ptype="${esc(_ratio)}" data-psp="${_isSp?1:0}"
+        class="${_isBlk?'sc-res-blocked':''}${_isSp?' sc-res-ptype-special':''}"
         style="padding:5px 9px;border-bottom:1px solid #f0f4f8;cursor:pointer;font-size:11px;transition:background .1s"
         onmouseover="if(!this.classList.contains('sc-res-armed'))this.style.background='#f0f8ff'" onmouseout="if(!this.classList.contains('sc-res-armed'))this.style.background=''"
         onclick="SCALE.assignFromSearch(${stId},${idx})">
@@ -714,13 +764,17 @@ const SCALE = (function(){
           <div style="flex:1;min-width:0">
             <span style="font-family:'Oswald',sans-serif;font-weight:700;font-size:12px" ${plateCls}>${esc(r.plate||'—')}</span>
             <span style="font-size:9px;color:var(--muted);margin-left:4px">${esc(r.doNum || (isTempOid(String(r._oid||'')) ? r._oid : ''))}</span>
+            ${_scTypeChip(r.type,'sc-res-ptype')}
             <div style="color:var(--muted);font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
               ${esc(r.driver||'—')} · ${esc(r.customer||'—')}${qty?' · <b>'+esc(String(qty))+'MT</b>':''}
             </div>
           </div>
         </div>
         ${badgeHtml}${noteHtml}
-        <div class="sc-res-confirm">${_isBlk?'⛔ XE/TÀI XẾ BỊ CẤM — click lần nữa nếu vẫn muốn assign':'⚠ Click again to assign anyway'}</div>
+        <div class="sc-res-confirm">${
+          _isBlk ? '⛔ XE/TÀI XẾ BỊ CẤM — click lần nữa nếu vẫn muốn assign'
+        : _isSp  ? '⚠ HÀNG '+esc(_ratio)+' — KHÔNG phải 50:50! Click lần nữa để xác nhận assign'
+        : '⚠ Click again to assign anyway'}</div>
       </div>`;
     }).join('');
     res.style.display='block';
@@ -745,8 +799,12 @@ const SCALE = (function(){
     if(_block){ toast(_block.msg,'er'); return; }
     let warn=null;
     try{ if(typeof FCHECK!=='undefined') warn=FCHECK.orderWarning(row); }catch(_){}
+    /* v4.83 — loại hàng ≠ 50:50 cũng phải qua 2 click như cảnh báo fleet/cert:
+       click 1 làm dòng nhấp nháy + hiện dòng chữ "HÀNG 30:70 — KHÔNG phải
+       50:50", click 2 mới thật sự assign. Hàng 50:50 giữ nguyên 1 click. */
+    const _isSp=_scIsSpecialType(row.type);
     /* No warning → assign on single click (unchanged behavior). */
-    if(!warn||!warn.hasWarn){ scHideResults(stId); scAssignToStation(stId,row); return; }
+    if((!warn||!warn.hasWarn) && !_isSp){ scHideResults(stId); scAssignToStation(stId,row); return; }
     /* Has warning → two-click confirm. 1st click arms (color + blink), 2nd assigns. */
     window._scArmed=window._scArmed||{};
     const el=document.getElementById('sc-res-row-'+stId+'-'+idx);
@@ -755,7 +813,9 @@ const SCALE = (function(){
       scHideResults(stId);
       /* v4.80 — click thứ 2 ở đây ĐÃ là xác nhận của staff cho lệnh cấm ⛔;
          đánh dấu để scAssignToStation không hỏi confirm() lần nữa. */
-      if(warn.badges.some(b=>b.type==='blk')) row._blkOK=true;
+      if(warn&&warn.badges&&warn.badges.some(b=>b.type==='blk')) row._blkOK=true;
+      /* v4.83 — tương tự cho loại hàng đặc biệt: đã xác nhận bằng click 2. */
+      if(_isSp) row._typeOK=true;
       scAssignToStation(stId,row);
     }else{
       window._scArmed[stId]=idx;
@@ -946,6 +1006,24 @@ const SCALE = (function(){
           logAudit('scale:assign_blocked', row._oid||row.doNum||'_', '_blocked', '',
                    FCHECK.compactBlocked(_blk), 'override'); }catch(_){}
         toast('⛔ Đã assign xe/tài xế ĐANG BỊ CẤM — kiểm tra lại với nhà máy','er');
+      }
+    }catch(_){}
+    /* ═══ v4.83 — ⚠ PRODUCT-TYPE GATE ══════════════════════════════════
+       Hàng phổ thông 50:50 assign bình thường. Mọi loại khác (30:70,
+       20:80, Pure C3/C4…) phải được staff xác nhận thêm một lần nữa —
+       đường search đã bấm 2 lần thì set row._typeOK nên không hỏi lại;
+       các đường khác (queue 📍, waitPop, multi-DO picker) hỏi ở đây. */
+    try{
+      if(_scIsSpecialType(row.type) && !row._typeOK){
+        const _r=_scProdRatio(row.type);
+        const _txt='⚠ LOẠI HÀNG KHÔNG PHẢI 50:50\n\n'
+          + '• Product type: '+_r+'\n'
+          + '• Hợp đồng: '+String(row.type||'—')+'\n\n'
+          + 'Kiểm tra lại tank / lot / COQ trước khi cân.\nVẫn assign vào Station '+stId+'?';
+        if(!confirm(_txt)){ toast('⚠ Đã huỷ assign — đơn hàng loại '+_r,'er'); return; }
+        row._typeOK=true;
+        try{ if(typeof logAudit==='function')
+          logAudit('scale:assign_special_type', row._oid||row.doNum||'_', '_prodType', '', _r, 'confirm'); }catch(_){}
       }
     }catch(_){}
     /* The unified order identifier (_oid) is the source of truth. Use the real DO only

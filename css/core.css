@@ -1145,6 +1145,35 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .sc-v.qty{font-size:22px;font-weight:700;color:var(--green);letter-spacing:1px;line-height:1;}
 .sc-v.qty-unit{font-size:11px;font-weight:400;color:var(--muted);}
 .sc-v.qty-miss{font-size:11px;font-weight:700;color:var(--red);background:#fdecea;padding:1px 7px;border-radius:3px;border:1px solid #ef9a9a;}
+/* ── v4.83 — PRODUCT TYPE trên thẻ station + kết quả tìm kiếm ──────────
+   Hàng phổ thông 50:50 = chip xanh nhạt, chữ nhỏ, không gây chú ý.
+   Mọi loại khác (30:70, 20:80, Pure C3/C4…) = chữ ĐỎ, đậm, nền hồng,
+   viền đỏ và nhấp nháy nhẹ → nhân viên cân nhìn thấy ngay, tránh bán
+   nhầm product type. */
+.sc-ptype{margin-left:auto;font-family:'Oswald',sans-serif;font-size:10px;font-weight:700;
+  letter-spacing:.4px;padding:1px 6px;border-radius:3px;white-space:nowrap;
+  background:#e8f3ec;color:#1f7a44;border:1px solid #c7e4d3;cursor:help;}
+.sc-ptype.special{background:#fdecec;color:#d62839;border-color:#ef9a9a;font-weight:800;font-size:11px;
+  animation:scPtypeBlink 1.8s ease-in-out infinite;}
+@keyframes scPtypeBlink{
+  0%,100%{background:#fdecec;border-color:#ef9a9a;}
+  50%    {background:#ffd9d9;border-color:#d62839;}
+}
+/* Cả thẻ trạm đổi màu chữ khi hàng KHÁC 50:50 (customer / tank / plate / driver) */
+.sc-card.sc-ptype-alert .sc-v.cust,
+.sc-card.sc-ptype-alert .sc-v.tk,
+.sc-card.sc-ptype-alert .sc-v.plate,
+.sc-card.sc-ptype-alert .sc-v.rmooc,
+.sc-card.sc-ptype-alert .sc-v.driver{color:#d62839;}
+.sc-card.sc-ptype-alert .sc-line.rl{background:#fdecea;}
+/* Chip loại hàng trong danh sách kết quả tìm kiếm của ô search trạm */
+.sc-res-ptype{display:inline-block;margin-left:4px;vertical-align:middle;font-family:'Oswald',sans-serif;
+  font-size:8.5px;font-weight:700;letter-spacing:.3px;padding:1px 5px;border-radius:3px;
+  background:#e8f3ec;color:#1f7a44;border:1px solid #c7e4d3;cursor:help;}
+.sc-res-ptype.special{background:#fdecec;color:#d62839;border-color:#ef9a9a;font-weight:800;font-size:9.5px;}
+.sc-ptype.unknown,.sc-res-ptype.unknown{background:#f4f6f8;color:#8a949e;border-color:#dfe4e9;font-weight:600;animation:none;}
+.sc-res-ptype-special{box-shadow:inset 3px 0 0 #e76f00;}
+
 .sc-empty-body{display:flex;align-items:center;justify-content:center;flex:1;min-height:60px;
   color:var(--muted);font-family:'Oswald',sans-serif;font-size:12px;letter-spacing:2px;font-weight:700;}
 
