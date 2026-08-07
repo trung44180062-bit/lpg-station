@@ -1673,6 +1673,11 @@
             <th style="width:66px;color:var(--blue);background:#e8f4fd">Filled C3</th>
             <th style="width:66px;color:var(--orange);background:#fff5eb">Filled C4</th>
             <th style="width:66px;color:var(--red);background:#fef0f1">Filled LPG</th>
+            <th style="width:64px;color:#7b2d8e;background:#faf5ff" title="Filled C3 from the DENSITY TABLE (segment volume × saturated liquid density at the measured temperature)">C3 ▣Table</th>
+            <th style="width:64px;color:#7b2d8e;background:#faf5ff" title="Filled C4 from the DENSITY TABLE">C4 ▣Table</th>
+            <th style="width:64px;color:#b45309;background:#fffbeb" title="Filled C3 from the COQ (final mass × %wt C3 minus initial mass × %wt C3)">C3 ◈COQ</th>
+            <th style="width:64px;color:#b45309;background:#fffbeb" title="Filled C4 from the COQ">C4 ◈COQ</th>
+            <th style="width:46px" title="Which Filled C3/C4 figures get sent to Scale for the Check Booth — click the cell to change">⇒Scale</th>
             <th style="width:38px;color:var(--green);background:#eef8f2" title="Đã stock transfer trên WMS. Lot chưa tick sẽ được Allocation cộng thêm vào bồn.">ST</th>
             <th style="width:56px">Vol (m³)</th>
             <th style="width:60px">Qty (ton)</th>
@@ -1725,6 +1730,8 @@
           <button class="eng-edit-close" onclick="ENG.closeEdit()">✕ Close</button>
         </div>
         <div class="eng-edit-grid" id="engEditGrid"></div>
+        <!-- v4.85 — chọn phương pháp lấy số Filled C3/C4 gửi sang Scale -->
+        <div class="eng-mpick" id="engMethodPick"></div>
         <div class="eng-edit-foot">
           <input type="file" id="engCoqFile" accept=".xlsx,.xls" style="display:none" onchange="ENG.coqChosen(this)">
           <button class="eng-edit-btn opengc" onclick="ENG.importCoq()" title="Import lab COQ (.xlsx) into this row — validates Lot + Shore Tank, fills GC / COQ fields (nothing saved until you press CALC+SAVE or SAVE)">📄 IMPORT COQ</button>
@@ -1977,6 +1984,54 @@
                     onkeydown="MC.gcTabNext(event,this)"></div>
               </div>
               <!-- v4.55 — quality verdict vs spec table -->
+              <!-- v4.85 — HAI CÁCH TÍNH FILLED C3/C4 BỔ SUNG -->
+              <div class="mc-alt" id="mc-alt1">
+                <div class="mc-alt-hdr">
+                  <span class="mc-alt-ttl">📐 METHOD ② — DENSITY TABLE</span>
+                  <button type="button" class="mc-alt-btn" onclick="DENS.open()"
+                    title="View / edit the saturated-liquid density table for C3 and C4 (shared by every workstation)">🌡 DENSITY TABLE</button>
+                  <span style="flex:1;min-width:4px"></span>
+                  <button type="button" class="mc-alt-btn" onclick="MC.altCalc('1')"
+                    title="Recalculate both additional methods">🧮 CALC BOTH</button>
+                </div>
+                <div class="mc-alt-grid">
+                  <div class="mc-fld"><div class="mc-lbl" title="Tank volume once the FIRST product in the pump order has finished filling">MID VOL m³</div>
+                    <input class="mc-inp" id="dt1-mid" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue)">C3 TEMP °C</div>
+                    <input class="mc-inp" id="dt1-t3" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue)">C3 PRES kg/cm²G</div>
+                    <input class="mc-inp" id="dt1-p3" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">C4 TEMP °C</div>
+                    <input class="mc-inp" id="dt1-t4" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">C4 PRES kg/cm²G</div>
+                    <input class="mc-inp" id="dt1-p4" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                </div>
+                <div class="mc-alt-chk" id="dt1-chk" style="display:none"></div>
+                <div class="mc-alt-sub">📄 METHOD ③ — COQ · INITIAL STATE (heel in the tank before mixing)
+                  <span class="mc-alt-auto">pulled from the previous lot; click the badge to enter it by hand</span></div>
+                <div class="mc-alt-grid">
+                  <div class="mc-fld"><div class="mc-lbl">INITIAL DENSITY ton/m³
+                      <button type="button" id="dt1-icqm" class="mc-cr-mode-btn"
+                        onclick="MC.toggleIcqMode('1')"
+                        title="AUTO = pulled from the COQ of the most recent Pass lot on this tank · click to switch to manual entry">AUTO</button></div>
+                    <input class="mc-inp" id="dt1-idn" type="text" inputmode="decimal" placeholder="auto" readonly
+                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl">INITIAL C3 %WT</div>
+                    <input class="mc-inp" id="dt1-iw3" type="text" inputmode="decimal" placeholder="auto" readonly
+                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld" style="grid-column:span 2;display:flex;align-items:flex-end">
+                    <button type="button" class="mc-alt-btn" style="width:100%"
+                      onclick="MC.densPullPrev('1')"
+                      title="Re-pull density + Pro/Bu %Wt from the COQ of the most recent Pass lot on this tank">⟲ RE-PULL FROM PREVIOUS LOT</button></div>
+                </div>
+                <div class="mc-alt-src" id="dt1-isrc" style="display:none"></div>
+                <div class="mc-cmp" id="mc-cmp1" style="display:none"></div>
+              </div>
               <div class="mc-qc" id="mc-qc1"></div>
               <div class="mc-gc-result" id="mc-gcres1"></div>
             </div>
@@ -2214,6 +2269,54 @@
                     onkeydown="MC.gcTabNext(event,this)"></div>
               </div>
               <!-- v4.55 — quality verdict vs spec table -->
+              <!-- v4.85 — HAI CÁCH TÍNH FILLED C3/C4 BỔ SUNG -->
+              <div class="mc-alt" id="mc-alt2">
+                <div class="mc-alt-hdr">
+                  <span class="mc-alt-ttl">📐 METHOD ② — DENSITY TABLE</span>
+                  <button type="button" class="mc-alt-btn" onclick="DENS.open()"
+                    title="View / edit the saturated-liquid density table for C3 and C4 (shared by every workstation)">🌡 DENSITY TABLE</button>
+                  <span style="flex:1;min-width:4px"></span>
+                  <button type="button" class="mc-alt-btn" onclick="MC.altCalc('2')"
+                    title="Recalculate both additional methods">🧮 CALC BOTH</button>
+                </div>
+                <div class="mc-alt-grid">
+                  <div class="mc-fld"><div class="mc-lbl" title="Tank volume once the FIRST product in the pump order has finished filling">MID VOL m³</div>
+                    <input class="mc-inp" id="dt2-mid" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue)">C3 TEMP °C</div>
+                    <input class="mc-inp" id="dt2-t3" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue)">C3 PRES kg/cm²G</div>
+                    <input class="mc-inp" id="dt2-p3" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">C4 TEMP °C</div>
+                    <input class="mc-inp" id="dt2-t4" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">C4 PRES kg/cm²G</div>
+                    <input class="mc-inp" id="dt2-p4" type="text" inputmode="decimal"
+                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                </div>
+                <div class="mc-alt-chk" id="dt2-chk" style="display:none"></div>
+                <div class="mc-alt-sub">📄 METHOD ③ — COQ · INITIAL STATE (heel in the tank before mixing)
+                  <span class="mc-alt-auto">pulled from the previous lot; click the badge to enter it by hand</span></div>
+                <div class="mc-alt-grid">
+                  <div class="mc-fld"><div class="mc-lbl">INITIAL DENSITY ton/m³
+                      <button type="button" id="dt2-icqm" class="mc-cr-mode-btn"
+                        onclick="MC.toggleIcqMode('2')"
+                        title="AUTO = pulled from the COQ of the most recent Pass lot on this tank · click to switch to manual entry">AUTO</button></div>
+                    <input class="mc-inp" id="dt2-idn" type="text" inputmode="decimal" placeholder="auto" readonly
+                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld"><div class="mc-lbl">INITIAL C3 %WT</div>
+                    <input class="mc-inp" id="dt2-iw3" type="text" inputmode="decimal" placeholder="auto" readonly
+                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
+                  <div class="mc-fld" style="grid-column:span 2;display:flex;align-items:flex-end">
+                    <button type="button" class="mc-alt-btn" style="width:100%"
+                      onclick="MC.densPullPrev('2')"
+                      title="Re-pull density + Pro/Bu %Wt from the COQ of the most recent Pass lot on this tank">⟲ RE-PULL FROM PREVIOUS LOT</button></div>
+                </div>
+                <div class="mc-alt-src" id="dt2-isrc" style="display:none"></div>
+                <div class="mc-cmp" id="mc-cmp2" style="display:none"></div>
+              </div>
               <div class="mc-qc" id="mc-qc2"></div>
               <div class="mc-gc-result" id="mc-gcres2"></div>
             </div>
@@ -2328,6 +2431,31 @@
             <button type="button" class="btn btn-amber" onclick="MC.resetSpec()">↺ RESET TO DEFAULTS</button>
             <button type="button" class="btn" onclick="MC.closeSpec()">CANCEL</button>
             <button type="button" class="btn btn-blue" onclick="MC.saveSpec()">💾 SAVE</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- v4.85 — BẢNG TRA DENSITY C3/C4 (lỏng bão hoà) — Firebase dùng chung -->
+      <div class="mc-cfg-backdrop dens-backdrop" id="dens-backdrop" onclick="if(event.target===this)DENS.close()">
+        <div class="mc-cfg-modal dens-modal">
+          <h3>🌡 C3 / C4 DENSITY TABLE (SATURATED LIQUID)</h3>
+          <div class="dens-warn">
+            ⚠ <b>MASTER DATA — EDITING THIS CHANGES CUSTODY-TRANSFER FIGURES.</b>
+            This table decides the C3/C4 mass filled into the tank whenever the density-table method is used.
+            Any change applies immediately on <b>every workstation</b> and requires a typed confirmation.
+          </div>
+          <div class="dens-tabs">
+            <button type="button" class="dens-tab on" id="dens-tab-c3" onclick="DENS.tab('c3')">C3 — PROPANE</button>
+            <button type="button" class="dens-tab" id="dens-tab-c4" onclick="DENS.tab('c4')">C4 — BUTANE</button>
+            <span style="flex:1"></span>
+            <button type="button" class="dens-mini" onclick="DENS.addRow()">➕ ADD ROW</button>
+            <button type="button" class="dens-mini dens-mini-amber" onclick="DENS.resetDraft()">↺ RESET TO DEFAULTS</button>
+          </div>
+          <div class="dens-meta" id="dens-meta"></div>
+          <div id="dens-body"></div>
+          <div class="mc-cfg-foot">
+            <button type="button" class="btn" onclick="DENS.close()">CLOSE</button>
+            <button type="button" class="btn btn-red" onclick="DENS.saveEdit()">💾 SAVE TABLE (CONFIRMATION REQUIRED)</button>
           </div>
         </div>
       </div>
@@ -4175,6 +4303,7 @@
 <script src="js/checks/pasteguard.js"></script>
 <!-- data -->
 <script src="js/data/bulkops.js"></script>
+<script src="js/data/density.js?v=485"></script><!-- v4.85 — bảng tra density C3/C4 bão hoà -->
 <script src="js/data/tl.js"></script>
 <script src="js/data/wg.js"></script>
 <script src="js/data/ws.js"></script>
@@ -4209,6 +4338,10 @@
 <script src="js/integrations/ptt-early.js"></script>
 <script src="js/integrations/sync2.js"></script>
 <script src="js/integrations/notif.js"></script>
+<!-- v4.84 — hàng đợi thông báo Zalo cho hàng ≠50:50. KHÔNG chứa token.
+     Tên file cố tình KHÔNG có chữ "zalo": proxy mạng công ty đã từng
+     giết js/21-zalo.js bên Chấm Công bằng HTTP 499. -->
+<script src="js/integrations/loadnotify.js?v=484"></script>
 <!-- boot (cuối cùng) -->
 <script src="js/boot.js"></script>
 </body>

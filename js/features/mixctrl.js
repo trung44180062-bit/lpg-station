@@ -190,8 +190,14 @@ const MC = (function(){
   /* v4.55 — Tank Log row width (34 legacy + 10 COQ cols).
      v4.55.1: +9 → 53: [44] Pro/Bu %Vol  [45] Pro/Bu %Wt  [46] t-2-Butene
      [47] 1-Butene  [48] i-Butene  [49] neo-Pentane  [50] i-Pentane
-     [51] n-Pentane  [52] n-Hexane */
-  const ROW_W = 53;
+     [51] n-Pentane  [52] n-Hexane
+     v4.68:   +3 → 56: [53] Stock Transfer  [54] ST time  [55] ST by
+     v4.85:  +13 → 69: [56] Mid Vol  [57] C3 temp  [58] C3 pres  [59] C4 temp
+     [60] C4 pres  [61] Filled C3 (bảng)  [62] Filled C4 (bảng)  [63] ρ COQ đầu
+     [64] %wt C3 đầu  [65] nguồn COQ đầu  [66] Filled C3 (COQ)  [67] Filled C4 (COQ)
+     [68] phương pháp gửi Scale ('gc'|'dens'|'coq')
+     ⚠ PHẢI khớp ROW_W trong eng.js. */
+  const ROW_W = 69;
 
   /* v4.55 — COQ metadata captured on import (sampling time / analysis date) */
   const CQM = { '1':null, '2':null };
@@ -361,6 +367,8 @@ const MC = (function(){
   function checkDupLot(n){
     const lotEl = _gid('mc-l'+n);
     if(!lotEl) return;
+    /* v4.85.1 — đổi lot thì trạng thái ĐẦU của cách 2 phải lấy lại theo lot mới */
+    try{ _autoFillIcq(n); }catch(_){}
     const val = parseInt(lotEl.value);
     if(!val || val <= 0) return;
     const tk = n==='1' ? '3501' : '3502';
@@ -482,7 +490,7 @@ const MC = (function(){
     else if(ST[n] === 'calc'){ ST[n] = 'idle'; }
     /* never collapse from 'mixing' via header click — must finish/revert */
     _renderStatus(n);
-    if(ST[n] !== 'idle') _autoFillCr(n);
+    if(ST[n] !== 'idle'){ _autoFillCr(n); _autoFillIcq(n); }
   }
 
   /* ---------- v4.67 — double-click guard for mode buttons ----------
@@ -1324,6 +1332,13 @@ const MC = (function(){
     const crmBtn = _gid('mc-crm'+n);
     if(crmBtn){ crmBtn.textContent = 'AUTO'; crmBtn.classList.remove('manual'); }
     _autoFillCr(n);
+    /* v4.85.1 — dọn luôn khối 2 cách tính bổ sung */
+    ICQ_MODE[n] = 'auto'; NMTH[n] = 'gc'; NM_USER[n] = false; ALTR[n] = null;
+    ['mid','t3','p3','t4','p4','idn','iw3'].forEach(k=>{ const e = _gid('dt'+n+'-'+k); if(e) e.value = ''; });
+    _gid('mc-cmp'+n) && (_gid('mc-cmp'+n).style.display = 'none');
+    _gid('dt'+n+'-chk') && (_gid('dt'+n+'-chk').style.display = 'none');
+    _altSyncLock(n);
+    _autoFillIcq(n);
     _gid('mc-r'+n)?.classList.remove('on');
     _gid('mc-gcres'+n)?.classList.remove('on');
     /* Clear GC inputs too (v4.55: + COQ fields) */
@@ -1806,6 +1821,11 @@ const MC = (function(){
     [['t2b',46],['b1',47],['ib',48],['neoc5',49],['ic5',50],['nc5',51],['nc6',52]].forEach(p=>{
       const v = _cn('gc'+n+'-'+p[0]); if(v !== '') row[p[1]] = v;
     });
+    /* v4.85 — 2 cách tính bổ sung (bảng density + COQ) ghi vào cột [56..68].
+       KHÔNG đụng tới [13]/[14] nên số liệu đang chạy không đổi. */
+    let _altRes = null;
+    try{ _altRes = _altWriteRow(n, row); }
+    catch(e){ console.warn('[MC] altWriteRow', e); }
     /* Push via ENG (one child write) — ENG handles rid generation/lookup */
     const rid = ENG.upsertRow(row, existing ? { rid: existing._rid } : null);
     _audit('tankmix:'+(quality==='Pass'?'save':'draft'), rid, 'quality', '', quality.toLowerCase(),
@@ -1827,8 +1847,13 @@ const MC = (function(){
        One idempotent child write to mix_notify/{Tank_Lot} (overwrites on re-save). */
     if(quality === 'Pass' && gc.fLPG != null
        && typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.pushNotify){
-      const fC3Kg = Math.round(Math.abs(gc.fC3 || 0) * 1000);
-      const fC4Kg = Math.round(Math.abs(gc.fC4 || 0) * 1000);
+      /* v4.85.1 — gửi con số theo ĐÚNG phương pháp đã chọn trên bảng so sánh */
+      const _sel = String(row[A_MTH] || 'gc');
+      const _pair = _sel === 'dens' ? [row[A_DC3], row[A_DC4]]
+                  : _sel === 'coq'  ? [row[A_QC3], row[A_QC4]]
+                  : [gc.fC3, gc.fC4];
+      const fC3Kg = Math.round(Math.abs(parseFloat(_pair[0]) || 0) * 1000);
+      const fC4Kg = Math.round(Math.abs(parseFloat(_pair[1]) || 0) * 1000);
       if(fC3Kg > 0 || fC4Kg > 0){
         try{ MIXNOTIFY.pushNotify(tkName, lotStr, fC3Kg, fC4Kg, n==='1'?'tk1':'tk2'); }
         catch(e){ console.warn('[MC] MIXNOTIFY.pushNotify', e); }
@@ -2450,6 +2475,8 @@ const MC = (function(){
   function refresh(){
     ['1','2'].forEach(n=>{
       _autoFillCr(n);
+      _altSyncLock(n);
+      _autoFillIcq(n);          /* v4.85.1 — trạng thái ĐẦU của cách 2 cũng AUTO */
       _renderStatus(n);
     });
     updateLotNames();
@@ -2601,6 +2628,10 @@ const MC = (function(){
     _set('gc'+n+'-nc6',  _numStr(rowSnap[52]));
     CQM[n] = { no:String(rowSnap[34]||''), sampTime:String(rowSnap[35]||''), anaDate:String(rowSnap[36]||'') };
     try{ qcRecalc(n); }catch(_){}
+    /* v4.85 — nạp lại ô nhập của 2 cách tính bổ sung; nếu lot chưa có trạng
+       thái ĐẦU thì tự dò COQ của lot Pass gần nhất cùng bồn. */
+    try{ _altRestore(n, rowSnap); }
+    catch(e){ console.warn('[MC] altRestore', e); }
 
     /* Refresh derived UI */
     try{ updateLotNames(); }catch(_){}
@@ -2676,9 +2707,452 @@ const MC = (function(){
     return { fC3, fC4, fLPG, rC3, rC4, qty, tC3, tC4, odoBD };
   }
 
+  /* ═══════════════════════════════════════════════════════════════
+     v4.85 — HAI PHƯƠNG PHÁP TÍNH FILLED C3/C4 BỔ SUNG
+     ───────────────────────────────────────────────────────────────
+     Phương pháp đang dùng từ trước (gọi là "GC") tính khối lượng từ
+     thành phần GC + hằng số density cố định trong Settings, có kể cả
+     phần hơi trong không gian trống của bồn.
+
+     CÁCH 1 — TRA BẢNG DENSITY (module DENS)
+       Bơm tuần tự nên tách được 2 đoạn thể tích theo thứ tự bơm:
+         V(sp bơm trước) = MID VOL − INIT VOL
+         V(sp bơm sau)   = FINAL VOL − MID VOL
+       Khối lượng mỗi sản phẩm = ΔV × density LỎNG BÃO HOÀ tra theo
+       nhiệt độ đo được của chính sản phẩm đó. Áp suất đo được dùng để
+       ĐỐI CHIẾU chéo (suy ngược ra nhiệt độ bão hoà) — lệch nhiều thì
+       cảnh báo thiết bị đo, KHÔNG tự sửa số.
+
+     CÁCH 2 — THEO COQ
+       Coi bồn là hỗn hợp đồng nhất ở 2 thời điểm:
+         M_đầu  = INIT VOL  × ρ_COQ(đầu)    → tách theo %wt C3/C4 đầu
+         M_cuối = FINAL VOL × ρ_COQ(cuối)   → tách theo %wt C3/C4 cuối
+       Filled = (khối lượng cuối) − (khối lượng đầu) cho từng cấu tử.
+       Trạng thái ĐẦU lấy từ COQ của lot Pass gần nhất CÙNG BỒN (sửa
+       tay được), trạng thái CUỐI lấy từ COQ của chính lot đang mix.
+
+     Cả 2 KHÔNG ghi đè cột Filled C3/C4 gốc [13]/[14]; chúng lưu riêng
+     ở [61]/[62] và [66]/[67] để đối chiếu, và người dùng chọn con số
+     nào được gửi sang Scale bằng cột phương pháp [68].
+     ═══════════════════════════════════════════════════════════════ */
+
+  /* Cột Tank Log mở rộng — PHẢI khớp eng.js */
+  const A_MID = 56, A_T3 = 57, A_P3 = 58, A_T4 = 59, A_P4 = 60,
+        A_DC3 = 61, A_DC4 = 62,
+        A_IDEN = 63, A_IW3 = 64, A_ISRC = 65,
+        A_QC3 = 66, A_QC4 = 67, A_MTH = 68;
+
+  const ALTR = { '1':null, '2':null };     // kết quả 2 cách theo tank
+  const _altTimer = { '1':null, '2':null };
+  /* v4.85.1 — trạng thái ĐẦU của cách 2 chạy AUTO giống ô CURRENT C3 %:
+     mặc định tự lấy COQ của lot Pass gần nhất cùng bồn, người dùng bấm badge
+     để chuyển MANUAL rồi mới sửa tay được. */
+  const ICQ_MODE = { '1':'auto', '2':'auto' };
+  /* Phương pháp sẽ gửi sang Scale, chọn ngay trên bảng so sánh của Tank Mix */
+  const NMTH = { '1':'gc', '2':'gc' };
+  /* người dùng đã TỰ chọn hay chưa — chưa chọn thì luôn ưu tiên GC khi GC có số,
+     tránh việc bấm CALC lúc chưa có GC làm phần mềm "chốt" nhầm sang cách khác */
+  const NM_USER = { '1':false, '2':false };
+  const NM_LBL = { gc:'① GC (current)', dens:'② Density table', coq:'③ COQ' };
+
+  /* "50.31/49.69" → [0.5031, 0.4969]. Chấp nhận cả dạng phân số 0–1. */
+  function _pfrac(s){
+    const m = String(s == null ? '' : s).match(/(-?\d+(?:[.,]\d+)?)\s*\/\s*(-?\d+(?:[.,]\d+)?)/);
+    if(!m) return null;
+    let a = parseFloat(m[1].replace(',', '.')), b = parseFloat(m[2].replace(',', '.'));
+    if(isNaN(a) || isNaN(b)) return null;
+    const t = a + b;
+    if(t <= 0) return null;
+    return [a / t, b / t];               // luôn chuẩn hoá về tổng = 1
+  }
+  /* %wt C3 đơn lẻ (nhập tay) → phân số */
+  function _pw3(v){
+    const x = parseFloat(String(v == null ? '' : v).replace(/,/g, ''));
+    if(isNaN(x) || x <= 0) return null;
+    return x > 1.5 ? x / 100 : x;
+  }
+  function _r3(x){ return Math.round(x * 1000) / 1000; }
+
+  /* ---------- LÕI TÍNH — thuần tuý, không đụng DOM ----------
+     inp = { ord:'C3'|'C4', iv, mid, fvol, t3,p3,t4,p4,
+             iDen, iW3, fDen, fW3 }
+     Trả về { dens:{...}, coq:{...} }, mỗi nhánh có .error nếu thiếu dữ liệu. */
+  function altCore(inp){
+    const out = { dens:{}, coq:{} };
+    const iv = inp.iv || 0, mid = inp.mid || 0, fv = inp.fvol || 0;
+
+    /* ── CÁCH 1 — bảng density ── */
+    (function(){
+      const d = out.dens;
+      if(typeof DENS === 'undefined' || !DENS.lookup){ d.error = 'Density-table module not ready'; return; }
+      if(!fv){ d.error = 'FINAL VOL missing'; return; }
+      if(!mid){ d.error = 'MID VOL missing (volume after the first product finishes filling)'; return; }
+      if(mid < iv){ d.error = 'MID VOL (' + mid + ') is below INIT VOL (' + iv + ')'; return; }
+      if(fv < mid){ d.error = 'FINAL VOL (' + fv + ') is below MID VOL (' + mid + ')'; return; }
+      const v1 = mid - iv, v2 = fv - mid;
+      const c4First = (inp.ord !== 'C3');
+      d.volC4 = c4First ? v1 : v2;
+      d.volC3 = c4First ? v2 : v1;
+      d.order = c4First ? 'C4 → C3' : 'C3 → C4';
+      if(!inp.t3 && inp.t3 !== 0){ d.error = 'C3 temperature missing'; return; }
+      if(!inp.t4 && inp.t4 !== 0){ d.error = 'C4 temperature missing'; return; }
+      const k3 = DENS.crossCheck('c3', inp.t3, inp.p3);
+      const k4 = DENS.crossCheck('c4', inp.t4, inp.p4);
+      if(!k3 || !k4){ d.error = 'Density lookup failed'; return; }
+      d.ck3 = k3; d.ck4 = k4;
+      d.rho3 = k3.rhoT; d.rho4 = k4.rhoT;      // ton/m³
+      d.fC3 = _r3(d.volC3 * k3.rhoT);
+      d.fC4 = _r3(d.volC4 * k4.rhoT);
+      d.fLPG = _r3(d.fC3 + d.fC4);
+      d.msgs = [k3.msg, k4.msg].filter(Boolean);
+      d.level = (k3.level === 'bad' || k4.level === 'bad') ? 'bad'
+              : (k3.level === 'warn' || k4.level === 'warn') ? 'warn' : 'ok';
+    })();
+
+    /* ── CÁCH 2 — theo COQ ── */
+    (function(){
+      const q = out.coq;
+      if(!fv){ q.error = 'FINAL VOL missing'; return; }
+      if(!inp.fDen){ q.error = 'DENSITY of this lot COQ missing'; return; }
+      if(inp.fW3 == null){ q.error = 'Pro/Bu %Wt of this lot COQ missing'; return; }
+      if(iv > 0){
+        if(!inp.iDen){ q.error = 'INITIAL COQ density missing (from the previous lot)'; return; }
+        if(inp.iW3 == null){ q.error = 'INITIAL C3 %wt missing'; return; }
+      }
+      const mIni = iv * (inp.iDen || 0);
+      const w3i = (inp.iW3 == null) ? 0 : inp.iW3;
+      q.mIni = _r3(mIni);
+      q.c3Ini = _r3(mIni * w3i);
+      q.c4Ini = _r3(mIni * (1 - w3i));
+      const mFin = fv * inp.fDen;
+      q.mFin = _r3(mFin);
+      q.c3Fin = _r3(mFin * inp.fW3);
+      q.c4Fin = _r3(mFin * (1 - inp.fW3));
+      q.fC3 = _r3(q.c3Fin - q.c3Ini);
+      q.fC4 = _r3(q.c4Fin - q.c4Ini);
+      q.fLPG = _r3(q.fC3 + q.fC4);
+      q.w3Ini = w3i; q.w3Fin = inp.fW3;
+      q.msgs = [];
+      if(q.fC3 < 0 || q.fC4 < 0)
+        q.msgs.push('⚠ A component came out NEGATIVE — re-check the %wt or density of the initial / final state.');
+    })();
+
+    return out;
+  }
+
+  /* ---------- Đọc dữ liệu từ MỘT DÒNG TANK LOG (dùng chung với ENG) ---------- */
+  function altFromRow(r){
+    if(!r) return { dens:{ error:'Không có dòng' }, coq:{ error:'Không có dòng' } };
+    const N = v => { const x = parseFloat(String(v == null ? '' : v).replace(/,/g, '')); return isNaN(x) ? 0 : x; };
+    /* Thứ tự bơm: suy từ %C3 ban đầu vs mục tiêu nếu không có cờ riêng —
+       mặc định theo quy trình trạm là C4 trước. */
+    const frw = _pfrac(r[45]);
+    return altCore({
+      ord:  'C4',
+      iv:   N(r[10]),
+      mid:  N(r[A_MID]),
+      fvol: N(r[6]),
+      t3:   N(r[A_T3]) || null, p3: N(r[A_P3]),
+      t4:   N(r[A_T4]) || null, p4: N(r[A_P4]),
+      iDen: N(r[A_IDEN]),
+      iW3:  _pw3(r[A_IW3]),
+      fDen: N(r[33]),
+      fW3:  frw ? frw[0] : null
+    });
+  }
+
+  /* ---------- Lấy trạng thái ĐẦU từ lot Pass gần nhất cùng bồn ---------- */
+  function _prevCoq(tkName, curLotKey){
+    if(typeof ENG === 'undefined' || !ENG.ROWS) return null;
+    const tk = String(tkName || '').replace(/\D/g, '');
+    const lk = s => {
+      const m = String(s || '').match(/(?:LPG-)?(\d{4})-?(\d+)/i);
+      if(m) return parseInt(m[1]) * 1e6 + parseInt(m[2]);
+      const n = parseInt(s); return isNaN(n) ? 0 : n;
+    };
+    let best = null, bestK = -1;
+    ENG.ROWS.forEach(r=>{
+      if(String(r[2] || '').replace(/\D/g, '') !== tk) return;
+      const k = lk(r[1]);
+      if(curLotKey && k >= curLotKey) return;         // chỉ lấy lot CŨ hơn
+      const den = parseFloat(r[33]), fr = _pfrac(r[45]);
+      if(!(den > 0) || !fr) return;
+      if(String(r[27] || '').trim().toLowerCase() === 'fail') return;
+      if(k > bestK){ bestK = k; best = { lot:String(r[1] || ''), den:den, w3:fr[0] }; }
+    });
+    return best;
+  }
+
+  /* ---------- AUTO-FILL trạng thái ĐẦU của cách 2 ----------
+     Chạy y như _autoFillCr của ô CURRENT C3 %: mỗi lần vào tab, đổi lot, hay
+     Tank Log về thêm dữ liệu thì tự nạp lại COQ của lot Pass gần nhất CÙNG BỒN.
+     Ở chế độ MANUAL thì không đụng vào ô nhập nữa. */
+  function _autoFillIcq(n, loud){
+    if(ICQ_MODE[n] !== 'auto' && !loud) return;
+    const tk = n === '1' ? 'TK-3501' : 'TK-3502';
+    const lotNum = parseInt(_gv('mc-l' + n)) || 0;
+    const y = new Date().getFullYear();
+    const prev = _prevCoq(tk, lotNum ? (y * 1e6 + lotNum) : 0);
+    const dEl = _gid('dt' + n + '-idn'), wEl = _gid('dt' + n + '-iw3'), src = _gid('dt' + n + '-isrc');
+    if(!prev){
+      if(ICQ_MODE[n] === 'auto'){
+        if(dEl) dEl.value = '';
+        if(wEl) wEl.value = '';
+      }
+      if(src){
+        src.style.display = '';
+        src.className = 'mc-alt-src mc-alt-src-warn';
+        src.textContent = (typeof ENG !== 'undefined' && !ENG.allLoaded)
+          ? '⚠ No previous lot found for ' + tk + ' — press 📥 Load All in the Tank Log, or switch to MANUAL'
+          : '⚠ No previous ' + tk + ' lot has both Density and Pro/Bu %Wt — switch to MANUAL to type them in';
+      }
+      if(loud) toast('⚠ No previous ' + tk + ' lot with complete COQ data','warn');
+      _altSyncLock(n);
+      return;
+    }
+    if(dEl) dEl.value = prev.den;
+    if(wEl) wEl.value = (prev.w3 * 100).toFixed(2);
+    if(src){
+      src.style.display = '';
+      src.className = 'mc-alt-src';
+      src.textContent = '← COQ of lot ' + prev.lot + ' (' + tk + ') · ρ ' + prev.den
+                      + ' · C3 ' + (prev.w3 * 100).toFixed(2) + ' %wt';
+    }
+    if(loud) toast('⟲ Pulled COQ of lot ' + prev.lot + ' — ρ ' + prev.den + ' · C3 ' + (prev.w3 * 100).toFixed(2) + ' %wt', 'ok');
+    _altSyncLock(n);
+    altCalc(n, true);
+  }
+  /* Khoá / mở 2 ô nhập theo chế độ hiện tại + cập nhật badge */
+  function _altSyncLock(n){
+    const auto = ICQ_MODE[n] === 'auto';
+    const btn = _gid('dt' + n + '-icqm');
+    if(btn){
+      btn.textContent = auto ? 'AUTO' : 'MANUAL';
+      btn.classList.toggle('manual', !auto);
+    }
+    ['idn','iw3'].forEach(k=>{
+      const e = _gid('dt' + n + '-' + k);
+      if(e){ e.readOnly = auto; e.placeholder = auto ? 'auto' : 'nhập tay'; }
+    });
+  }
+  function toggleIcqMode(n){
+    if(ICQ_MODE[n] === 'auto'){
+      ICQ_MODE[n] = 'manual';
+      _altSyncLock(n);
+      const src = _gid('dt' + n + '-isrc');
+      if(src){ src.style.display = ''; src.className = 'mc-alt-src mc-alt-src-man'; src.textContent = '✏ Manual entry'; }
+      toast('✏ Initial state switched to MANUAL — it will no longer follow the previous lot','warn');
+    } else {
+      ICQ_MODE[n] = 'auto';
+      _altSyncLock(n);
+      _autoFillIcq(n, true);
+    }
+    altCalc(n, true);
+  }
+  /* Nút ⟲ — ép lấy lại từ lot trước kể cả đang ở MANUAL */
+  function densPullPrev(n){
+    ICQ_MODE[n] = 'auto';
+    _autoFillIcq(n, true);
+  }
+
+  /* ---------- chọn phương pháp sẽ gửi sang Scale (ngay tại Tank Mix) ---------- */
+  function pickNotifyMethod(n, k){
+    if(!NM_LBL[k]) return;
+    const res = ALTR[n];
+    const has = k === 'gc' ? !!GCR[n]
+              : k === 'dens' ? !!(res && res.dens && !res.dens.error)
+              : !!(res && res.coq && !res.coq.error);
+    if(!has){ toast('⚠ ' + NM_LBL[k] + ' has no result yet — fill in the data, then press 🧮 CALC BOTH','warn'); return; }
+    NMTH[n] = k; NM_USER[n] = true;
+    _renderAlt(n, res || { dens:{}, coq:{} });
+    toast('⇒ The Check Booth will receive ' + NM_LBL[k], 'ok');
+  }
+
+  /* ---------- Đọc ô nhập trên form + tính ---------- */
+  function _altInputs(n){
+    const frw = _pfrac(_gv('gc' + n + '-frw'));
+    return {
+      ord:  ORD[n] || 'C4',
+      iv:   _gnum('mc-iv' + n),
+      mid:  _gnum('dt' + n + '-mid'),
+      fvol: _gnum('gc' + n + '-fvol'),
+      t3:   _gid('dt' + n + '-t3') && String(_gv('dt' + n + '-t3')).trim() !== '' ? _gnum('dt' + n + '-t3') : null,
+      p3:   _gnum('dt' + n + '-p3'),
+      t4:   _gid('dt' + n + '-t4') && String(_gv('dt' + n + '-t4')).trim() !== '' ? _gnum('dt' + n + '-t4') : null,
+      p4:   _gnum('dt' + n + '-p4'),
+      iDen: _gnum('dt' + n + '-idn'),
+      iW3:  _pw3(_gv('dt' + n + '-iw3')),
+      fDen: _gnum('gc' + n + '-den'),
+      fW3:  frw ? frw[0] : null
+    };
+  }
+
+  function altCalc(n, silent){
+    const res = altCore(_altInputs(n));
+    ALTR[n] = res;
+    _renderAlt(n, res);
+    if(!silent){
+      const parts = [];
+      if(!res.dens.error) parts.push('Table: C3 ' + _fmt(res.dens.fC3) + ' / C4 ' + _fmt(res.dens.fC4));
+      if(!res.coq.error)  parts.push('COQ: C3 ' + _fmt(res.coq.fC3) + ' / C4 ' + _fmt(res.coq.fC4));
+      toast(parts.length ? '🧮 ' + parts.join(' · ') : '⚠ Not enough data for the two additional methods',
+            parts.length ? 'ok' : 'warn');
+    }
+    return res;
+  }
+  function altAuto(n){
+    clearTimeout(_altTimer[n]);
+    _altTimer[n] = setTimeout(()=> altCalc(n, true), 350);
+  }
+  /* Gọi khi bảng density thay đổi → tính lại cả 2 tank nếu đang hiện kết quả */
+  function densRefresh(){
+    ['1','2'].forEach(n=>{ if(ALTR[n]) altCalc(n, true); });
+  }
+
+  /* ---------- Vẽ khối cảnh báo + bảng so sánh 3 cách ---------- */
+  function _renderAlt(n, res){
+    const chk = _gid('dt' + n + '-chk');
+    if(chk){
+      const d = res.dens;
+      if(d.error){ chk.style.display = 'none'; }
+      else if(d.msgs && d.msgs.length){
+        chk.style.display = '';
+        chk.className = 'mc-alt-chk lv-' + (d.level || 'ok');
+        chk.innerHTML = d.msgs.map(m=>_escHtml(m)).join('<br>');
+      } else { chk.style.display = 'none'; }
+    }
+    const host = _gid('mc-cmp' + n);
+    if(!host) return;
+    const gc = GCR[n];
+    const rows = [];
+    const cell = (v, cls) => '<td class="' + cls + '">' + _fmt(v) + '</td>';
+    const na = txt => '<td colspan="3" class="m-na">' + _escHtml(txt) + '</td>';
+    /* mốc so sánh = GC nếu có, không thì cách bảng density */
+    const base = gc ? { c3: gc.fC3, c4: gc.fC4 } :
+                 (!res.dens.error ? { c3: res.dens.fC3, c4: res.dens.fC4 } : null);
+    const dev = v => {
+      if(!base || !base.c3) return '<td class="m-dev m-na">—</td>';
+      const b = (base.c3 || 0) + (base.c4 || 0), t = v;
+      if(!b) return '<td class="m-dev m-na">—</td>';
+      const p = (t - b) / b * 100;
+      return '<td class="m-dev' + (Math.abs(p) >= 3 ? ' hi' : '') + '">' +
+             (p >= 0 ? '+' : '') + p.toFixed(2) + '%</td>';
+    };
+    /* nếu phương pháp đang chọn mất dữ liệu thì tự lùi về phương pháp còn số */
+    const okOf = { gc: !!gc, dens: !res.dens.error, coq: !res.coq.error };
+    if(!NM_USER[n]){
+      /* mặc định luôn là GC (giữ nguyên quy trình cũ); chỉ khi GC chưa có số
+         mới tạm hiển thị phương pháp nào đang có kết quả */
+      NMTH[n] = okOf.gc ? 'gc' : (okOf.dens ? 'dens' : (okOf.coq ? 'coq' : 'gc'));
+    } else if(!okOf[NMTH[n]]){
+      NMTH[n] = okOf.gc ? 'gc' : (okOf.dens ? 'dens' : (okOf.coq ? 'coq' : 'gc'));
+    }
+    /* ô radio "gửi Scale" của từng dòng */
+    const pick = k => okOf[k]
+      ? '<td class="m-pick"><label class="m-radio' + (NMTH[n] === k ? ' on' : '') + '" ' +
+        'title="Send these figures to Scale for the Check Booth">' +
+        '<input type="radio" name="mcnm' + n + '"' + (NMTH[n] === k ? ' checked' : '') +
+        ' onchange="MC.pickNotifyMethod(\'' + n + '\',\'' + k + '\')">' +
+        '<span>' + (NMTH[n] === k ? '⇒ SEND' : 'pick') + '</span></label></td>'
+      : '<td class="m-pick m-na">—</td>';
+
+    rows.push('<tr class="m-gc' + (NMTH[n] === 'gc' ? ' m-sel' : '') + '"><td class="m-name">① GC (current)</td>' +
+      (gc ? cell(gc.fC3, 'm-c3') + cell(gc.fC4, 'm-c4') + cell(gc.fLPG, '') + dev(gc.fLPG)
+          : na('Press 🧮 CALC in the GC block') + '<td class="m-dev m-na">—</td>') + pick('gc') + '</tr>');
+    rows.push('<tr class="m-dens' + (NMTH[n] === 'dens' ? ' m-sel' : '') + '"><td class="m-name">② Density table</td>' +
+      (!res.dens.error
+        ? cell(res.dens.fC3, 'm-c3') + cell(res.dens.fC4, 'm-c4') + cell(res.dens.fLPG, '') + dev(res.dens.fLPG)
+        : na(res.dens.error) + '<td class="m-dev m-na">—</td>') + pick('dens') + '</tr>');
+    rows.push('<tr class="m-coq' + (NMTH[n] === 'coq' ? ' m-sel' : '') + '"><td class="m-name">③ COQ</td>' +
+      (!res.coq.error
+        ? cell(res.coq.fC3, 'm-c3') + cell(res.coq.fC4, 'm-c4') + cell(res.coq.fLPG, '') + dev(res.coq.fLPG)
+        : na(res.coq.error) + '<td class="m-dev m-na">—</td>') + pick('coq') + '</tr>');
+
+    let foot = '';
+    if(!res.dens.error){
+      foot += 'Density table · ' + res.dens.order +
+        ' — C4 ' + _fmt(res.dens.volC4) + ' m³ × ' + res.dens.ck4.rho.toFixed(2) + ' kg/m³' +
+        ' · C3 ' + _fmt(res.dens.volC3) + ' m³ × ' + res.dens.ck3.rho.toFixed(2) + ' kg/m³' +
+        ' (looked up at ' + _gnum('dt' + n + '-t4') + ' / ' + _gnum('dt' + n + '-t3') + ' °C)';
+    }
+    if(!res.coq.error){
+      if(foot) foot += '<br>';
+      foot += 'COQ · initial ' + _fmt(res.coq.mIni) + ' t (C3 ' + (res.coq.w3Ini * 100).toFixed(2) + '%) → final ' +
+        _fmt(res.coq.mFin) + ' t (C3 ' + (res.coq.w3Fin * 100).toFixed(2) + '%)';
+      if(res.coq.msgs && res.coq.msgs.length) foot += '<br>' + _escHtml(res.coq.msgs.join(' '));
+    }
+    const selTxt = '<b>' + _escHtml(NM_LBL[NMTH[n]]) + '</b>';
+    host.style.display = '';
+    host.innerHTML =
+      '<table><thead><tr><th style="text-align:left">METHOD</th><th>FILLED C3</th>' +
+      '<th>FILLED C4</th><th>TOTAL LPG</th><th>Δ vs GC</th>' +
+      '<th title="Figures pushed to the weighbridge for the Check Booth">⇒ SCALE</th></tr></thead><tbody>' +
+      rows.join('') + '</tbody></table>' +
+      '<div class="mc-cmp-sel">⇒ On 💾 SAVE PASS the Check Booth receives ' + selTxt +
+      '. You can change it later in the <b>⇒Scale</b> column of the Tank Log.</div>' +
+      (foot ? '<div class="mc-cmp-foot">' + foot + '</div>' : '');
+  }
+
+  function _escHtml(s){
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  /* Ghi kết quả 2 cách + dữ liệu đầu vào vào dòng Tank Log */
+  function _altWriteRow(n, row){
+    const inp = _altInputs(n);
+    const res = ALTR[n] || altCore(inp);
+    if(inp.mid) row[A_MID] = inp.mid;
+    if(inp.t3 != null) row[A_T3] = inp.t3;
+    if(inp.p3) row[A_P3] = inp.p3;
+    if(inp.t4 != null) row[A_T4] = inp.t4;
+    if(inp.p4) row[A_P4] = inp.p4;
+    if(!res.dens.error){ row[A_DC3] = res.dens.fC3; row[A_DC4] = res.dens.fC4; }
+    if(inp.iDen) row[A_IDEN] = inp.iDen;
+    if(inp.iW3 != null) row[A_IW3] = parseFloat((inp.iW3 * 100).toFixed(4));
+    const src = _gid('dt' + n + '-isrc');
+    if(src && src.textContent) row[A_ISRC] = src.textContent.replace(/^[←✏⚠]\s*/, '');
+    if(!res.coq.error){ row[A_QC3] = res.coq.fC3; row[A_QC4] = res.coq.fC4; }
+    /* Phương pháp gửi Scale = lựa chọn trên bảng so sánh; chỉ nhận phương
+       pháp thực sự có số, không thì lùi về GC. */
+    const okOf = { gc: !!GCR[n], dens: !res.dens.error, coq: !res.coq.error };
+    row[A_MTH] = okOf[NMTH[n]] ? NMTH[n] : 'gc';
+    return res;
+  }
+
+  /* Khôi phục các ô nhập bổ sung khi mở lại một lot (openGc) */
+  function _altRestore(n, r){
+    const set = (id, v) => { const e = _gid(id); if(e) e.value = (v === 0 || v) ? v : ''; };
+    set('dt' + n + '-mid', r[A_MID]);
+    set('dt' + n + '-t3',  r[A_T3]);
+    set('dt' + n + '-p3',  r[A_P3]);
+    set('dt' + n + '-t4',  r[A_T4]);
+    set('dt' + n + '-p4',  r[A_P4]);
+    set('dt' + n + '-idn', r[A_IDEN]);
+    set('dt' + n + '-iw3', r[A_IW3]);
+    const src = _gid('dt' + n + '-isrc');
+    if(src){
+      if(r[A_ISRC]){ src.style.display = ''; src.className = 'mc-alt-src'; src.textContent = '← ' + r[A_ISRC]; }
+      else src.style.display = 'none';
+    }
+    /* phương pháp đã chọn của lot đó */
+    const k = String(r[A_MTH]||'').trim().toLowerCase();
+    NMTH[n] = NM_LBL[k] ? k : 'gc';
+    NM_USER[n] = !!NM_LBL[k];        // lot đã lưu lựa chọn thì tôn trọng
+    /* AUTO thì lấy lại trạng thái ĐẦU theo lot trước (giống ô CURRENT C3 %) */
+    _altSyncLock(n);
+    if(ICQ_MODE[n] === 'auto') _autoFillIcq(n);
+    else altCalc(n, true);
+  }
+
   /* ---------- public API ---------- */
   return {
     init, refresh,
+    /* v4.85 — 2 cách tính bổ sung + bảng density */
+    altCalc, altAuto, altCore, altFromRow, densPullPrev, densRefresh,
+    toggleIcqMode, pickNotifyMethod, autoFillIcq: _autoFillIcq,
+    parseFrac: _pfrac, parseW3: _pw3,
+    ALT_COLS: { A_MID, A_T3, A_P3, A_T4, A_P4, A_DC3, A_DC4,
+                A_IDEN, A_IW3, A_ISRC, A_QC3, A_QC4, A_MTH },
     activate, calcOne, autoCalc, resetCalc,
     chkInp,           /* v4.79 (R2/R3) — kiểm tra & kẹp giá trị tại ô nhập */
     parseNum: _pnum,  /* v4.79 (R3) — parser chuẩn Excel US, dùng lại nơi khác */

@@ -1122,6 +1122,16 @@ const SCALE = (function(){
     /* v4.56 — Staff-on-duty is now enforced by _requireStaffOnDuty() above
        (hard block, before this point), so Engineer / Check Booth are always
        present here. */
+    /* ═══ v4.84 — 🔔 ZALO GROUP NOTIFY (hàng ≠ 50:50) ══════════════════
+       ĐIỂM HOOK DUY NHẤT của lớp thông báo Zalo. Mọi lối assign (search
+       click, queue 📍, multi-DO picker, waitPop) đều đổ về hàm này nên
+       một lời gọi ở đây là phủ hết — ĐỪNG thêm đường thứ hai.
+       Đọc lại station VỪA ghi (không đọc `row`) để tin mang đúng tank /
+       lot / turn / note mà setSt đã chốt. LOADNOTIFY tự lọc: chỉ hàng
+       KHÁC 50:50 mới vào hàng đợi, và tự bọc try/catch — Zalo hỏng thì
+       assign vẫn chạy y như cũ. Xem js/integrations/loadnotify.js. */
+    try{ if(typeof LOADNOTIFY!=='undefined')
+      LOADNOTIFY.onAssign(stId, DB_SC.stations[stId], row); }catch(_){}
     toast(row.plate+' → Station '+stId, 'ok');
     scClear(stId);
     /* v4.21.3 — Clean the wait-queue of any items matching this assigned

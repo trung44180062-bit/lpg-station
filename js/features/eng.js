@@ -43,9 +43,42 @@ const ENG = (function(){
      kho 1100→2100/2101 nên đã nằm trong End Stock của SAP. Lot CHƯA tick =
      đã pha trộn thực tế nhưng hệ thống chưa chuyển kho → ALLOC phải cộng
      thêm vào bồn (và trừ khỏi hầm 1100) khi dự báo tồn.
+     v4.85: +13 → 69 cho HAI CÁCH TÍNH FILLED C3/C4 BỔ SUNG:
+       [56] Mid Vol m³ (thể tích sau khi bơm xong sản phẩm thứ nhất)
+       [57] C3 temp °C  [58] C3 pressure kg/cm²G
+       [59] C4 temp °C  [60] C4 pressure kg/cm²G
+       [61] Filled C3 theo BẢNG DENSITY (ton)  [62] Filled C4 theo bảng
+       [63] ρ COQ trạng thái ĐẦU (ton/m³)  [64] %wt C3 trạng thái đầu
+       [65] nguồn của trạng thái đầu (lot nào)
+       [66] Filled C3 theo COQ (ton)  [67] Filled C4 theo COQ
+       [68] phương pháp gửi Scale: '' | 'gc' | 'dens' | 'coq'  (rỗng = gc)
+     Cột [13]/[14] (Filled C3/C4 theo GC) GIỮ NGUYÊN vai trò cũ — 2 cách mới
+     chỉ để đối chiếu và để chọn con số gửi sang Check Booth.
      Old shorter rows load fine (missing cells default ''). */
-  const ROW_W = 56;
+  const ROW_W = 69;
   const C_ST = 53, C_ST_TS = 54, C_ST_BY = 55;
+  /* v4.85 — cột của 2 cách tính bổ sung (PHẢI khớp mixctrl.js) */
+  const A_MID = 56, A_T3 = 57, A_P3 = 58, A_T4 = 59, A_P4 = 60,
+        A_DC3 = 61, A_DC4 = 62,
+        A_IDEN = 63, A_IW3 = 64, A_ISRC = 65,
+        A_QC3 = 66, A_QC4 = 67, A_MTH = 68;
+  /* nhãn & lớp CSS của từng phương pháp */
+  const MTH = {
+    gc:   { lbl:'GC',    cls:'eng-mth-gc',   full:'① GC — composition + fixed densities',        c3:13,    c4:14 },
+    dens: { lbl:'TABLE', cls:'eng-mth-dens', full:'② Density table — lookup by measured temp.',   c3:A_DC3, c4:A_DC4 },
+    coq:  { lbl:'COQ',   cls:'eng-mth-coq',  full:'③ COQ — %wt C3/C4, final minus initial',       c3:A_QC3, c4:A_QC4 }
+  };
+  function _mthOf(r){
+    const k = String((r && r[A_MTH]) || '').trim().toLowerCase();
+    return MTH[k] ? k : 'gc';
+  }
+  /* Filled C3/C4 (ton) theo ĐÚNG phương pháp đã chọn cho dòng đó */
+  function _filledBy(r, method){
+    const k = MTH[method] ? method : _mthOf(r);
+    const m = MTH[k];
+    const c3 = _num(r[m.c3]), c4 = _num(r[m.c4]);
+    return { method:k, c3: c3 === null ? 0 : c3, c4: c4 === null ? 0 : c4, ok: c3 !== null || c4 !== null };
+  }
 
   /* ROWS — display-ordered array of 34-col row arrays. Each row also
      carries a non-enumerable `_rid` (base36 random) used as Firebase key.
@@ -291,6 +324,14 @@ const ENG = (function(){
         '<td class="td-r td-fill-c3">'+_fmtNum(c[13],3)+'</td>' +
         '<td class="td-r td-fill-c4">'+_fmtNum(c[14],3)+'</td>' +
         '<td class="td-r td-fill-lpg">'+_fmtNum(c[15],3)+'</td>' +
+        /* v4.85 — 2 cách tính bổ sung + phương pháp gửi Scale */
+        '<td class="td-r td-dens">'+_fmtNum(c[A_DC3],3)+'</td>' +
+        '<td class="td-r td-dens">'+_fmtNum(c[A_DC4],3)+'</td>' +
+        '<td class="td-r td-cq2">'+_fmtNum(c[A_QC3],3)+'</td>' +
+        '<td class="td-r td-cq2">'+_fmtNum(c[A_QC4],3)+'</td>' +
+        '<td class="td-c" onclick="event.stopPropagation();ENG.cycleMethod('+realIdx+')" '+
+          'title="Con số Filled C3/C4 sẽ gửi sang Scale cho Check Booth — bấm để đổi phương pháp">'+
+          _mthBadge(c)+'</td>' +
         '<td class="td-c td-st" onclick="event.stopPropagation();ENG.toggleST('+realIdx+')" title="'+
             (String(c[C_ST])==='1'
                ? 'Đã stock transfer trên WMS'+(c[C_ST_TS]?' · '+_stWhen(c[C_ST_TS]):'')+(c[C_ST_BY]?' · '+_esc(c[C_ST_BY]):'')
@@ -347,6 +388,11 @@ const ENG = (function(){
           '<td class="td-r td-fill-c3">'+_fmtNum(T.fc3,3)+'</td>' +
           '<td class="td-r td-fill-c4">'+_fmtNum(T.fc4,3)+'</td>' +
           '<td class="td-r td-fill-lpg">'+_fmtNum(T.flpg,3)+'</td>' +
+          '<td class="td-r td-dens">'+_fmtNum(T.dc3,3)+'</td>' +
+          '<td class="td-r td-dens">'+_fmtNum(T.dc4,3)+'</td>' +
+          '<td class="td-r td-cq2">'+_fmtNum(T.qc3,3)+'</td>' +
+          '<td class="td-r td-cq2">'+_fmtNum(T.qc4,3)+'</td>' +
+          '<td></td>' +
           '<td class="td-c" style="font-size:9px;color:var(--green)">'+T.stOn+'/'+filtered.length+'</td>' +
           '<td class="td-r">'+_fmtNum(T.vol,3)+'</td>' +
           '<td class="td-r" style="color:var(--green)">'+_fmtNum(T.qty,2)+'</td>' +
@@ -406,13 +452,78 @@ const ENG = (function(){
     const n = parseFloat(String(v == null ? '' : v).replace(/,/g,'').trim());
     return isNaN(n) ? null : n;
   }
+  /* v4.85 — chip phương pháp trên bảng. Mờ đi nếu phương pháp đó chưa có số. */
+  function _mthHas(r, k){
+    const m = MTH[k];
+    return _num(r[m.c3]) !== null || _num(r[m.c4]) !== null;
+  }
+  function _mthBadge(c){
+    const k = _mthOf(c), m = MTH[k];
+    const n = ['gc','dens','coq'].filter(x=>_mthHas(c, x)).length;
+    /* ▾ = còn phương pháp khác để đổi; ✎ = mới có 1 phương pháp, bấm để bổ sung */
+    return '<span class="eng-mth ' + (_mthHas(c, k) ? m.cls : 'eng-mth-na') + '">' +
+           m.lbl + '<i class="eng-mth-car">' + (n > 1 ? '▾' : '✎') + '</i></span>';
+  }
+
+  /* Bấm vào chip → xoay vòng GC → BẢNG → COQ, bỏ qua phương pháp chưa có số. */
+  function cycleMethod(idx){
+    const row = ROWS[idx]; if(!row) return;
+    if(typeof canWrite === 'function' && !canWrite('eng_tkmix')){
+      if(typeof toast === 'function') toast('No permission to edit the Tank Log','er'); return;
+    }
+    const order = ['gc','dens','coq'];
+    const cur = _mthOf(row);
+    const avail = order.filter(k=>_mthHas(row, k));
+    if(avail.length < 2){
+      /* Nêu ĐÍCH DANH đang thiếu dữ liệu gì, rồi mở luôn modal sửa dòng để bổ sung. */
+      const miss = [];
+      if(!_mthHas(row, 'dens')){
+        const need = [];
+        if(_num(row[A_MID]) === null) need.push('Mid Vol');
+        if(_num(row[A_T3])  === null) need.push('C3 Temp');
+        if(_num(row[A_T4])  === null) need.push('C4 Temp');
+        miss.push('② DENSITY TABLE — missing: ' + (need.join(', ') || 'CALC not run yet'));
+      }
+      if(!_mthHas(row, 'coq')){
+        const need = [];
+        if(_num(row[33]) === null || _num(row[33]) === 0) need.push('Density of this COQ');
+        if(!String(row[45]||'').trim())                   need.push('Pro/Bu %Wt of this COQ');
+        if(_num(row[A_IDEN]) === null)                    need.push('Initial COQ density');
+        miss.push('③ COQ — missing: ' + (need.join(', ') || 'CALC not run yet'));
+      }
+      const ok = typeof confirm === 'function' && confirm(
+        'Lot ' + String(row[1]||'') + ' only has a result from one method, so there is nothing to switch to.\n\n'
+      + miss.join('\n') + '\n\n'
+      + 'OK = open the row editor, fill in the missing data, then press 🧮 CALC + 💾 SAVE\n'
+      + 'Cancel = skip');
+      if(ok) openEdit(row._rid);
+      return;
+    }
+    const next = avail[(avail.indexOf(cur) + 1) % avail.length] || avail[0];
+    const prev = String(row[A_MTH]||'');
+    row[A_MTH] = next;
+    _saveCache();
+    _pushRowFb(row._rid, row);
+    render();
+    const f = _filledBy(row, next);
+    if(typeof toast === 'function')
+      toast('⇒ Scale will receive ' + MTH[next].full + ' · C3 ' + _fmtNum(f.c3,3) + ' / C4 ' + _fmtNum(f.c4,3) + ' ton'
+          + '  — press 📢 NOTIFY to re-send', 'ok');
+    try{ logAudit('eng:tank_log:notify_method', row._rid, 'notifyMethod', prev, next, 'change notify method'); }catch(_){}
+  }
+
   function _sumRows(list){
-    const T = { fc3:0, fc4:0, flpg:0, vol:0, qty:0, odo:0, stOn:0, n:0 };
+    const T = { fc3:0, fc4:0, flpg:0, vol:0, qty:0, odo:0, stOn:0, n:0,
+                dc3:0, dc4:0, qc3:0, qc4:0 };
     (list||[]).forEach(r=>{
       T.n++;
       const a = _num(r[13]); if(a !== null) T.fc3  += a;
       const b = _num(r[14]); if(b !== null) T.fc4  += b;
       const c = _num(r[15]); if(c !== null) T.flpg += c;
+      const g = _num(r[A_DC3]); if(g !== null) T.dc3 += g;
+      const h = _num(r[A_DC4]); if(h !== null) T.dc4 += h;
+      const i = _num(r[A_QC3]); if(i !== null) T.qc3 += i;
+      const j = _num(r[A_QC4]); if(j !== null) T.qc4 += j;
       const d = _num(r[6]);  if(d !== null) T.vol  += d;
       const e = _num(r[7]);  if(e !== null) T.qty  += e;
       const f = _num(r[26]); if(f !== null) T.odo  += f;
@@ -630,9 +741,16 @@ const ENG = (function(){
     /* v4.68 — GIỮ cờ Stock Transfer khi caller không gửi kèm.
        MC (Mix Calc) và paste dựng mảng 53 ô theo schema cũ; nếu không chặn thì
        mỗi lần SAVE lại lot sẽ xoá mất cờ ST đã tick, khiến ALLOC cộng trùng. */
-    if(cells.length <= C_ST || cells[C_ST] === undefined){
+    /* v4.85 — ROW_W nới lên 69 nên mảng của MC/paste giờ DÀI hơn C_ST và ô 53
+       là chuỗi rỗng chứ không còn undefined. Điều kiện cũ (length <= C_ST)
+       sẽ không còn khớp → cờ ST bị xoá âm thầm. Đổi sang: chỉ bỏ qua việc
+       khôi phục khi caller CHỦ ĐỘNG gửi cờ '1'. Bỏ tick vẫn đi đường
+       _applyST() nên không bị chặn. */
+    if(String(safe[C_ST]||'') !== '1'){
       const prev = RID_MAP[rid];
-      if(prev){ safe[C_ST] = prev[C_ST]||''; safe[C_ST_TS] = prev[C_ST_TS]||''; safe[C_ST_BY] = prev[C_ST_BY]||''; }
+      if(prev && String(prev[C_ST]||'') === '1'){
+        safe[C_ST] = prev[C_ST]||''; safe[C_ST_TS] = prev[C_ST_TS]||''; safe[C_ST_BY] = prev[C_ST_BY]||'';
+      }
     }
     _setRowLocal(rid, safe);
     _saveCache();
@@ -772,67 +890,101 @@ const ENG = (function(){
 
   /* Field layout: 5 rows × 6 columns. Order mirrors V406's engEditRow,
      re-grouped logically (identity → init → results → GC → quality). */
-  const _editFields = [
-    /* Row 1 — identity & time */
-    {col:1, label:'Lot',              cls:'hl-lot'},
-    {col:2, label:'Tank',             cls:'hl-tank'},
-    {col:3, label:'Date (DD/MM/YY)',  type:'date'},
-    {col:4, label:'Start Time',       type:'time'},
-    {col:5, label:'Finish Time',      type:'time'},
-    {col:10,label:'Init Vol (m³)'},
-    /* Row 2 — init composition / target / filled C3-C4 */
-    {col:11,label:'I.%C3'},
-    {col:12,label:'I.%C4'},
-    {col:29,label:'Target C3%'},
-    {col:30,label:'Target Vol'},
-    {col:13,label:'✦ Filled C3 (ton)', cls:'hl-c3'},
-    {col:14,label:'✦ Filled C4 (ton)', cls:'hl-c4'},
-    /* Row 3 — filled LPG + result % + final vol/qty/temp */
-    {col:15,label:'✦ Filled LPG (ton)', cls:'hl-lpg'},
-    {col:8, label:'✦ %C3 Result',       cls:'hl-c3'},
-    {col:9, label:'✦ %C4 Result',       cls:'hl-c4'},
-    {col:6, label:'Final Vol (m³)'},
-    {col:7, label:'Qty (ton)'},
-    {col:31,label:'Temp (°C)'},
-    /* Row 4 — pressure/density/odorant + GC light */
-    {col:32,label:'Pressure'},
-    {col:33,label:'Density (kg/l)'},
-    {col:26,label:'Odorant'},
-    {col:16,label:'CH₄'},
-    {col:17,label:'C₂H₆'},
-    {col:18,label:'C₃H₈'},
-    {col:19,label:'i-C₄'},
-    /* Row 5 — GC heavy + quality + remark */
-    {col:20,label:'n-C₄'},
-    {col:21,label:'1,3-BD'},
-    {col:22,label:'C5+'},
-    {col:23,label:'Olefin'},
-    {col:27,label:'Quality'},
-    {col:28,label:'Remark', span:2},
-    /* Row 6 — COQ identity + composition extras (v4.55) */
-    {col:34,label:'COQ No',            cls:'hl-coq', type:'str'},
-    {col:35,label:'Sampling Time',     type:'time'},
-    {col:36,label:'Analysis Date',     type:'date'},
-    {col:37,label:'C₃H₆ (Propylene)'},
-    {col:38,label:'Vapor Pres. (kPa)'},
-    {col:39,label:'T.Sulfur (mg/kg)'},
-    /* Row 7 — COQ quality checks */
-    {col:40,label:'Free Water',        type:'str'},
-    {col:41,label:'Cu Corrosion',      type:'str'},
-    {col:42,label:'Residue',           type:'str'},
-    {col:43,label:'Mol. Weight'},
-    {col:44,label:'Pro/Bu %Vol',       cls:'hl-coq', type:'str'},
-    {col:45,label:'Pro/Bu %Wt',        cls:'hl-coq', type:'str'},
-    /* Row 8 — COQ minor components (%vol) */
-    {col:46,label:'t-2-Butene'},
-    {col:47,label:'1-Butene'},
-    {col:48,label:'i-Butene'},
-    {col:49,label:'neo-Pentane'},
-    {col:50,label:'i-Pentane'},
-    {col:51,label:'n-Pentane'},
-    /* Row 9 */
-    {col:52,label:'n-Hexane'}
+  /* ── v4.85.3 — EDIT MIX DATA gom theo NHÓM ──────────────────────────
+     Trước đây 69 ô đổ thẳng vào một lưới 6 cột, không có tiêu đề nên phải
+     đọc từng nhãn mới tìm được ô cần sửa, và 3 kết quả Filled của 3 phương
+     pháp nằm rải rác 3 chỗ khác nhau nên không so sánh được.
+     Giờ chia thành các nhóm có tiêu đề, cách nhau rõ ràng, và dồn toàn bộ
+     kết quả Filled vào MỘT nhóm hiển thị 3 phương pháp cạnh nhau.
+     `col` giữ nguyên nên saveEdit / calcSave không phải đổi gì.          */
+  const _editGroups = [
+    { key:'id', title:'IDENTIFICATION', sub:'Lot · tank · timing', fields:[
+      {col:1, label:'Lot',             cls:'hl-lot'},
+      {col:2, label:'Tank',            cls:'hl-tank'},
+      {col:3, label:'Date (DD/MM/YY)', type:'date'},
+      {col:4, label:'Start Time',      type:'time'},
+      {col:5, label:'Finish Time',     type:'time'},
+      {col:27,label:'Quality'}
+    ]},
+    { key:'inp', title:'MIXING INPUT', sub:'Volumes and targets recorded on the panel', fields:[
+      {col:10,label:'Init Vol (m³)'},
+      {col:11,label:'Initial %C3'},
+      {col:12,label:'Initial %C4'},
+      {col:29,label:'Target C3 %'},
+      {col:30,label:'Target Vol (m³)'},
+      {col:6, label:'Final Vol (m³)'},
+      {col:7, label:'Final Qty (ton)'},
+      {col:26,label:'Odorant (kg)'}
+    ]},
+    /* v4.85 — số liệu riêng cho cách tra bảng density */
+    { key:'dens', title:'DENSITY-TABLE INPUT', sub:'Method ② — segment volumes and the temperature / pressure of each product', fields:[
+      {col:A_MID,label:'Mid Vol (m³)',        cls:'hl-dens'},
+      {col:A_T3, label:'C3 Temp (°C)',        cls:'hl-dens'},
+      {col:A_P3, label:'C3 Press (kg/cm²G)',  cls:'hl-dens'},
+      {col:A_T4, label:'C4 Temp (°C)',        cls:'hl-dens'},
+      {col:A_P4, label:'C4 Press (kg/cm²G)',  cls:'hl-dens'}
+    ]},
+    { key:'gc', title:'GC ANALYSIS', sub:'Composition of the finished batch', fields:[
+      {col:16,label:'CH₄'},
+      {col:17,label:'C₂H₆'},
+      {col:18,label:'C₃H₈'},
+      {col:19,label:'i-C₄'},
+      {col:20,label:'n-C₄'},
+      {col:21,label:'1,3-Butadiene'},
+      {col:22,label:'C5+'},
+      {col:23,label:'Olefin'},
+      {col:8, label:'%C3 Result',  cls:'hl-c3'},
+      {col:9, label:'%C4 Result',  cls:'hl-c4'},
+      {col:31,label:'Temp (°C)'},
+      {col:32,label:'Pressure'},
+      {col:33,label:'Density (kg/L)'}
+    ]},
+    { key:'coq', title:'COQ CERTIFICATE', sub:'Lab certificate of the batch just mixed', fields:[
+      {col:34,label:'COQ No',            cls:'hl-coq', type:'str'},
+      {col:35,label:'Sampling Time',     type:'time'},
+      {col:36,label:'Analysis Date',     type:'date'},
+      {col:44,label:'Pro/Bu %Vol',       cls:'hl-coq', type:'str'},
+      {col:45,label:'Pro/Bu %Wt',        cls:'hl-coq', type:'str'},
+      {col:43,label:'Mol. Weight'},
+      {col:37,label:'C₃H₆ (Propylene)'},
+      {col:38,label:'Vapor Pres. (kPa)'},
+      {col:39,label:'T.Sulfur (mg/kg)'},
+      {col:40,label:'Free Water',        type:'str'},
+      {col:41,label:'Cu Corrosion',      type:'str'},
+      {col:42,label:'Residue',           type:'str'},
+      {col:46,label:'t-2-Butene'},
+      {col:47,label:'1-Butene'},
+      {col:48,label:'i-Butene'},
+      {col:49,label:'neo-Pentane'},
+      {col:50,label:'i-Pentane'},
+      {col:51,label:'n-Pentane'},
+      {col:52,label:'n-Hexane'}
+    ]},
+    /* v4.85 — trạng thái đáy bồn trước khi mix, dùng cho cách COQ */
+    { key:'ini', title:'INITIAL COQ STATE', sub:'Method ③ — heel left in the tank before mixing, taken from the previous batch', fields:[
+      {col:A_IDEN,label:'Initial Density (ton/m³)', cls:'hl-coq'},
+      {col:A_IW3, label:'Initial C3 %wt',           cls:'hl-coq'},
+      {col:A_ISRC,label:'Source',                   cls:'hl-coq', type:'str', span:2}
+    ]},
+    { key:'note', title:'NOTES', sub:'', fields:[
+      {col:28,label:'Remark', span:6}
+    ]}
   ];
+
+  /* Nhóm KẾT QUẢ được vẽ riêng (3 phương pháp cạnh nhau) — xem _resultBlock */
+  const _RESULT_COLS = [
+    { k:'gc',   ttl:'① GC',             note:'Composition × fixed densities, vapour space included',
+      cls:'rb-gc',   c3:13, c4:14, lpg:15 },
+    { k:'dens', ttl:'② DENSITY TABLE',  note:'Segment volume × saturated liquid density at measured temp.',
+      cls:'rb-dens', c3:A_DC3, c4:A_DC4 },
+    { k:'coq',  ttl:'③ COQ',            note:'Final mass × %wt minus initial mass × %wt',
+      cls:'rb-coq',  c3:A_QC3, c4:A_QC4 }
+  ];
+
+  /* danh sách phẳng — vài chỗ cũ vẫn duyệt theo cột */
+  const _editFields = _editGroups.reduce((a, g)=> a.concat(g.fields), [])
+    .concat(_RESULT_COLS.reduce((a, m)=>
+      a.concat([{col:m.c3}, {col:m.c4}], m.lpg ? [{col:m.lpg}] : []), []));
 
   function _fmtEditDate(raw){
     const s = String(raw||'').trim(); if(!s) return '';
@@ -890,29 +1042,143 @@ const ENG = (function(){
     const gridEl = document.getElementById('engEditGrid');
     if(!gridEl){ _editingRid = null; return; }
 
-    gridEl.innerHTML = _editFields.map(f=>{
-      const raw = r[f.col];
-      let val;
-      if(f.type === 'date')      val = _fmtEditDate(raw);
-      else if(f.type === 'time') val = _fmtEditTime(raw);
-      else                       val = _fmtEditNum(raw, f.col);
-      const span = f.span ? (' style="grid-column:span '+f.span+'"') : '';
-      const cls  = 'eng-edit-inp' + (f.cls ? (' '+f.cls) : '');
-      let extra = '';
-      if(f.type === 'time')
-        extra = ' inputmode="numeric" maxlength="5" placeholder="HH:MM"'
-              + ' onfocus="this.select()" oninput="ENG._timeMask(this)"';
-      else if(f.type === 'date')
-        extra = ' placeholder="DD/MM/YY" maxlength="10"'
-              + ' onfocus="this.select()" oninput="ENG._dateMask(this)"';
-      return '<div class="eng-edit-fld"'+span+'>'
-        +'<label class="eng-edit-lbl">'+f.label+'</label>'
-        +'<input data-col="'+f.col+'" data-type="'+(f.type||'num')+'"'
-        +' type="text" class="'+cls+'" value="'+_esc(val)+'"'+extra+'>'
-        +'</div>';
-    }).join('');
+    /* nhóm KẾT QUẢ chèn ngay sau nhóm nhập liệu của cách tra bảng, để
+       3 con số Filled nằm sát nhau ở nửa trên màn hình */
+    let html = '';
+    _editGroups.forEach(g=>{
+      if(g.key === 'note') return;                  // ghi chú xuống cuối cùng
+      html += _groupHtml(g, r);
+      if(g.key === 'ini') html += _resultBlock(r);  // ngay sau COQ đầu vào
+    });
+    html += _resultTail(r);
+    html += _groupHtml(_editGroups[_editGroups.length - 1], r);
+    gridEl.innerHTML = html;
 
+    _renderMethodPick(r);
     document.getElementById('engEditBg')?.classList.add('on');
+  }
+
+  /* ---- một nhóm: tiêu đề chiếm hết chiều ngang + các ô bên dưới ---- */
+  function _groupHtml(g, r){
+    return '<div class="eng-eg-hdr eng-eg-' + g.key + '">' +
+             '<span class="eng-eg-ttl">' + _esc(g.title) + '</span>' +
+             (g.sub ? '<span class="eng-eg-sub">' + _esc(g.sub) + '</span>' : '') +
+           '</div>' +
+           g.fields.map(f=> _fieldHtml(f, r)).join('');
+  }
+
+  function _fieldHtml(f, r){
+    const raw = r[f.col];
+    let val;
+    if(f.type === 'date')      val = _fmtEditDate(raw);
+    else if(f.type === 'time') val = _fmtEditTime(raw);
+    else                       val = _fmtEditNum(raw, f.col);
+    const span = f.span ? (' style="grid-column:span ' + f.span + '"') : '';
+    const cls  = 'eng-edit-inp' + (f.cls ? (' ' + f.cls) : '');
+    let extra = '';
+    if(f.type === 'time')
+      extra = ' inputmode="numeric" maxlength="5" placeholder="HH:MM"'
+            + ' onfocus="this.select()" oninput="ENG._timeMask(this)"';
+    else if(f.type === 'date')
+      extra = ' placeholder="DD/MM/YY" maxlength="10"'
+            + ' onfocus="this.select()" oninput="ENG._dateMask(this)"';
+    return '<div class="eng-edit-fld"' + span + '>'
+      + '<label class="eng-edit-lbl">' + f.label + '</label>'
+      + '<input data-col="' + f.col + '" data-type="' + (f.type || 'num') + '"'
+      + ' type="text" class="' + cls + '" value="' + _esc(val) + '"' + extra + '>'
+      + '</div>';
+  }
+
+  /* ---- KẾT QUẢ: 3 phương pháp đặt CẠNH NHAU để so sánh ngay ---- */
+  function _resultBlock(r){
+    const cur = _mthOf(r);
+    const cards = _RESULT_COLS.map(m=>{
+      const c3 = _num(r[m.c3]), c4 = _num(r[m.c4]);
+      const has = c3 !== null || c4 !== null;
+      const tot = has ? (c3 || 0) + (c4 || 0) : null;
+      const line = (lbl, col, k) =>
+        '<div class="eng-rb-line">' +
+          '<span class="eng-rb-k ' + k + '">' + lbl + '</span>' +
+          '<input data-col="' + col + '" data-type="num" type="text" ' +
+            'class="eng-edit-inp eng-rb-inp" value="' + _esc(_fmtEditNum(r[col], col)) + '">' +
+        '</div>';
+      return '<div class="eng-rb ' + m.cls + (cur === m.k ? ' on' : '') + '">' +
+        '<div class="eng-rb-hd">' + _esc(m.ttl) +
+          (cur === m.k ? '<span class="eng-rb-tag">⇒ SCALE</span>' : '') + '</div>' +
+        line('C3', m.c3, 'k-c3') +
+        line('C4', m.c4, 'k-c4') +
+        (m.lpg ? line('LPG', m.lpg, 'k-lpg')
+               : '<div class="eng-rb-line eng-rb-sum"><span class="eng-rb-k k-lpg">Σ</span>' +
+                 '<span class="eng-rb-tot">' + (has ? _fmtNum(tot, 3) : '—') + '</span></div>') +
+        '<div class="eng-rb-note">' + _esc(m.note) + '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="eng-eg-hdr eng-eg-res">' +
+             '<span class="eng-eg-ttl">FILLED RESULTS — 3 METHODS</span>' +
+             '<span class="eng-eg-sub">All in ton. Editable; ' +
+               '🧮 CALC + 💾 SAVE recomputes every method from the inputs above.</span>' +
+           '</div>' +
+           '<div class="eng-rbwrap">' + cards + '</div>';
+  }
+
+  /* Dòng chênh lệch giữa 3 phương pháp — đặt ngay dưới 3 thẻ kết quả */
+  function _resultTail(r){
+    const vals = _RESULT_COLS.map(m=>{
+      const c3 = _num(r[m.c3]), c4 = _num(r[m.c4]);
+      return (c3 === null && c4 === null) ? null : (c3 || 0) + (c4 || 0);
+    });
+    const base = vals[0];
+    if(base == null) return '';
+    const txt = _RESULT_COLS.map((m, i)=>{
+      if(i === 0 || vals[i] == null) return null;
+      const d = (vals[i] - base) / base * 100;
+      return m.ttl + ': ' + (d >= 0 ? '+' : '') + d.toFixed(2) + '% vs ① GC';
+    }).filter(Boolean);
+    if(!txt.length) return '';
+    return '<div class="eng-rb-dev">Δ ' + _esc(txt.join('   ·   ')) + '</div>';
+  }
+
+  /* v4.85 — 3 nút chọn phương pháp; nút nào chưa có số thì khoá lại. */
+  function _renderMethodPick(r){
+    const host = document.getElementById('engMethodPick');
+    if(!host) return;
+    const cur = _mthOf(r);
+    const btn = k=>{
+      const m = MTH[k];
+      const c3 = _num(r[m.c3]), c4 = _num(r[m.c4]);
+      const has = c3 !== null || c4 !== null;
+      const val = has ? (' · C3 ' + _fmtNum(c3,3) + ' / C4 ' + _fmtNum(c4,3)) : ' · no result yet';
+      return '<button type="button" class="eng-mpick-btn p-' + k + (cur === k ? ' on' : '') + '"' +
+        (has ? '' : ' disabled') +
+        ' title="' + _esc(MTH[k].full) + '" onclick="ENG.pickMethod(\'' + k + '\')">' +
+        m.lbl + val + '</button>';
+    };
+    const f = _filledBy(r, cur);
+    host.innerHTML =
+      '<span class="eng-mpick-lbl">⇒ SEND TO SCALE:</span>' +
+      btn('gc') + btn('dens') + btn('coq') +
+      '<span class="eng-mpick-note">Saved per lot. 📢 NOTIFY will push ' +
+      '<b>C3 ' + Math.round(Math.abs(f.c3) * 1000).toLocaleString('en-US') + ' kg</b> · ' +
+      '<b>C4 ' + Math.round(Math.abs(f.c4) * 1000).toLocaleString('en-US') + ' kg</b> to the Check Booth. ' +
+      'The original Filled C3/C4 (GC) columns stay unchanged.</span>';
+  }
+
+  function pickMethod(k){
+    if(!_editingRid) return;
+    const r = RID_MAP[_editingRid]; if(!r) return;
+    if(!MTH[k]) return;
+    if(typeof canWrite === 'function' && !canWrite('eng_tkmix')){
+      toast('No permission to edit the Tank Log','er'); return;
+    }
+    const prev = String(r[A_MTH]||'');
+    if(prev === k){ return; }
+    r[A_MTH] = k;
+    _saveCache();
+    _pushRowFb(_editingRid, r);
+    _renderMethodPick(r);
+    render();
+    toast('⇒ ' + MTH[k].full + ' — press 📢 NOTIFY to send these numbers to Scale','ok');
+    try{ logAudit('eng:tank_log:notify_method', _editingRid, 'notifyMethod', prev, k, 'picked in row editor'); }catch(_){}
   }
 
   function closeEdit(){
@@ -928,7 +1194,7 @@ const ENG = (function(){
     const qPrev = String(r[27]||'').trim().toLowerCase();   /* v4.61 — quality BEFORE this edit */
 
     /* string-preserving columns: date/time, lot/tank labels, quality, remark, COQ text cols */
-    const strCols = new Set([3,4,5,1,2,27,28,34,35,36,40,41,42,44,45]);
+    const strCols = new Set([3,4,5,1,2,27,28,34,35,36,40,41,42,44,45,A_ISRC,A_MTH]);
     modal.querySelectorAll('input[data-col]').forEach(inp=>{
       const col = parseInt(inp.dataset.col);
       const val = String(inp.value||'').trim();
@@ -973,9 +1239,12 @@ const ENG = (function(){
   function _notifyOnNewPass(r, qPrev){
     const qNew = String(r[27]||'').trim().toLowerCase();
     if(qNew !== 'pass' || qPrev === 'pass') return;
-    const _n = v => { const x = parseFloat(String(v==null?'':v).replace(/,/g,'')); return isNaN(x) ? 0 : x; };
-    const fC3Kg = Math.round(Math.abs(_n(r[13])) * 1000);
-    const fC4Kg = Math.round(Math.abs(_n(r[14])) * 1000);
+    /* v4.85 — lấy số theo ĐÚNG phương pháp đã chọn cho lot này (mặc định GC).
+       Nếu phương pháp đã chọn chưa có số thì lùi về GC để không gửi 0. */
+    let f = _filledBy(r);
+    if(!f.ok && f.method !== 'gc') f = _filledBy(r, 'gc');
+    const fC3Kg = Math.round(Math.abs(f.c3) * 1000);
+    const fC4Kg = Math.round(Math.abs(f.c4) * 1000);
     if(fC3Kg <= 0 && fC4Kg <= 0) return;
     if(typeof MIXNOTIFY === 'undefined' || !MIXNOTIFY.pushNotify) return;
     const tkStr = String(r[2]||'');
@@ -1146,7 +1415,7 @@ const ENG = (function(){
     const qPrev = String(r[27]||'').trim().toLowerCase();   /* v4.61 — quality BEFORE recalc */
 
     /* 1) commit modal inputs to row (same rules as saveEdit) */
-    const strCols = new Set([3,4,5,1,2,27,28]);
+    const strCols = new Set([3,4,5,1,2,27,28,A_ISRC,A_MTH]);
     modal.querySelectorAll('input[data-col]').forEach(inp=>{
       const col = parseInt(inp.dataset.col);
       const val = String(inp.value||'').trim();
@@ -1201,6 +1470,23 @@ const ENG = (function(){
     }
     if(out.odoBD) r[26] = out.odoBD;
 
+    /* v4.85 — tính lại luôn 2 phương pháp bổ sung từ chính dòng này, để
+       bảng Tank Log và nút chọn phương pháp có số ngay sau CALC+SAVE. */
+    if(typeof MC !== 'undefined' && typeof MC.altFromRow === 'function'){
+      try{
+        const alt = MC.altFromRow(r);
+        if(alt.dens && !alt.dens.error){ r[A_DC3] = alt.dens.fC3; r[A_DC4] = alt.dens.fC4; }
+        if(alt.coq  && !alt.coq.error){  r[A_QC3] = alt.coq.fC3;  r[A_QC4] = alt.coq.fC4;  }
+        if(!r[A_MTH]) r[A_MTH] = 'gc';
+        const bad = [];
+        if(alt.dens && alt.dens.error) bad.push('bảng density: ' + alt.dens.error);
+        if(alt.coq  && alt.coq.error)  bad.push('COQ: ' + alt.coq.error);
+        if(bad.length) toast('ℹ Not computed — ' + bad.join(' · '), 'warn');
+        if(alt.dens && alt.dens.level === 'bad' && alt.dens.msgs && alt.dens.msgs.length)
+          toast(alt.dens.msgs[0], 'er');
+      }catch(e){ console.warn('[ENG] altFromRow', e); }
+    }
+
     _saveCache();
     _pushRowFb(_editingRid, r);
 
@@ -1212,6 +1498,9 @@ const ENG = (function(){
     };
     _setInp(13, r[13]); _setInp(14, r[14]); _setInp(15, r[15]);
     _setInp(7,  r[7]);  _setInp(8,  r[8]);  _setInp(9,  r[9]);
+    _setInp(A_DC3, r[A_DC3]); _setInp(A_DC4, r[A_DC4]);
+    _setInp(A_QC3, r[A_QC3]); _setInp(A_QC4, r[A_QC4]);
+    _renderMethodPick(r);
     if(out.odoBD) _setInp(26, r[26]);
     const qInp = modal.querySelector('input[data-col="27"]');
     if(qInp) qInp.value = String(r[27]||'');
@@ -1254,17 +1543,33 @@ const ENG = (function(){
                 : (tkStr.includes('3502') ? 'TK-3502' : tkStr);
     const tkKey  = tkStr.includes('3501') ? 'tk1'
                 : (tkStr.includes('3502') ? 'tk2' : '');
-    const fC3Kg = Math.round(Math.abs(_cur(13)) * 1000);
-    const fC4Kg = Math.round(Math.abs(_cur(14)) * 1000);
+    /* v4.85 — con số gửi đi lấy theo PHƯƠNG PHÁP đã chọn cho lot này.
+       GC vẫn đọc từ ô đang hiện trên modal (cho phép sửa tay trước khi gửi);
+       hai phương pháp mới đọc thẳng từ dòng đã lưu. */
+    const mth = _mthOf(r);
+    let fC3Kg, fC4Kg;
+    if(mth === 'gc'){
+      fC3Kg = Math.round(Math.abs(_cur(13)) * 1000);
+      fC4Kg = Math.round(Math.abs(_cur(14)) * 1000);
+    } else {
+      fC3Kg = Math.round(Math.abs(_cur(MTH[mth].c3)) * 1000);
+      fC4Kg = Math.round(Math.abs(_cur(MTH[mth].c4)) * 1000);
+    }
     if(fC3Kg <= 0 && fC4Kg <= 0){
-      toast('⚠ Filled C3/C4 are both 0 — nothing to notify','er'); return;
+      toast('⚠ Filled C3/C4 for method ' + MTH[mth].lbl + ' are both 0 — nothing to send','er'); return;
     }
     if(typeof MIXNOTIFY === 'undefined' || !MIXNOTIFY.pushNotify){
       toast('❌ Mix-notify module not ready','er'); return;
     }
+    if(mth !== 'gc' && !confirm(
+        'Send to Scale using ' + MTH[mth].full + '\n\n'
+      + '• Lot: ' + lotStr + ' · ' + tkName + '\n'
+      + '• C3: ' + fC3Kg.toLocaleString('en-US') + ' kg\n'
+      + '• C4: ' + fC4Kg.toLocaleString('en-US') + ' kg\n\n'
+      + 'These are NOT the default GC figures. The Check Booth will receive exactly these.\n\nConfirm?')) return;
     try{
       MIXNOTIFY.pushNotify(tkName, lotStr, fC3Kg, fC4Kg, tkKey);
-      toast('📢 Notified Scale · '+lotStr+' '+tkName+' · C3:'+fC3Kg+' C4:'+fC4Kg+' kg','ok');
+      toast('📢 Notified Scale ['+MTH[mth].lbl+'] · '+lotStr+' '+tkName+' · C3:'+fC3Kg+' C4:'+fC4Kg+' kg','ok');
     }catch(e){
       console.warn('[ENG] MIXNOTIFY.pushNotify', e);
       toast('❌ Notify failed: '+e.message,'er');
@@ -1285,7 +1590,10 @@ const ENG = (function(){
       'C5+','Olefin','(24)','(25)','Odorant','Quality','Remark','TargetC3%','TargetVol','Temp','Pres','Density',
       'COQNo','SampTime','AnalysisDate','C3H6','VP','Sulfur','FreeWater','CuCorr','Residue','MW',
       'ProBu%Vol','ProBu%Wt','t2Butene','1Butene','iButene','neoPentane','iPentane','nPentane','nHexane',
-      'StockTransfer','ST_Time','ST_By'];   /* v4.68 — 3 cột cuối khớp ROW_W=56 */
+      'StockTransfer','ST_Time','ST_By',    /* v4.68 */
+      /* v4.85 — 13 cột của 2 cách tính bổ sung, khớp ROW_W=69 */
+      'MidVol','C3Temp','C3Pres','C4Temp','C4Pres','FilledC3_Table','FilledC4_Table',
+      'IniCoqDensity','IniCoqC3wt','IniCoqSource','FilledC3_COQ','FilledC4_COQ','NotifyMethod'];
     const csvLines = [headers.join(',')];
     /* v4.63 — export theo thứ tự lot MỚI NHẤT → CŨ NHẤT (khớp bảng) */
     const ordered = ROWS.slice().sort((a,b)=> _lotKey(b[1]) - _lotKey(a[1]));
@@ -1515,6 +1823,7 @@ const ENG = (function(){
     { k:'band', n:'Dải nhận diện lô (Lot · Bồn · Ngày · Kết quả)' },
     { k:'s1',   n:'1. Điều kiện pha trộn' },
     { k:'s2',   n:'2. Cân bằng vật chất' },
+    { k:'s2b',  n:'2b. Đối chiếu ba phương pháp tính' },
     { k:'s3',   n:'3. Kết quả phân tích GC' },
     { k:'s4',   n:'4. Chỉ tiêu COQ' },
     { k:'s5',   n:'5. Ghi chú' },
@@ -1954,6 +2263,54 @@ const ENG = (function(){
     + '</table>'
     + '</div>'
 
+    /* ── 2b. ĐỐI CHIẾU 3 PHƯƠNG PHÁP (v4.85) ── */
+    + '<div data-sec="s2b">'
+    + _secHdr('s2b','2b','ĐỐI CHIẾU BA PHƯƠNG PHÁP TÍNH','Cross-check of the three methods')
+    + '<table class="pr-t pr-bal">'
+      + '<tr class="pr-bal-h">'
+        + '<th>Phương pháp<br><i>Method</i></th>'
+        + '<th>Propane nạp<br><i>Filled C3</i> (MT)</th>'
+        + '<th>Butane nạp<br><i>Filled C4</i> (MT)</th>'
+        + '<th>Tổng<br><i>Total</i> (MT)</th>'
+        + '<th>Gửi Check Booth<br><i>Sent to booth</i></th>'
+      + '</tr>'
+      + (function(){
+          const mk = (key, name) => {
+            const m = MTH[key];
+            const a = _num(c[m.c3]), b = _num(c[m.c4]);
+            const tot = (a === null && b === null) ? null : (a||0) + (b||0);
+            const sel = (_mthOf(c) === key);
+            return '<tr class="pr-bal-v">'
+              + '<td style="text-align:left">'+name+'</td>'
+              + '<td class="pr-c3">'+(a===null?'—':_pv(a,3))+'</td>'
+              + '<td class="pr-c4">'+(b===null?'—':_pv(b,3))+'</td>'
+              + '<td class="pr-lpg">'+(tot===null?'—':_pv(tot,3))+'</td>'
+              + '<td>'+(sel ? '✔ ĐÃ GỬI' : '')+'</td>'
+              + '</tr>';
+          };
+          return mk('gc','① Theo GC + hằng số density')
+               + mk('dens','② Tra bảng density theo nhiệt độ')
+               + mk('coq','③ Theo COQ (%wt C3/C4)');
+        })()
+    + '</table>'
+    + '<table class="pr-t">'
+      + '<tr>'
+        + _cell('Thể tích trung gian|Mid volume', _pv(c[A_MID],3), 'm³')
+        + _cell('Nhiệt độ / áp suất C3|C3 temp / press.',
+                (c[A_T3]!==''&&c[A_T3]!=null ? _pv(c[A_T3],1)+' °C' : '—')
+                + ' / ' + (c[A_P3]!==''&&c[A_P3]!=null ? _pv(c[A_P3],2)+' kg/cm²G' : '—'), '')
+        + _cell('Nhiệt độ / áp suất C4|C4 temp / press.',
+                (c[A_T4]!==''&&c[A_T4]!=null ? _pv(c[A_T4],1)+' °C' : '—')
+                + ' / ' + (c[A_P4]!==''&&c[A_P4]!=null ? _pv(c[A_P4],2)+' kg/cm²G' : '—'), '')
+      + '</tr>'
+      + '<tr>'
+        + _cell('ρ COQ trạng thái đầu|Initial COQ density', _pv(c[A_IDEN],4), 'ton/m³')
+        + _cell('%wt C3 trạng thái đầu|Initial C3 %wt', _pv(c[A_IW3],2), '%')
+        + _cell('Nguồn trạng thái đầu|Source', _pt(c[A_ISRC]), '')
+      + '</tr>'
+    + '</table>'
+    + '</div>'
+
     /* ── 3. KẾT QUẢ PHÂN TÍCH GC ── */
     + '<div data-sec="s3">'
     + _secHdr('s3','3','KẾT QUẢ PHÂN TÍCH THÀNH PHẦN (GC)','Gas chromatography')
@@ -2205,6 +2562,10 @@ const ENG = (function(){
     /* v4.68 — Stock Transfer (đồng bộ chuyển kho WMS) */
     toggleST, setStockTransfer, pendingTransfers,
     ST_COL: C_ST, ST_TS_COL: C_ST_TS, ST_BY_COL: C_ST_BY,
+    /* v4.85 — phương pháp lấy số Filled C3/C4 gửi sang Scale */
+    cycleMethod, pickMethod, methodOf: _mthOf, filledBy: _filledBy,
+    ALT_COLS: { A_MID, A_T3, A_P3, A_T4, A_P4, A_DC3, A_DC4,
+                A_IDEN, A_IW3, A_ISRC, A_QC3, A_QC4, A_MTH },
     loadAll,                          /* v4.62 — fetch full Tank Log on demand */
     get allLoaded(){ return _allLoaded; },
     get ROWS(){ return ROWS; }
