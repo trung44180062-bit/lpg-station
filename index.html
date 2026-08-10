@@ -1142,9 +1142,11 @@
       <div class="pp-toolbar">
         <div class="pp-left">
           <div class="pp-search"><span class="si">🔍</span><input id="ppSearch" placeholder="Search customer…"></div>
-          <span style="font-size:11px;color:var(--ink-3)">TERM: 50:50 · 30:70 · Pure · Vessel &nbsp;|&nbsp; SPOT: 50:50 · 30:70 · Pure · Vessel</span>
+          <!-- v4.86 — text bám theo bộ ratio động, PP.refreshHint() ghi vào đây -->
+          <span id="ppRatioHint" style="font-size:11px;color:var(--ink-3)">TERM: 50:50 · 30:70 · Pure · Vessel &nbsp;|&nbsp; SPOT: 50:50 · 30:70 · Pure · Vessel</span>
         </div>
         <div class="pp-right">
+          <button class="btn" onclick="ppOpenRatios()" title="Thêm / xoá cột tỉ lệ (vd 60:40) — mỗi tỉ lệ sinh 1 cột TERM + 1 cột SPOT" style="background:#fff4e0;border-color:#e0b169;color:#9a5b00">⚙ Ratios</button>
           <button class="btn" onclick="ppLoadFromCust()" style="background:#e8f4fd;border-color:#90caf9;color:#0077b6">🔄 Load Customers</button>
           <button class="btn btn-green" onclick="ppOpenPaste()">📋 Paste Data</button>
           <button class="btn btn-blue" onclick="ppExportCsv()">⬇ Export</button>

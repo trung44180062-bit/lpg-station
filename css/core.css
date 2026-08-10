@@ -598,6 +598,23 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .tl-paste-foot{padding:10px 18px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;justify-content:flex-end}
 .tl-paste-info{margin-right:auto;font-size:11px;color:var(--ink-3)}
 
+/* --- PP: quản lý cột tỉ lệ (ratio) — v4.86 --- */
+#ppRatioModal .pp-ratio-add{display:flex;gap:8px;align-items:center}
+#ppRatioModal .pp-ratio-add input{flex:1;border:1.5px solid var(--line);border-radius:8px;padding:8px 11px;font-size:12.5px}
+#ppRatioModal .pp-ratio-add input:focus{outline:none;border-color:var(--blue)}
+#ppRatioModal .pp-ratio-list{margin-top:12px;max-height:320px;overflow:auto}
+#ppRatioModal .pp-ratio-it{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--line);
+  border-radius:8px;margin-bottom:6px;background:var(--panel)}
+#ppRatioModal .pp-ratio-it.locked{background:var(--panel-2);opacity:.85}
+#ppRatioModal .pp-ratio-it .nm{font-weight:700;font-size:13px;color:var(--navy);min-width:88px}
+#ppRatioModal .pp-ratio-it .fk{font-family:monospace;font-size:10.5px;color:var(--ink-3)}
+#ppRatioModal .pp-ratio-it .ct{margin-left:auto;font-size:11px;color:var(--ink-3)}
+#ppRatioModal .pp-ratio-it .lk{font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--ink-3);border:1px solid var(--line);border-radius:9px;padding:1px 7px}
+#ppRatioModal .pp-ratio-it .rm{border:none;background:none;color:var(--red);font-size:14px;cursor:pointer;padding:0 4px}
+#ppRatioModal .pp-ratio-it .rm:hover{transform:scale(1.2)}
+#ppRatioModal .pp-ratio-hint{margin-top:10px;font-size:10.5px;color:var(--ink-3);line-height:1.55}
+
 /* --- TLXK: đổ TL Data vào sheet Detail của file PHIẾU XUẤT KHO (v4.86) --- */
 #tlxkModal .tlxk-file{display:flex;align-items:center;gap:9px;padding:11px 13px;border:1.5px dashed var(--line);
   border-radius:9px;cursor:pointer;background:var(--page);transition:.15s}
