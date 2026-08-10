@@ -250,7 +250,12 @@ var PTT_EARLY = (function(){
     var sfStr = sfKg ? sfKg.toLocaleString('en-US') : '';
     var twStr = twAvg ? Math.round(twAvg).toLocaleString('en-US') : '';
     var gwStr = (twAvg && dX>0) ? Math.round(twAvg + dX*1000).toLocaleString('en-US') : '';
-    var eng = _staffEng(), chk = _staffChk();
+    /* v4.86 — the Engineer signature line is left BLANK on advance (early /
+       today bulk) prints: these slips leave the office before the duty
+       engineer is known, so a pre-printed name is wrong more often than it
+       is right. Check Booth is still filled — that operator is the one
+       actually running the bulk print. */
+    var chk = _staffChk();
     var qty = (r.qty!=null && r.qty!=='') ? String(r.qty) : '';
     var h = '';
     h += '<div class="pf-ptt-paper"><div class="pf-ptt">';
@@ -287,7 +292,7 @@ var PTT_EARLY = (function(){
     /* Signatures */
     h += '<div class="pf-sigs">';
     h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Check Booth</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(chk)+'</div></div>';
-    h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Engineer</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(eng)+'</div></div>';
+    h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Engineer</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">&nbsp;</div></div>';
     h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Driver</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(r.driver)+'</div></div>';
     h += '</div><div class="pf-sfoot"></div>';
     h += '</div></div>';
@@ -373,7 +378,7 @@ var PTT_EARLY = (function(){
     var twStr = twAvg ? Math.round(twAvg).toLocaleString('en-US') : '';
     var gwStr = (twAvg && total>0) ? Math.round(twAvg + total*1000).toLocaleString('en-US') : '';
     var boothNote = (sfKg && total > sfKg/1000) ? ('\u26A0 Combined '+totalStr+' ton > Safe fill allow') : '';
-    var eng = _staffEng(), chk = _staffChk();
+    var chk = _staffChk();   /* v4.86 — Engineer name intentionally NOT printed */
     /* DO Info lines: "<DO>  <qty> Ton" each */
     var doLines = rows.map(function(r){
       var dn = _realDO(r.doNum) || String(r.doNum||'').trim();
@@ -415,7 +420,7 @@ var PTT_EARLY = (function(){
     /* Signatures */
     h += '<div class="pf-sigs">';
     h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Check Booth</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(chk)+'</div></div>';
-    h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Engineer</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(eng)+'</div></div>';
+    h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Engineer</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">&nbsp;</div></div>';
     h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Driver</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(r0.driver)+'</div></div>';
     h += '</div><div class="pf-sfoot"></div>';
     h += '</div></div>';
@@ -598,12 +603,10 @@ var PTT_EARLY = (function(){
        evening/morning BEFORE the duty staff may be assigned. Blank names print
        as empty signature lines to be filled by hand. A soft toast still nudges
        the operator so the omission is visible, but printing proceeds. */
-    var eng = _staffEng().trim(), chk = _staffChk().trim();
-    if(!eng || !chk){
-      var missing = [];
-      if(!eng) missing.push('Engineer');
-      if(!chk) missing.push('Check Booth');
-      if(typeof toast==='function') toast('ℹ Staff on duty chưa chọn: '+missing.join(' & ')+' — phiếu in trống tên ký, điền tay sau.','ok');
+    /* v4.86 — the Engineer name is no longer printed on the PTT at all, so
+       only a missing Check Booth is worth a nudge. */
+    if(!_staffChk().trim()){
+      if(typeof toast==='function') toast('ℹ Check Booth chưa chọn — phiếu in trống tên ký, điền tay sau.','ok');
     }
     /* v4.79 — every PTT is now followed by its PKTPTVC slip on the next page
        (PTT = A5 portrait, slip = A5 landscape via the `ktland` named page that

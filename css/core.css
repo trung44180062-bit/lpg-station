@@ -598,6 +598,29 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .tl-paste-foot{padding:10px 18px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;justify-content:flex-end}
 .tl-paste-info{margin-right:auto;font-size:11px;color:var(--ink-3)}
 
+/* --- TLXK: đổ TL Data vào sheet Detail của file PHIẾU XUẤT KHO (v4.86) --- */
+#tlxkModal .tlxk-file{display:flex;align-items:center;gap:9px;padding:11px 13px;border:1.5px dashed var(--line);
+  border-radius:9px;cursor:pointer;background:var(--page);transition:.15s}
+#tlxkModal .tlxk-file:hover{border-color:var(--blue);background:var(--blue-soft)}
+#tlxkModal .tlxk-file.has-file{border-style:solid;border-color:var(--green);background:var(--green-soft)}
+#tlxkModal .tlxk-file-ic{font-size:17px}
+#tlxkModal .tlxk-file-nm{font-size:12px;font-weight:600;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tlxkModal .tlxk-row{display:flex;align-items:center;gap:9px;margin-top:11px}
+#tlxkModal .tlxk-row label{font-size:11px;font-weight:700;color:var(--ink-3);letter-spacing:.03em;text-transform:uppercase}
+#tlxkModal .tlxk-row input[type=date]{border:1.5px solid var(--line);border-radius:8px;padding:6px 9px;font-size:12px}
+#tlxkModal .tlxk-prev{margin-top:11px;padding:9px 11px;border-radius:8px;background:var(--panel-2);
+  font-size:12px;color:var(--ink-2);line-height:1.5}
+#tlxkModal .tlxk-prev .tlxk-warn{color:#b45309;font-weight:700}
+#tlxkModal .tlxk-log{margin-top:9px;max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:8px;
+  padding:7px 9px;background:#0f1b2b;font-family:monospace;font-size:11px;line-height:1.55;display:none}
+#tlxkModal .tlxk-log:not(:empty){display:block}
+#tlxkModal .tlxk-l{color:#c8d6e5;white-space:pre-wrap}
+#tlxkModal .tlxk-l.ok{color:#5fd68a}
+#tlxkModal .tlxk-l.er{color:#ff7a7a}
+#tlxkModal .tlxk-l.warn{color:#ffc861}
+#tlxkModal .tlxk-l.info{color:#7fb8ee}
+#tlxkModal .tlxk-hint{margin-top:9px;font-size:10.5px;color:var(--ink-3);line-height:1.55}
+
 /* ============================================================
    SAP MODULE STYLES
    ============================================================ */
