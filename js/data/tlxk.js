@@ -16,16 +16,17 @@
  *   • Mapping cột theo TÊN HEADER ở hàng header của sheet Detail
  *     (không theo vị trí) → thêm/bớt/đảo cột bên Excel vẫn chạy đúng.
  *     Cột nào TL có mà Detail không có → bỏ qua im lặng.
- *   • Ghi tiếp từ DÒNG CUỐI CÙNG đang có dữ liệu.
  *
- *   HAI LỚP KIỂM TRA TRƯỚC KHI GHI
- *   1) NGÀY LIÊN TIẾP — ngày định đổ phải = ngày ở dòng cuối + 1.
- *      Lệch (nhảy cóc / lùi ngày / trùng ngày) → hỏi xác nhận.
- *   2) TRÙNG DO — user hay cập nhật nhiều lần trong cùng 1 ngày, nên
- *      khi ngày đã có sẵn thì so tiếp theo khoá
- *         Date | DO No. | Scale No. | Turn No.
- *      Dòng nào đã có trong Detail → mặc định BỎ QUA, chỉ đổ dòng mới.
+ *   WIPE-THEN-WRITE — mỗi file Detail chỉ chứa ĐÚNG MỘT NGÀY
+ *   ---------------------------------------------------------
+ *   Toàn bộ vùng dữ liệu (từ dòng đầu tiên dưới header trở xuống) bị
+ *   xoá sạch TRƯỚC, rồi ghi lại toàn bộ dòng TL của ngày được chọn
+ *   bắt đầu từ đúng dòng đó. Nhờ vậy không còn khái niệm "ghi tiếp",
+ *   nên cũng không cần kiểm tra trùng DO hay ngày liên tiếp: kết quả
+ *   luôn là ảnh chụp đầy đủ và đúng của một ngày. Đổ lại bao nhiêu
+ *   lần cũng ra kết quả y hệt (idempotent).
  *
+ *   Xoá chỉ làm rỗng GIÁ TRỊ ô, giữ nguyên style/format của dòng.
  *   File gốc KHÔNG bị đụng: kết quả luôn ghi ra file mới qua Save As.
  * ============================================================ */
 
@@ -112,18 +113,22 @@ const TLXK = (function(){
     const p = x => String(x).padStart(2,'0');
     return d.getUTCFullYear()+'-'+p(d.getUTCMonth()+1)+'-'+p(d.getUTCDate());
   }
-  function _isoAddDays(iso, k){
-    const p = iso.split('-');
-    const d = new Date(Date.UTC(+p[0], +p[1]-1, +p[2]+k));
-    const q = x => String(x).padStart(2,'0');
-    return d.getUTCFullYear()+'-'+q(d.getUTCMonth()+1)+'-'+q(d.getUTCDate());
-  }
-  function _isoDiffDays(a, b){   /* b - a, tính theo ngày */
-    return Math.round((Date.parse(b+'T00:00:00Z') - Date.parse(a+'T00:00:00Z')) / 86400000);
-  }
   function _isoToVN(iso){ if(!iso) return ''; const p = iso.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
   function _todayISO(){ const d=new Date(), p=x=>String(x).padStart(2,'0');
     return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+  /* Tên file xuất phải khớp quy ước lưu trữ của Check booth:
+       "PHIEU XUAT KHO VBA Aug 01 2026.xlsm"  →  <tiền tố> <MMM DD YYYY>.xlsm
+     Tiền tố lấy từ chính file nguồn (cắt bỏ phần ngày cũ ở đuôi, dù nó đang
+     ở dạng "Aug 10 2026" hay "2026-08-10"), nên đổi tên file gốc vẫn chạy. */
+  const _MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function _isoToFileDate(iso){ const p = iso.split('-'); return _MON[+p[1]-1]+' '+p[2]+' '+p[0]; }
+  function _outName(srcName, iso, isXlsm){
+    const base = String(srcName||'')
+      .replace(/\.xls[mx]$/i, '')
+      .replace(/[\s_-]*(?:\d{4}-\d{2}-\d{2}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\s+\d{4})\s*$/i, '')
+      .trim() || 'PHIEU XUAT KHO VBA';
+    return base+' '+_isoToFileDate(iso)+(isXlsm ? '.xlsm' : '.xlsx');
+  }
   /* 'HH:MM' | 'HH:MM:SS' | '6h54' → phân số của một ngày (ô format h:mm) */
   function _timeFrac(v){
     if(v==null) return '';
@@ -134,12 +139,6 @@ const TLXK = (function(){
     if(h>23 || mi>59 || se>59) return '';
     return Math.round(((h*3600 + mi*60 + se) / 86400) * 1e10) / 1e10;
   }
-  /* DO chuẩn hoá để so trùng: bỏ dấu phẩy/khoảng trắng + số 0 dẫn đầu */
-  function _normDO(v){ return String(v==null?'':v).replace(/[,\s]/g,'').replace(/^0+(?=\d)/,'').toUpperCase(); }
-  function _key(iso, doNo, scale, turn){
-    return iso+'|'+_normDO(doNo)+'|'+String(scale==null?'':scale).trim()+'|'+String(turn==null?'':turn).trim();
-  }
-
   /* ═══════════ helpers: XML của SpreadsheetML ═══════════ */
   function _parseSST(xml){
     const out = [];
@@ -191,12 +190,12 @@ const TLXK = (function(){
     if(typeof val === 'number' && isFinite(val)) return '<c r="'+col+rn+'"'+sA+'><v>'+val+'</v></c>';
     return '<c r="'+col+rn+'"'+sA+' t="inlineStr"><is><t xml:space="preserve">'+_xesc(String(val))+'</t></is></c>';
   }
-  /* Biến ô có công thức thành ô rỗng giữ style — dùng cho vùng append.
-     Cần thiết: sheet Detail còn sót shared-formula (Q64:Q67 si=0). Nếu ghi
-     đè ô master mà bỏ lại ô con thì Excel báo file hỏng. */
-  function _stripFormulas(rowXml){
-    return rowXml.replace(/<c\b[^>]*>[\s\S]*?<\/c>/g, cx=>{
-      if(cx.indexOf('<f') < 0) return cx;
+  /* Làm rỗng GIÁ TRỊ mọi ô của một dòng, GIỮ NGUYÊN style (s=).
+     Đây là bước "wipe": xoá luôn cả công thức — cần thiết vì sheet Detail
+     còn sót shared-formula (Q64:Q67 si=0); nếu xoá ô master mà bỏ lại ô con
+     thì Excel báo file hỏng. Wipe cả vùng nên không bao giờ còn ô mồ côi. */
+  function _blankRow(rowXml){
+    return rowXml.replace(/<c\b[^>]*\/>|<c\b[^>]*>[\s\S]*?<\/c>/g, cx=>{
       const rm = cx.match(/\br="([A-Z]+\d+)"/);
       if(!rm) return cx;
       const sty = _styleOf(cx);
@@ -304,7 +303,8 @@ const TLXK = (function(){
 
   /* ═══════════ đọc bố cục sheet Detail ═══════════
      Trả về { sh, sXml, sst, rows, headerRow, dataStart, colOf, dateCol,
-              doCol, scaleCol, turnCol, lastDataRow, lastISO, keys } */
+              usedRows, usedDates } — usedRows/usedDates mô tả dữ liệu
+     đang có trong vùng sẽ bị XOÁ, chỉ dùng để báo cho user trước khi ghi. */
   async function _scan(){
     const sh = await _findSheet(state.zip, /^\s*Detail\s*$/i);
     if(!sh) throw new Error('Sheet "Detail" không tồn tại');
@@ -336,32 +336,27 @@ const TLXK = (function(){
       if(vals.length >= 8 && vals.every(v => /^\d+$/.test(v) && +v <= 200)) dataStart = headerRow + 2;
     }
 
-    /* Cột khoá */
+    /* Cột Date — dùng để nhận diện dòng nào đang thực sự có dữ liệu */
     const inv = {}; Object.keys(colOf).forEach(L => { if(!inv[colOf[L]]) inv[colOf[L]] = L; });
-    const dateCol = inv.date, doCol = inv.doNo, scaleCol = inv.scaleNo, turnCol = inv.turn;
+    const dateCol = inv.date;
     if(!dateCol) throw new Error('Sheet Detail không có cột "Date"');
 
-    /* Quét vùng dữ liệu: dòng cuối cùng có ngày + tập khoá đã tồn tại */
-    let lastDataRow = dataStart - 1, lastISO = '';
-    const keys = Object.create(null);
+    /* Thống kê vùng sẽ bị xoá: bao nhiêu dòng có dữ liệu, thuộc ngày nào */
+    let usedRows = 0; const dateSet = {};
     rows.forEach(r=>{
       if(r.num < dataStart) return;
       const cs = _cellsOf(r.xml);
+      if(!Object.keys(cs).some(L => _cellVal(cs[L], sst) !== '')) return;
+      usedRows++;
       const dv = cs[dateCol] ? _cellVal(cs[dateCol], sst) : '';
-      if(dv === '') return;
       let iso = '';
       if(/^\d+(\.\d+)?$/.test(dv)){ const n = parseFloat(dv); if(n > 20000 && n < 80000) iso = _serialToISO(n); }
       else iso = _toISO(dv);
-      if(!iso) return;
-      lastDataRow = r.num; lastISO = iso;
-      keys[_key(iso,
-                doCol    && cs[doCol]    ? _cellVal(cs[doCol], sst)    : '',
-                scaleCol && cs[scaleCol] ? _cellVal(cs[scaleCol], sst) : '',
-                turnCol  && cs[turnCol]  ? _cellVal(cs[turnCol], sst)  : '')] = r.num;
+      if(iso) dateSet[iso] = 1;
     });
 
-    return { sh, sXml, sst, rows, headerRow, dataStart, colOf,
-             dateCol, doCol, scaleCol, turnCol, lastDataRow, lastISO, keys };
+    return { sh, sXml, sst, rows, headerRow, dataStart, colOf, dateCol,
+             usedRows, usedDates: Object.keys(dateSet).sort() };
   }
 
   /* ═══════════ preview (không ghi gì) ═══════════ */
@@ -374,12 +369,12 @@ const TLXK = (function(){
     if(!state.zip){ el.innerHTML = '<b>'+tl.length+'</b> dòng TL ngày '+_isoToVN(iso)+' · chưa chọn file.'; return; }
     try{
       const s = await _scan();
-      let dup = 0;
-      tl.forEach(r=>{ if(s.keys[_key(iso, r.doNo, r.scaleNo, r.turn)] != null) dup++; });
       el.innerHTML = '<b>'+tl.length+'</b> dòng TL ngày '+_isoToVN(iso)
-        + ' → ghi từ dòng <b>'+(s.lastDataRow+1)+'</b>'
-        + (s.lastISO ? ' · dòng cuối đang là <b>'+_isoToVN(s.lastISO)+'</b>' : ' · sheet đang trống')
-        + (dup ? ' · <span class="tlxk-warn">'+dup+' dòng trùng DO sẽ bị bỏ qua</span>' : '');
+        + ' → ghi từ dòng <b>'+s.dataStart+'</b>'
+        + (s.usedRows
+            ? ' · <span class="tlxk-warn">xoá trước '+s.usedRows+' dòng đang có'
+              + (s.usedDates.length ? ' (ngày '+s.usedDates.map(_isoToVN).join(', ')+')' : '')+'</span>'
+            : ' · sheet đang trống');
     }catch(e){ el.textContent = '⚠ '+e.message; }
   }
 
@@ -398,66 +393,40 @@ const TLXK = (function(){
     log('ℹ Header hàng '+s.headerRow+' · dữ liệu từ hàng '+s.dataStart
         +' · '+Object.keys(s.colOf).length+'/36 cột TL được map', 'info');
 
-    let tl = rowsForDate(iso);
+    const tl = rowsForDate(iso);
     if(!tl.length){ log('❌ Không có dòng TL nào cho ngày '+_isoToVN(iso), 'er'); return; }
     log('ℹ TL Data: '+tl.length+' dòng cho ngày '+_isoToVN(iso), 'info');
 
-    /* ── KIỂM TRA 1: ngày liên tiếp ───────────────────────────── */
-    if(s.lastISO){
-      const gap = _isoDiffDays(s.lastISO, iso);
-      /* gap === 0: user cập nhật nhiều lần trong cùng một ngày — chuyện bình
-         thường, KHÔNG hỏi ở lớp này. Lớp 2 (trùng DO) mới là lớp quyết định. */
-      if(gap === 0){
-        log('ℹ Ngày '+_isoToVN(iso)+' đã có sẵn ở dòng cuối — chuyển sang đối chiếu DO.', 'info');
-      } else if(gap !== 1){
-        let msg;
-        if(gap < 0)        msg = 'Ngày định đổ ('+_isoToVN(iso)+') NHỎ HƠN ngày ở dòng cuối ('+_isoToVN(s.lastISO)+').';
-        else               msg = 'Ngày không liên tiếp: dòng cuối là '+_isoToVN(s.lastISO)
-                               + ', ngày định đổ là '+_isoToVN(iso)+' — thiếu '+(gap-1)+' ngày ở giữa'
-                               + ' ('+_isoToVN(_isoAddDays(s.lastISO,1))
-                               + (gap > 2 ? ' … '+_isoToVN(_isoAddDays(iso,-1)) : '')+').';
-        log('⚠ '+msg, 'warn');
-        if(!confirm('⚠ NGÀY KHÔNG LIÊN TIẾP\n\n'+msg+'\n\nOK = vẫn ghi tiếp.\nCancel = huỷ.')){
-          log('⚠ Đã huỷ.', 'warn'); return;
-        }
-      } else {
-        log('✓ Ngày liên tiếp ('+_isoToVN(s.lastISO)+' → '+_isoToVN(iso)+')', 'ok');
-      }
-    } else {
-      log('ℹ Sheet Detail chưa có dữ liệu — ghi từ hàng '+s.dataStart, 'info');
-    }
-
-    /* ── KIỂM TRA 2: trùng DO trong cùng ngày ─────────────────── */
-    const dup = [], fresh = [];
-    tl.forEach(r=>{
-      if(s.keys[_key(iso, r.doNo, r.scaleNo, r.turn)] != null) dup.push(r);
-      else fresh.push(r);
-    });
-    if(dup.length){
-      const lines = dup.slice(0,25).map(r =>
-        '  • DO '+(r.doNo||'—')+'  ·  '+(r.cust||'—')+'  ·  Scale '+(r.scaleNo||'—')+' / Turn '+(r.turn||'—')
-        + '  → đã có ở hàng '+s.keys[_key(iso, r.doNo, r.scaleNo, r.turn)]);
-      if(dup.length > 25) lines.push('  … và '+(dup.length-25)+' dòng nữa');
-      log('⚠ '+dup.length+' dòng đã có sẵn trong Detail (trùng Date + DO + Scale + Turn)', 'warn');
-      lines.forEach(l => log(l, 'warn'));
-      if(!fresh.length){
-        alert('ℹ Tất cả '+dup.length+' dòng TL của ngày '+_isoToVN(iso)
-            + ' đều đã có trong sheet Detail.\n\nKhông có gì để đổ thêm.');
-        log('ℹ Không có dòng mới — dừng.', 'info'); return;
-      }
-      if(!confirm('⚠ TRÙNG DO — '+dup.length+' dòng đã có trong sheet Detail:\n\n'
-                + lines.join('\n')+'\n\n'
-                + 'OK  = bỏ qua các dòng trùng, chỉ đổ '+fresh.length+' dòng mới.\n'
-                + 'Cancel = huỷ, không ghi gì.')){
+    /* ── WIPE-THEN-WRITE: xác nhận một lần duy nhất ────────────── */
+    if(s.usedRows){
+      const whose = s.usedDates.length ? ' (ngày '+s.usedDates.map(_isoToVN).join(', ')+')' : '';
+      log('⚠ Sẽ xoá '+s.usedRows+' dòng đang có trong sheet Detail'+whose, 'warn');
+      if(!confirm('⚠ GHI ĐÈ TOÀN BỘ SHEET "DETAIL"\n\n'
+                + 'Sheet đang có '+s.usedRows+' dòng dữ liệu'+whose+'.\n'
+                + 'Toàn bộ sẽ bị XOÁ, rồi ghi lại '+tl.length+' dòng của ngày '+_isoToVN(iso)
+                + ' từ dòng '+s.dataStart+'.\n\n'
+                + 'Mỗi file Detail chỉ chứa đúng một ngày.\n'
+                + 'File gốc không bị sửa — kết quả lưu ra file mới.\n\n'
+                + 'OK = ghi đè.  Cancel = huỷ.')){
         log('⚠ Đã huỷ.', 'warn'); return;
       }
+    } else {
+      log('ℹ Sheet Detail đang trống — ghi thẳng từ dòng '+s.dataStart, 'info');
     }
-    tl = fresh;
-    log('▶ Sẽ ghi '+tl.length+' dòng'+(dup.length ? ' (bỏ qua '+dup.length+' dòng trùng)' : ''), 'ok');
+    log('▶ Ghi '+tl.length+' dòng từ dòng '+s.dataStart, 'ok');
 
     /* ── Dựng nội dung ghi ─────────────────────────────────────── */
-    const startRow = s.lastDataRow + 1;
-    const rowMap = {}; s.rows.forEach(r => { rowMap[r.num] = r.xml; });
+    const startRow = s.dataStart;
+    /* WIPE: làm rỗng mọi dòng trong vùng dữ liệu trước khi ghi. Giữ style,
+       xoá cả công thức nên không còn shared-formula mồ côi. */
+    const rowMap = {}; let wiped = 0;
+    s.rows.forEach(r => {
+      if(r.num < startRow){ rowMap[r.num] = r.xml; return; }
+      const blank = _blankRow(r.xml);
+      if(blank !== r.xml) wiped++;
+      rowMap[r.num] = blank;
+    });
+    if(wiped) log('ℹ Đã xoá sạch vùng dữ liệu ('+wiped+' dòng)', 'info');
 
     /* Mẫu style: dòng gần startRow nhất còn đủ ô (dùng cho dòng mới hoàn toàn) */
     let tplNum = null;
@@ -477,12 +446,6 @@ const TLXK = (function(){
         const sty = _styleOf(cells[L]) || tplStyle[L] || null;
         cells[L] = _cell(L, rn, sty, _valueFor(s.colOf[L], r, tgtSerial));
       });
-      /* ô KHÔNG thuộc mapping mà đang chứa công thức → làm rỗng (giữ style) */
-      Object.keys(cells).forEach(L=>{
-        if(cells[L].indexOf('<f') < 0) return;
-        const sty = _styleOf(cells[L]);
-        cells[L] = '<c r="'+L+rn+'"'+(sty ? ' s="'+sty+'"' : '')+'/>';
-      });
       const open = base ? _openTag(base).replace(/\/>$/,'>') : tplOpen.replace(/\br="\d+"/, 'r="'+rn+'"').replace(/\/>$/,'>');
       rowMap[rn] = open.replace(/\br="\d+"/, 'r="'+rn+'"')
                  + Object.keys(cells).sort((a,b)=>_colNum(a)-_colNum(b)).map(L=>cells[L]).join('')
@@ -490,16 +453,6 @@ const TLXK = (function(){
       rn++;
     });
     const endRow = rn - 1;
-
-    /* Vùng phía dưới: dọn công thức sót (shared formula Q64:Q67) */
-    let cleaned = 0;
-    Object.keys(rowMap).forEach(k=>{
-      const n = +k;
-      if(n <= endRow) return;
-      if(rowMap[k].indexOf('<f') < 0) return;
-      rowMap[k] = _stripFormulas(rowMap[k]); cleaned++;
-    });
-    if(cleaned) log('ℹ Dọn công thức rỗng còn sót ở '+cleaned+' dòng bên dưới', 'info');
 
     /* ── Ráp lại sheetData ─────────────────────────────────────── */
     let sXml = s.sXml;
@@ -512,12 +465,13 @@ const TLXK = (function(){
       sXml = sXml.replace('<sheetData/>', '<sheetData>'+body+'</sheetData>');
     } else { log('❌ Không tìm thấy <sheetData>', 'er'); return; }
 
-    /* dimension + autoFilter bám theo dòng cuối mới */
+    /* dimension nới ra nếu cần; autoFilter ôm ĐÚNG header + vùng dữ liệu mới
+       (sheet chỉ còn một ngày nên phải co lại chứ không chỉ nới) */
     const lastCol = _colName(Math.max.apply(null, Object.keys(s.colOf).map(_colNum)));
     sXml = sXml.replace(/<dimension ref="A1:[A-Z]+(\d+)"\/>/, (m0, n0)=>
       '<dimension ref="A1:'+lastCol+Math.max(+n0, endRow)+'"/>');
-    sXml = sXml.replace(/(<autoFilter ref="A)(\d+)(:[A-Z]+)(\d+)(")/, (m0,p1,p2,p3,p4,p5)=>
-      p1+p2+p3+Math.max(+p4, endRow)+p5);
+    sXml = sXml.replace(/<autoFilter ref="A\d+:[A-Z]+\d+"/,
+      '<autoFilter ref="A'+s.headerRow+':'+lastCol+endRow+'"');
 
     state.zip.file(s.sh.path, sXml);
     state.zip.remove('xl/calcChain.xml');   /* Excel dựng lại khi mở */
@@ -530,8 +484,7 @@ const TLXK = (function(){
     log('⏳ Đang tạo file…', 'info');
     const blob = await state.zip.generateAsync({ type:'blob', mimeType:mime,
                         compression:'DEFLATE', compressionOptions:{ level:6 } });
-    const base = state.fileName.replace(/\.xls[mx]$/i, '').replace(/_\d{4}-\d{2}-\d{2}$/, '');
-    const dl   = base + '_' + iso + (isXlsm ? '.xlsm' : '.xlsx');
+    const dl = _outName(state.fileName, iso, isXlsm);
 
     let saved = false;
     if(window.showSaveFilePicker){
@@ -557,7 +510,7 @@ const TLXK = (function(){
       log('💾 Đã tải xuống: '+dl+' ('+Math.round(blob.size/1024)+' KB) — file gốc giữ nguyên', 'ok');
     }
     if(typeof logAudit === 'function'){
-      try{ logAudit('export:tl_phieu_xuat_kho', { date: iso, rows: tl.length, skipped: dup.length }); }catch(_){}
+      try{ logAudit('export:tl_phieu_xuat_kho', { date: iso, rows: tl.length, wiped: s.usedRows }); }catch(_){}
     }
     if(typeof toast === 'function') toast('📤 Phiếu xuất kho '+_isoToVN(iso)+' — '+tl.length+' dòng','ok');
     await preview();
@@ -624,9 +577,11 @@ const TLXK = (function(){
       +     '</div>'
       +     '<div class="tlxk-prev" id="tlxk-preview">Chọn file và ngày để xem trước.</div>'
       +     '<div class="tlxk-log" id="tlxk-log"></div>'
-      +     '<div class="tlxk-hint">Ghi tiếp từ dòng cuối cùng của sheet Detail. Map cột theo tên header — '
-      +       'cột nào TL Data có mà Detail không có sẽ bỏ qua. Trùng ngày thì so tiếp DO + Scale + Turn để '
-      +       'không đổ lại dòng đã có. File gốc không bị sửa: kết quả lưu ra file mới.</div>'
+      +     '<div class="tlxk-hint"><b>Mỗi file Detail chỉ chứa đúng một ngày.</b> Toàn bộ dữ liệu cũ trong '
+      +       'sheet Detail bị xoá trước, rồi ghi lại toàn bộ dòng TL của ngày được chọn từ dòng đầu vùng '
+      +       'dữ liệu — nên đổ lại bao nhiêu lần cũng ra kết quả y hệt, không lo trùng DO hay hụt dòng. '
+      +       'Map cột theo tên header, cột nào TL Data có mà Detail không có sẽ bỏ qua. '
+      +       'Style/format của bảng giữ nguyên. File gốc không bị sửa: kết quả lưu ra file mới.</div>'
       +   '</div>'
       +   '<div class="tl-paste-foot">'
       +     '<button class="btn" onclick="TLXK.close()">Đóng</button>'
