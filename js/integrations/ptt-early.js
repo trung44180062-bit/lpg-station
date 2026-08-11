@@ -227,6 +227,12 @@ var PTT_EARLY = (function(){
     }catch(_){}
     return ph;
   }
+  /* v4.87 — Staff-on-duty (#scEngineer) is the engineer of TODAY. Advance prints
+     (early = Tomorrow Plan, today bulk = printed before the shift is settled)
+     must NOT inherit it: the PTT already leaves the Engineer line blank (v4.86)
+     and the PKTPTVC "Người kiểm tra" now comes from an explicit picker shown
+     right before printing. _staffEng() is kept only as a convenience default
+     highlight in that picker — never used silently. */
   function _staffEng(){ var el=document.getElementById('scEngineer'); return el ? (el.value||'') : ''; }
   function _staffChk(){ var el=document.getElementById('scCheckBooth'); return el ? (el.value||'') : ''; }
   /* Customer printed name = VN full name, same as the assign-into-station PTT. */
@@ -250,12 +256,15 @@ var PTT_EARLY = (function(){
     var sfStr = sfKg ? sfKg.toLocaleString('en-US') : '';
     var twStr = twAvg ? Math.round(twAvg).toLocaleString('en-US') : '';
     var gwStr = (twAvg && dX>0) ? Math.round(twAvg + dX*1000).toLocaleString('en-US') : '';
-    /* v4.86 — the Engineer signature line is left BLANK on advance (early /
-       today bulk) prints: these slips leave the office before the duty
-       engineer is known, so a pre-printed name is wrong more often than it
-       is right. Check Booth is still filled — that operator is the one
-       actually running the bulk print. */
+    /* v4.86 — the Engineer signature line is NOT taken from Staff-on-duty on
+       advance (early / today bulk) prints: that field holds TODAY's shift while
+       these slips are for a future one.
+       v4.87 — it is filled from the engineer PICKER instead (same name that
+       signs the KTPTVC slip); empty when the operator chose "để trống".
+       Check Booth is still Staff-on-duty — that operator is the one actually
+       running the bulk print. */
     var chk = _staffChk();
+    var eng = _ktEng;
     var qty = (r.qty!=null && r.qty!=='') ? String(r.qty) : '';
     var h = '';
     h += '<div class="pf-ptt-paper"><div class="pf-ptt">';
@@ -292,7 +301,7 @@ var PTT_EARLY = (function(){
     /* Signatures */
     h += '<div class="pf-sigs">';
     h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Check Booth</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(chk)+'</div></div>';
-    h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Engineer</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">&nbsp;</div></div>';
+    h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Engineer</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+(eng?_esc(eng):'&nbsp;')+'</div></div>';
     h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Driver</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(r.driver)+'</div></div>';
     h += '</div><div class="pf-sfoot"></div>';
     h += '</div></div>';
@@ -378,7 +387,8 @@ var PTT_EARLY = (function(){
     var twStr = twAvg ? Math.round(twAvg).toLocaleString('en-US') : '';
     var gwStr = (twAvg && total>0) ? Math.round(twAvg + total*1000).toLocaleString('en-US') : '';
     var boothNote = (sfKg && total > sfKg/1000) ? ('\u26A0 Combined '+totalStr+' ton > Safe fill allow') : '';
-    var chk = _staffChk();   /* v4.86 — Engineer name intentionally NOT printed */
+    var chk = _staffChk();
+    var eng = _ktEng;        /* v4.87 — from the engineer picker, not Staff-on-duty */
     /* DO Info lines: "<DO>  <qty> Ton" each */
     var doLines = rows.map(function(r){
       var dn = _realDO(r.doNum) || String(r.doNum||'').trim();
@@ -420,11 +430,146 @@ var PTT_EARLY = (function(){
     /* Signatures */
     h += '<div class="pf-sigs">';
     h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Check Booth</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(chk)+'</div></div>';
-    h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Engineer</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">&nbsp;</div></div>';
+    h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Engineer</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+(eng?_esc(eng):'&nbsp;')+'</div></div>';
     h += '<div class="pf-sc" style="padding:2px 8px 1px"><div class="pf-sttl" style="font-size:8pt">Driver</div><div class="pf-ssp" style="height:52px"></div><div class="pf-snm" style="font-size:9pt">'+_esc(r0.driver)+'</div></div>';
     h += '</div><div class="pf-sfoot"></div>';
     h += '</div></div>';
     return h;
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     v4.87 — ENGINEER PICKER for the PKTPTVC slips of an advance print.
+     The inspection slip has a "Người kiểm tra" signature line. Filling it
+     from Staff-on-duty was wrong for advance prints (that name belongs to
+     TODAY's shift, the slips are for tomorrow / a later shift), so the
+     operator now chooses explicitly — a name from Staff, a typed name, or
+     BLANK (hand-written at the booth). The choice lives in RAM for this
+     print run only; nothing is written to Firebase.
+     ══════════════════════════════════════════════════════════ */
+  var _ktEng    = '';    /* engineer name printed on the PKTPTVC slips */
+  var _engOpts  = [];    /* [{name, role}] rendered in the picker (index-addressed) */
+  var _engBuilt = false;
+
+  function _normVN(s){
+    var COMB = new RegExp('[̀-ͯ]', 'g');
+    return String(s==null?'':s).normalize('NFD').replace(COMB,'')
+      .replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase().trim();
+  }
+  /* Role text that means "engineer" — English + Vietnamese spellings. */
+  function _isEngRole(role){
+    var s = _normVN(role);
+    return s.indexOf('eng')>=0 || s.indexOf('ky su')>=0 || s.indexOf('kysu')>=0 || s.indexOf('k.su')>=0;
+  }
+  /* Staff list for the picker: engineers first, then everyone else. */
+  function _staffOpts(){
+    var out = [];
+    try{
+      var R = (typeof STAFF!=='undefined' && STAFF.ROWS) ? STAFF.ROWS : {};
+      for(var k in R){
+        var r = R[k]; if(!r) continue;
+        var nm = String(r.name||'').trim(); if(!nm) continue;
+        out.push({ name:nm, role:String(r.role||'').trim() });
+      }
+    }catch(_){}
+    out.sort(function(a,b){
+      var ea = _isEngRole(a.role)?0:1, eb = _isEngRole(b.role)?0:1;
+      if(ea !== eb) return ea - eb;
+      return a.name.localeCompare(b.name, 'vi');
+    });
+    return out;
+  }
+
+  function _ensureEngModal(){
+    if(_engBuilt) return;
+    if(!document.getElementById('ptt-eng-css')){
+      var st = document.createElement('style');
+      st.id = 'ptt-eng-css';
+      st.textContent = ''
+        + "#ptt-eng-bg{position:fixed;inset:0;z-index:11700;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;}"
+        + "#ptt-eng-bg.on{display:flex;}"
+        + "#ptt-eng-bg .pg-card{background:#fff;border-radius:12px;width:94%;max-width:520px;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 10px 36px rgba(0,0,0,.3);}"
+        + "#ptt-eng-bg .pg-hdr{padding:14px 18px 9px;border-bottom:1px solid #eee;}"
+        + "#ptt-eng-bg .pg-ttl{font-family:'Oswald',sans-serif;font-size:16px;font-weight:700;color:#0077b6;letter-spacing:.6px;}"
+        + "#ptt-eng-bg .pg-sub{font-size:11.5px;color:#667;margin-top:5px;line-height:1.5;}"
+        + "#ptt-eng-bg .pg-man{display:flex;gap:8px;align-items:center;padding:10px 18px 6px;}"
+        + "#ptt-eng-bg .pg-man input{flex:1;padding:7px 10px;border:1px solid #cdd6de;border-radius:7px;font-size:13px;font-family:'Barlow',sans-serif;}"
+        + "#ptt-eng-bg .pg-man input:focus{outline:none;border-color:#0077b6;}"
+        + "#ptt-eng-bg .pg-body{overflow:auto;padding:4px 12px 8px;flex:1;}"
+        + "#ptt-eng-bg .pg-item{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:8px 10px;border:1px solid #eee;border-radius:7px;margin-bottom:5px;background:#fafbfc;cursor:pointer;font-family:'Barlow',sans-serif;}"
+        + "#ptt-eng-bg .pg-item:hover{background:#e9f3fb;border-color:#bcdcf1;}"
+        + "#ptt-eng-bg .pg-item.pg-cur{border-color:#0077b6;background:#e3f1fb;}"
+        + "#ptt-eng-bg .pg-nm{font-size:13px;font-weight:700;color:#1a2733;}"
+        + "#ptt-eng-bg .pg-rl{font-size:10px;font-weight:700;color:#0077b6;background:#e3f1fb;border-radius:9px;padding:1px 8px;letter-spacing:.3px;}"
+        + "#ptt-eng-bg .pg-cur-tag{margin-left:auto;font-size:10px;color:#2e8b57;font-weight:700;}"
+        + "#ptt-eng-bg .pg-empty{padding:22px;text-align:center;color:#889;font-size:12.5px;}"
+        + "#ptt-eng-bg .pg-foot{display:flex;justify-content:flex-end;gap:9px;padding:10px 18px;border-top:1px solid #eee;}"
+        + "#ptt-eng-bg .pg-btn{padding:8px 18px;border:none;border-radius:7px;font-family:'Oswald',sans-serif;letter-spacing:.5px;font-size:12.5px;font-weight:700;cursor:pointer;}"
+        + "#ptt-eng-bg .pg-btn-cancel{background:#e0e0e0;color:#333;}"
+        + "#ptt-eng-bg .pg-btn-blank{background:#6c757d;color:#fff;}"
+        + "#ptt-eng-bg .pg-btn-ok{background:#0077b6;color:#fff;}";
+      document.head.appendChild(st);
+    }
+    var bg = document.createElement('div');
+    bg.id = 'ptt-eng-bg';
+    bg.setAttribute('onclick', "if(event.target===this)PTT_EARLY.engCancel()");
+    bg.innerHTML = ''
+      + '<div class="pg-card">'
+      +   '<div class="pg-hdr">'
+      +     '<div class="pg-ttl">👷 CHỌN KỸ SƯ CHO PHIẾU KTPTVC</div>'
+      +     '<div class="pg-sub" id="pg-sub"></div>'
+      +   '</div>'
+      +   '<div class="pg-man">'
+      +     '<input id="pg-manual" placeholder="Hoặc gõ tên kỹ sư…" autocomplete="off" '
+      +       'onkeydown="if(event.key===\'Enter\'){event.preventDefault();PTT_EARLY.engUseTyped();}">'
+      +     '<button class="pg-btn pg-btn-ok" onclick="PTT_EARLY.engUseTyped()">Dùng tên này</button>'
+      +   '</div>'
+      +   '<div class="pg-body" id="pg-list"></div>'
+      +   '<div class="pg-foot">'
+      +     '<button class="pg-btn pg-btn-cancel" onclick="PTT_EARLY.engCancel()">Huỷ</button>'
+      +     '<button class="pg-btn pg-btn-blank" onclick="PTT_EARLY.engPick(\'\')">⬜ Để trống — ký tay</button>'
+      +   '</div>'
+      + '</div>';
+    document.body.appendChild(bg);
+    _engBuilt = true;
+  }
+
+  function _renderEngPicker(nPages, nKt){
+    var sub = document.getElementById('pg-sub');
+    if(sub) sub.innerHTML = 'Sắp in <b>'+nPages+'</b> PTT + <b>'+nKt+'</b> phiếu KTPTVC.<br>'
+      + 'Tên kỹ sư in vào <b>cả hai</b>: ô ký <b>Engineer</b> trên PTT và dòng <b>"Người kiểm tra"</b> trên KTPTVC. '
+      + 'Staff on duty là ca <b>hôm nay</b> nên không tự điền cho bản in trước — hãy chọn, gõ tên, hoặc để trống.';
+    var list = document.getElementById('pg-list');
+    if(!list) return;
+    _engOpts = _staffOpts();
+    if(!_engOpts.length){
+      list.innerHTML = '<div class="pg-empty">Chưa có nhân sự trong trang Staff.<br>Gõ tên ở ô trên hoặc để trống.</div>';
+      return;
+    }
+    var cur = _normVN(_staffEng());
+    list.innerHTML = _engOpts.map(function(s, i){
+      var isCur = cur && _normVN(s.name)===cur;
+      return '<button type="button" class="pg-item'+(isCur?' pg-cur':'')+'" onclick="PTT_EARLY.engPickIdx('+i+')">'
+        + '<span class="pg-nm">'+_esc(s.name)+'</span>'
+        + (s.role ? '<span class="pg-rl">'+_esc(s.role)+'</span>' : '')
+        + (isCur ? '<span class="pg-cur-tag">✓ on duty</span>' : '')
+        + '</button>';
+    }).join('');
+  }
+
+  function _openEngPicker(nPages, nKt){
+    _ensureEngModal();
+    _renderEngPicker(nPages, nKt);
+    /* mode 'today' = in trong ca hiện tại ⇒ gợi ý sẵn kỹ sư on-duty (vẫn phải
+       bấm xác nhận, và xoá đi được). mode 'early' = ngày mai ⇒ luôn để trống. */
+    var inp = document.getElementById('pg-manual');
+    if(inp) inp.value = (_mode==='today') ? _staffEng() : '';
+    var bg = document.getElementById('ptt-eng-bg');
+    if(bg) bg.classList.add('on');
+    setTimeout(function(){ if(inp) inp.focus(); }, 60);
+  }
+  function _closeEngPicker(){
+    var bg = document.getElementById('ptt-eng-bg');
+    if(bg) bg.classList.remove('on');
   }
 
   /* ── Selection modal ── */
@@ -595,7 +740,44 @@ var PTT_EARLY = (function(){
     _groupMode[key] = (mode==='separate') ? 'separate' : 'combined';
     _render();
   }
+  /* Number of PKTPTVC slips a plan produces = distinct trucks (one inspection
+     per vehicle, not per DO). Used for the picker preview only. */
+  function _ktPageCount(plan){
+    var seen = {}, n = 0;
+    (plan||[]).forEach(function(item){
+      var pk = _plateKey((item.rows[0]||{}).plate);
+      if(pk && !seen[pk]){ seen[pk] = 1; n++; }
+    });
+    return n;
+  }
+
+  /* v4.87 — Print is a TWO-STEP flow: pick the engineer (or leave it blank),
+     then render. The picked name signs BOTH documents of this run — the
+     Engineer box on every PTT and "Người kiểm tra" on every KTPTVC slip — so
+     the picker always opens, even when no KTPTVC page is produced. */
   function print(){
+    var plan = _computePlan();
+    if(!plan.length){ if(typeof toast==='function') toast('No orders selected','er'); return; }
+    var ktOn = (typeof KTPTVC !== 'undefined' && KTPTVC && typeof KTPTVC.page === 'function');
+    _openEngPicker(plan.length, ktOn ? _ktPageCount(plan) : 0);
+  }
+  /* Picker callbacks (exposed on the module). */
+  function engPick(name){
+    _ktEng = String(name==null?'':name).trim();
+    _closeEngPicker();
+    _doPrint();
+  }
+  function engPickIdx(i){
+    var o = _engOpts[i];
+    engPick(o ? o.name : '');
+  }
+  function engUseTyped(){
+    var inp = document.getElementById('pg-manual');
+    engPick(inp ? inp.value : '');
+  }
+  function engCancel(){ _closeEngPicker(); }
+
+  function _doPrint(){
     var plan = _computePlan();
     if(!plan.length){ if(typeof toast==='function') toast('No orders selected','er'); return; }
     /* v4.58 — the Staff-on-duty gate (block when Engineer / Check Booth unset)
@@ -603,8 +785,8 @@ var PTT_EARLY = (function(){
        evening/morning BEFORE the duty staff may be assigned. Blank names print
        as empty signature lines to be filled by hand. A soft toast still nudges
        the operator so the omission is visible, but printing proceeds. */
-    /* v4.86 — the Engineer name is no longer printed on the PTT at all, so
-       only a missing Check Booth is worth a nudge. */
+    /* v4.87 — the Engineer name now comes from the picker (deliberate choice,
+       blank is a valid answer), so only a missing Check Booth is worth a nudge. */
     if(!_staffChk().trim()){
       if(typeof toast==='function') toast('ℹ Check Booth chưa chọn — phiếu in trống tên ký, điền tay sau.','ok');
     }
@@ -616,7 +798,11 @@ var PTT_EARLY = (function(){
        form (the vehicle is inspected once, not once per DO). */
     var pages = '', printedOids = {}, ktSeen = {}, ktCount = 0;
     var ktOn = (typeof KTPTVC !== 'undefined' && KTPTVC && typeof KTPTVC.page === 'function');
-    var eng0 = _staffEng();
+    /* v4.87 — engineer name comes from the picker (RAM, this run only), NOT
+       from Staff-on-duty: that field holds today's shift while these slips are
+       for a future one. Same name as the PTT Engineer box (_buildPage reads
+       _ktEng directly). Empty = signature line printed blank. */
+    var eng0 = _ktEng;
     plan.forEach(function(item){
       pages += (item.combined && item.rows.length>1) ? _buildCombinedPage(item.rows) : _buildPage(item.rows[0]);
       item.rows.forEach(function(r){ if(r._oid) printedOids[r._oid] = 1; });
@@ -648,7 +834,8 @@ var PTT_EARLY = (function(){
     var orders = Object.keys(printedOids);
     orders.forEach(function(o){ _printedOids[o] = Date.now(); });
     if(typeof logAudit==='function'){ try{ logAudit(_mode==='today' ? 'print:ptt_bulk_today' : 'print:ptt_bulk_early', { pages: plan.length, orders: orders.length }); }catch(_){} }
-    if(typeof toast==='function') toast('\uD83D\uDDA8 Printing '+plan.length+' PTT + '+ktCount+' PKTPTVC page(s) \u00B7 '+orders.length+' order(s)','ok');
+    if(typeof toast==='function') toast('\uD83D\uDDA8 Printing '+plan.length+' PTT + '+ktCount+' PKTPTVC page(s) \u00B7 '+orders.length+' order(s)'
+      + ' \u00B7 KS: ' + (_ktEng || '\u0111\u1EC3 tr\u1ED1ng'),'ok');
     close();
   }
 
@@ -677,7 +864,11 @@ var PTT_EARLY = (function(){
   return {
     open: open, close: close, toggle: toggle, selectAll: selectAll, print: print,
     setGroupMode: setGroupMode, isEarly8: _isEarly8, gather: _gather,
-    updateTodayBadge: updateTodayBadge
+    updateTodayBadge: updateTodayBadge,
+    /* v4.87 — KTPTVC engineer picker */
+    engPick: engPick, engPickIdx: engPickIdx, engUseTyped: engUseTyped,
+    engCancel: engCancel,
+    get ktEng(){ return _ktEng; }
   };
 })();
 
