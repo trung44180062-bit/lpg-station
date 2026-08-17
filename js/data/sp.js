@@ -69,7 +69,24 @@ const SP = (function(){
     if(!iso) return '';
     const p=iso.split('-'); return(p.length===3)?p[2]+'/'+p[1]+'/'+p[0].slice(2):iso;
   }
-  function compKey(r){ return(r.date||'')+'|'+(r.sloc||'')+'|'+(r.mat||'')+'|'+(r.batch||''); }
+  /* ============================================================
+     v4.89 — TÁCH BATCH Ở SLoc 1100 (kho ngoại quan)
+     ------------------------------------------------------------
+     Trước đây mọi SLoc đều gộp về 1 ký tự batch (P/X/D/E). Riêng 1100 là
+     kho ngoại quan: mỗi tờ khai Get Out = 1 batch SAP riêng (260804X001…)
+     và phải trừ lùi từng batch tới 0 mới khai Hải quan hoàn thành xuất
+     kho ⇒ gộp là mất thông tin. Nay:
+        • thêm field `bcode` = MÃ BATCH ĐẦY ĐỦ, CHỈ cho SLoc 1100
+        • `batch` vẫn là 1 ký tự → mọi module khác (alloc/cav/rpt) cộng dồn
+          theo ký tự nên KHÔNG bị ảnh hưởng, chỉ là nhiều dòng hơn
+        • compKey gồm bcode ⇒ 1100 tách dòng, các SLoc khác giữ nguyên khoá
+     Dòng 1100 GỘP CŨ (không có bcode) sẽ được đề nghị xoá khi dán bản mới
+     phủ đúng ngày+mat+batch đó — xem findLegacy1100().
+     ============================================================ */
+  const SLOC_SPLIT_BATCH = { '1100':1 };
+  function compKey(r){
+    return(r.date||'')+'|'+(r.sloc||'')+'|'+(r.mat||'')+'|'+(r.batch||'')+'|'+(r.bcode||'');
+  }
   function parseTSV(text){
     const rows=[]; let row=[],field='',inQ=false;
     const s=String(text||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n');
@@ -91,8 +108,10 @@ const SP = (function(){
       const date=sapParseDate(cols[6]); if(!date||date.length<10) return;
       const bType=sapBatch(cols[7]); if(!bType) return;
       rawCount++;
-      const k=date+'|'+sloc+'|'+mat+'|'+bType;
-      if(!agg[k]) agg[k]={date,sloc,mat,batch:bType,init:0,gr:0,gi:0,trs:0,end:0};
+      /* SLoc 1100 (KNQ): giữ nguyên mã batch đầy đủ để trừ lùi từng tờ khai */
+      const bcode=SLOC_SPLIT_BATCH[sloc] ? String(cols[7]||'').trim().toUpperCase() : '';
+      const k=date+'|'+sloc+'|'+mat+'|'+bType+'|'+bcode;
+      if(!agg[k]) agg[k]={date,sloc,mat,batch:bType,bcode,init:0,gr:0,gi:0,trs:0,end:0};
       agg[k].init+=sapNum(cols[8]); agg[k].gr+=sapNum(cols[11]); agg[k].gi+=sapNum(cols[13]);
       agg[k].trs+=sapNum(cols[15]); agg[k].end+=sapNum(cols[17]);
     });
@@ -166,6 +185,12 @@ const SP = (function(){
   function slocFmt(cell){const v=String(cell.getValue()||'').trim();if(!v)return'<span class="sp-empty-cell">—</span>';const nm=SLOC_NAME[v]||'';return`<span class="sp-sloc">${escapeHtml(v)}</span>${nm?'<span style="color:var(--ink-3);font-size:9px;margin-left:3px">'+escapeHtml(nm)+'</span>':''}`;}
   function matFmt(cell){const v=String(cell.getValue()||'').trim();if(!v)return'<span class="sp-empty-cell">—</span>';return`<span class="sp-mat ${v==='C3'?'sp-mat-c3':v==='C4'?'sp-mat-c4':''}">${escapeHtml(v)}</span>`;}
   function batchFmt(cell){const v=String(cell.getValue()||'').trim().toUpperCase();if(!v)return'<span class="sp-empty-cell">—</span>';return`<span class="sp-batch sp-batch-${v.toLowerCase()}">${escapeHtml(v)}</span>`;}
+  /* mã batch đầy đủ — chỉ SLoc 1100 có; SLoc khác hiện '—' là ĐÚNG, không phải lỗi */
+  function bcodeFmt(cell){
+    const v=String(cell.getValue()||'').trim().toUpperCase();
+    if(!v) return '<span class="sp-empty-cell">—</span>';
+    return `<span class="sp-bcode">${escapeHtml(v)}</span>`;
+  }
 
   function spRows(){
     let arr=Object.values(ROWS);
@@ -182,6 +207,8 @@ const SP = (function(){
       {title:'SLoc',field:'sloc',width:110,headerSort:true,formatter:slocFmt},
       {title:'Mat',field:'mat',width:55,hozAlign:'center',headerSort:true,formatter:matFmt},
       {title:'Batch',field:'batch',width:60,hozAlign:'center',headerSort:true,formatter:batchFmt},
+      {title:'Batch code',field:'bcode',width:105,hozAlign:'center',headerSort:true,formatter:bcodeFmt,
+       tooltip:'Mã batch đầy đủ — chỉ SLoc 1100 (kho ngoại quan) mới tách theo mã batch'},
       {title:'Init (kg)',field:'init',width:100,hozAlign:'right',headerSort:true,formatter:kgFmt},
       {title:'GR',field:'gr',width:85,hozAlign:'right',headerSort:true,formatter:kgFmt},
       {title:'GI',field:'gi',width:95,hozAlign:'right',headerSort:true,formatter:kgFmt},
@@ -271,22 +298,37 @@ const SP = (function(){
     if(!parsed.rows.length){toast('No valid SAP data found (SLoc 1100/2100/2101/B100, Mat C3/C4)','er');return;}
     closePaste();
     const byKey={}; Object.values(ROWS).forEach(r=>{byKey[compKey(r)]=r;});
-    const FIELDS=['date','sloc','mat','batch','init','gr','gi','trs','end'];
+    const FIELDS=['date','sloc','mat','batch','bcode','init','gr','gi','trs','end'];
     const adds=[],changes=[];
     parsed.rows.forEach(p=>{
       const k=compKey(p),ex=byKey[k];
       if(ex){const diffs=[];FIELDS.forEach(f=>{if(String(ex[f]?? '')!==String(p[f]??''))diffs.push({field:f,old:String(ex[f]??''),new:String(p[f]??'')});});if(diffs.length)changes.push({rid:ex._rid,key:k,diffs});}
       else adds.push({rid:newRid(),fields:p});
     });
-    _pendingDiff={adds,changes,stats:parsed};
-    showDiff(adds,changes,parsed);
+    const legacy=findLegacy1100(parsed.rows);
+    _pendingDiff={adds,changes,legacy,stats:parsed};
+    showDiff(adds,changes,parsed,legacy);
   }
-  function showDiff(adds,changes,stats){
+  /* Dòng 1100 kiểu CŨ (gộp cả ngày về 1 ký tự batch, không có bcode) mà bản dán
+     mới đã phủ đúng date+mat+batch đó → đề nghị xoá, nếu không sẽ đếm 2 lần. */
+  function findLegacy1100(newRows){
+    const covered={};
+    newRows.forEach(r=>{ if(r.bcode) covered[r.date+'|'+r.mat+'|'+r.batch]=1; });
+    return Object.values(ROWS).filter(r=>
+      String(r.sloc||'')==='1100' && !r.bcode && covered[(r.date||'')+'|'+(r.mat||'')+'|'+(r.batch||'')]);
+  }
+  function showDiff(adds,changes,stats,legacy){
+    legacy=legacy||[];
     document.getElementById('spDiffTitle').textContent='Confirm: Import SAP ZMMFR022';
-    document.getElementById('spDiffSubtitle').textContent=stats.rawCount+' raw → '+stats.rows.length+' aggregated. '+(stats.skippedSloc?stats.skippedSloc+' filtered. ':'')+'Matched on Date+SLoc+Mat+Batch.';
+    document.getElementById('spDiffSubtitle').textContent=stats.rawCount+' raw → '+stats.rows.length+' aggregated. '+(stats.skippedSloc?stats.skippedSloc+' filtered. ':'')+'Matched on Date+SLoc+Mat+Batch+BatchCode (SLoc 1100 tách theo mã batch).';
     let html='<div class="tp-diff-stats">';
     html+=`<div class="tp-diff-stat add"><div class="v">${adds.length}</div><div class="l">Added</div></div>`;
-    html+=`<div class="tp-diff-stat chg"><div class="v">${changes.length}</div><div class="l">Changed</div></div></div>`;
+    html+=`<div class="tp-diff-stat chg"><div class="v">${changes.length}</div><div class="l">Changed</div></div>`;
+    if(legacy.length) html+=`<div class="tp-diff-stat rem"><div class="v">${legacy.length}</div><div class="l">Legacy 1100 removed</div></div>`;
+    html+='</div>';
+    if(legacy.length){
+      html+=`<div class="tp-diff-warn">⚠ ${legacy.length} dòng SLoc 1100 kiểu cũ (gộp chung batch) sẽ bị XOÁ vì bản dán này đã tách theo mã batch đầy đủ — giữ lại sẽ đếm trùng.</div>`;
+    }
     if(adds.length){html+=`<div class="tp-diff-section add"><h4><span class="badge">+ NEW</span> ${adds.length} row(s)</h4><div class="tp-diff-list">`;adds.slice(0,40).forEach(a=>{const r=a.fields;html+=`<div class="tp-diff-item"><span class="who">${escapeHtml(r.date)}</span> · ${escapeHtml(r.sloc)} · ${escapeHtml(r.mat)} · ${escapeHtml(r.batch)} · End ${(r.end||0).toLocaleString('en-US')}kg</div>`;});if(adds.length>40)html+='<div class="tp-diff-item" style="font-style:italic;color:var(--ink-3)">…and '+(adds.length-40)+' more</div>';html+='</div></div>';}
     if(changes.length){html+=`<div class="tp-diff-section chg"><h4><span class="badge">~ CHANGED</span> ${changes.length} row(s)</h4><div class="tp-diff-list">`;changes.slice(0,40).forEach(c=>{let line=`<div class="tp-diff-item"><span class="who">${escapeHtml(c.key)}</span> `;c.diffs.forEach(d=>{line+=`<span class="field">${escapeHtml(d.field)}</span><span class="ov">${escapeHtml(d.old||'—')}</span><span class="arr">→</span><span class="nv">${escapeHtml(d.new||'—')}</span> `;});html+=line+'</div>';});if(changes.length>40)html+='<div class="tp-diff-item" style="font-style:italic;color:var(--ink-3)">…and '+(changes.length-40)+' more</div>';html+='</div></div>';}
     if(!adds.length&&!changes.length) html+='<div class="tp-diff-warn" style="background:var(--green-soft);border-color:#bfe3cc;color:#157a40">✓ No changes — paste identical.</div>';
@@ -295,13 +337,14 @@ const SP = (function(){
   }
   function closeDiff(){document.getElementById('spDiffModal').classList.remove('on');_pendingDiff=null;}
   function confirmDiff(){
-    if(!_pendingDiff){closeDiff();return;} const{adds,changes}=_pendingDiff; const batch=[];
+    if(!_pendingDiff){closeDiff();return;} const{adds,changes}=_pendingDiff; const legacy=_pendingDiff.legacy||[]; const batch=[];
     adds.forEach(a=>{Object.entries(a.fields).forEach(([k,v])=>batch.push({rid:a.rid,field:k,value:v}));});
     changes.forEach(c=>{c.diffs.forEach(d=>batch.push({rid:c.rid,field:d.field,value:d.new}));});
+    legacy.forEach(r=>{ if(r&&r._rid) batch.push({rid:r._rid,field:'__DELETE__',value:null}); });
     if(!batch.length){toast('No changes','er');closeDiff();return;}
-    applyAndPush(batch,'paste '+adds.length+' new / '+changes.length+' updated');
+    applyAndPush(batch,'paste '+adds.length+' new / '+changes.length+' updated'+(legacy.length?' / '+legacy.length+' legacy removed':''));
     closeDiff();rebuildTableData();document.getElementById('spPasteArea').value='';
-    toast(`SAP: ${adds.length} added, ${changes.length} updated`,'ok');
+    toast(`SAP: ${adds.length} added, ${changes.length} updated`+(legacy.length?`, ${legacy.length} legacy 1100 removed`:''),'ok');
   }
   function rangeDelete(){
     if(!Object.keys(ROWS).length){ toast('Already empty','er'); return; }
@@ -349,6 +392,32 @@ const SP = (function(){
     init(){const c=loadCache();if(c){Object.assign(ROWS,c.data||{});_versions=c.versions||_versions;}refreshBadge();attachFirebase();},
     buildTable,rebuildTableData,openPaste,closePaste,submitPaste,closeDiff,confirmDiff,rangeDelete,exportCsv,
     openPicker,pickerChange,clearDate,refreshBadge,renderAnalysis,toggleAnalysis,
+    /* ── API cho tab KNQ (kho ngoại quan) ──────────────────────────
+       Trả dòng SLoc 1100 ĐÃ TÁCH theo mã batch trong khoảng ngày.
+       legacy = số dòng 1100 còn ở dạng gộp cũ (chưa có bcode) → KNQ cảnh báo
+       người dùng dán lại SAP để tách batch. */
+    batch1100(fromDate,toDate){
+      const rows=[]; let legacy=0; const dates={};
+      Object.values(ROWS).forEach(r=>{
+        if(!r || String(r.sloc||'')!=='1100') return;
+        const d=String(r.date||''); if(!d) return;
+        if(fromDate && d<fromDate) return;
+        if(toDate   && d>toDate  ) return;
+        if(!r.bcode){ legacy++; return; }
+        dates[d]=1;
+        rows.push({ mat:String(r.mat||''), batch:String(r.bcode||'').toUpperCase(), date:d,
+          init:+r.init||0, gr:+r.gr||0, gi:+r.gi||0, trs:+r.trs||0, end:+r.end||0 });
+      });
+      return { rows, legacy, dates:Object.keys(dates).sort() };
+    },
+    /* hook cho test (tests/sp-bcode.test.js) — không dùng trong app */
+    _parseSap:parseSapSheet, _compKey:compKey, _findLegacy1100:findLegacy1100,
+    /* mọi ngày đang có dữ liệu SLoc 1100 (để KNQ dựng bộ chọn ngày) */
+    dates1100(){
+      const s={};
+      Object.values(ROWS).forEach(r=>{ if(r&&String(r.sloc||'')==='1100'&&r.date) s[r.date]=1; });
+      return Object.keys(s).sort();
+    },
     get table(){return table;},get ROWS(){return ROWS;}
   };
 })();

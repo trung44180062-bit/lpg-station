@@ -7,7 +7,7 @@
  *         rptSwitchTab, cavToggle (gọi từ markup onclick).
  * Nạp: CORE, sau auth, trước data. (Lịch sử phiên bản → docs/VERSION-HISTORY.md)
  * ============================================================ */
-const APP_VERSION='v4.68.1', APP_BUILD_ID='p39-alloc-planner-tp-load-fix';
+const APP_VERSION='v4.93', APP_BUILD_ID='p93a-knq-period-20cols';
 
 
 /* ---------- main nav (Fleet active; others stubs) ---------- */
@@ -63,11 +63,15 @@ function rptSwitchTab(sub){
   const shell = document.querySelector('#page-report .rpt-shell');
   const cav   = document.getElementById('rpt-pg-cavern');
   const mthr  = document.getElementById('rpt-pg-monthly');
+  const knq   = document.getElementById('rpt-pg-knq');
   if(shell) shell.style.display = (sub==='daily') ? '' : 'none';
   if(cav)   cav.style.display   = (sub==='cavern') ? 'flex' : 'none';
   if(mthr)  mthr.style.display  = (sub==='monthly') ? 'flex' : 'none';
+  if(knq)   knq.style.display   = (sub==='knq') ? 'flex' : 'none';
   if(sub==='cavern'){ try{ CAV.render(); }catch(_){} try{ CAV.showDefaults(); }catch(_){} }
   if(sub==='monthly'){ try{ MTHR.onTabEnter(); }catch(_){} }
+  /* KNQ — lazy: chỉ đọc Firebase khi mở tab (batch còn khác 0) */
+  if(sub==='knq'){ try{ KNQ.onTabEnter(); }catch(_){} }
 }
 window.rptSwitchTab = rptSwitchTab;
 

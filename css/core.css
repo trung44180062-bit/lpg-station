@@ -687,6 +687,7 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .sp-batch-e{color:#c084fc}
 .sp-batch-p{color:#2ecc71}
 .sp-batch-x{color:#f0a500}
+.sp-bcode{font-family:ui-monospace,'SFMono-Regular',Menlo,monospace;font-size:10.5px;font-weight:700;color:var(--ink-2);letter-spacing:.2px}
 .sp-date{font-variant-numeric:tabular-nums;color:var(--ink-2);font-weight:600}
 .sp-kg{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
 .sp-kg .u{font-size:10px;color:var(--ink-3);font-weight:500;margin-left:2px}

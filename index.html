@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
 <link rel="stylesheet" href="css/alloc.css?v=468"><!-- Allocation planner (LPG Sales) — link ACTIVE -->
+<link rel="stylesheet" href="css/knq.css?v=491"><!-- KNQ XNK kho ngoại quan (Reports) — link ACTIVE -->
 <!-- ⚠ BẪY: khối dưới đây là COMMENT — mọi <link> trong nó KHÔNG được nạp.
      Toàn bộ app CSS thực sự nằm trong core.css. Khi thêm style mới thì viết
      vào core.css, ĐỪNG thêm link ở đây rồi tưởng là đã nạp (v4.82 dính đúng
@@ -2935,6 +2936,7 @@
       <button class="stab on" data-rpt-sub="daily" onclick="rptSwitchTab('daily')">📋 Daily Stock</button>
       <button class="stab" data-rpt-sub="cavern" onclick="rptSwitchTab('cavern')">📊 Cavern Daily / SAP WMS<span class="stab-badge" id="engBadgeCavern">0</span></button>
       <button class="stab" data-rpt-sub="monthly" onclick="rptSwitchTab('monthly')">📅 Monthly Report<span class="stab-badge" id="mthr-badge">--</span></button>
+      <button class="stab" data-rpt-sub="knq" onclick="rptSwitchTab('knq')">🛃 KNQ (XNK)</button>
     </div>
 
     <!-- ===== CAVERN DAILY pane (manual inputs + SAP-WMS fill) ===== -->
@@ -3438,6 +3440,161 @@
         <!-- SAP ⇄ TL reconciliation (hiện khi đã paste TL) -->
         <div class="mthr-cmp" id="mthr-compare" style="display:none;"></div>
       </div>
+    </div>
+
+    <!-- ═══════════ KNQ — XNK KHO NGOẠI QUAN (bonded warehouse) ═══════════ -->
+    <!-- v4.92 — 2 bảng C3 / C4 theo file THEO DOI XNK KNQ: mỗi chuyến tàu 1 dòng
+         GET IN, dưới nó nhiều dòng GET OUT (mỗi dòng 1 mã batch duy nhất).
+         v4.93: bảng batch KHÔNG lọc theo tháng — hàng có thể vào kho từ nhiều
+         tháng trước và vẫn đang trừ lùi. Bộ chọn tháng = KỲ TRỪ LÙI (lấy FEED
+         OL1 của tháng đó). Nút 📌 Chốt kỳ chuyển thực còn → tồn đầu kỳ sau.
+         Bảng FEED OL1 nằm trong modal, bật bằng nút ⛽ FEED OL1. Đơn vị KG. -->
+    <div class="rpt-pg" id="rpt-pg-knq" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
+
+      <div class="knq-bar">
+        <div class="knq-cfg"><label>Kỳ trừ lùi</label>
+          <input type="month" id="knq-month" onchange="KNQ.onMonth()" title="Tháng lấy dữ liệu FEED OL1 để trừ lùi. Bảng batch KHÔNG bị lọc theo tháng."></div>
+        <button class="knq-btn accent" id="knq-close" onclick="KNQ.closeMonth()">📌 Chốt kỳ</button>
+        <span class="knq-sep"></span>
+        <button class="knq-btn primary" onclick="KNQ.addGi('C3')" title="Khai 1 chuyến tàu C3 mới (dòng Get In)">➕ Get In C3</button>
+        <button class="knq-btn primary" onclick="KNQ.addGi('C4')" title="Khai 1 chuyến tàu C4 mới (dòng Get In)">➕ Get In C4</button>
+        <button class="knq-btn accent" onclick="KNQ.openOl1()" title="Mở bảng lượng feed OL1 hằng ngày (P / X) — nguồn trừ lùi batch P và X">⛽ FEED OL1</button>
+        <button class="knq-btn primary" onclick="KNQ.pullSap()" title="Tìm batch SAP CÙNG MÃ với mã bạn đã gõ, chép tồn SAP vào cột Thực còn cho batch D và E">⬇ Cập nhật D/E từ SAP</button>
+        <div class="knq-stats" id="knq-stats"></div>
+        <div class="spacer"></div>
+        <button class="knq-btn accent" onclick="KNQ.loadOld()" title="Tải nốt các dòng đã tick Xong để xem lại">📂 Xem dữ liệu cũ</button>
+        <button class="knq-btn" id="knq-save" onclick="KNQ.save()">💾 Lưu</button>
+        <button class="knq-btn success" onclick="KNQ.exportXlsx()">📤 Export</button>
+      </div>
+
+      <div class="knq-body">
+
+        <!-- ── C3 — PROPANE ── -->
+        <div class="knq-sec">
+          <div class="knq-sec-h" style="cursor:default">
+            <span>🛢 C3 — PROPANE · XNK KHO NGOẠI QUAN</span>
+            <span class="sub">1 chuyến tàu = 1 dòng GET IN · mỗi dòng GET OUT = 1 mã batch duy nhất · đơn vị KG · hàng vào kho từ tháng trước vẫn nằm đây cho tới khi tick ✔ Xong · P/X trừ lùi FIFO bằng FEED OL1 của KỲ đang chọn · D/E lấy tồn từ SAP</span>
+          </div>
+          <div class="knq-tw tall">
+            <table class="knq-tb wide">
+              <thead><tr>
+                <th style="width:26px" title="Tick khi đã khai Hải quan hoàn thành xuất kho">✔</th>
+                <th style="width:42px">STT</th>
+                <th style="width:112px">Loại dòng / Trạng thái</th>
+                <th style="width:88px">Nhà cung cấp / Lần xuất</th>
+                <th style="width:122px">Tên tàu</th>
+                <th style="width:106px">Ngày tờ khai</th>
+                <th style="width:112px">Số tờ khai</th>
+                <th style="width:106px">Ngày nhập/xuất</th>
+                <th style="width:100px">SAP - Lô / Mat</th>
+                <th style="width:112px">Loại lô</th>
+                <th style="width:96px" title="Lượng tồn của batch tại đầu kỳ đang chọn. Batch ra kho trong kỳ = số khai; batch kỳ trước = thực còn mang sang khi bấm 📌 Chốt kỳ.">Tồn đầu kỳ (kg)</th>
+                <th style="width:92px">Đã dùng trong kỳ (kg)</th>
+                <th style="width:96px">Thực còn KNQ (kg)</th>
+                <th style="width:76px">% đã bơm</th>
+                <th style="width:84px">Dự kiến hết</th>
+                <th style="width:66px">Đơn giá</th>
+                <th style="width:92px">Trọng lượng (kg)</th>
+                <th style="width:96px">Thành tiền</th>
+                <th style="width:96px">Còn lại của chuyến (kg)</th>
+                <th style="width:140px">Ghi chú</th>
+              </tr></thead>
+              <tbody id="knq-body-c3"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ── C4 — BUTANE ── -->
+        <div class="knq-sec">
+          <div class="knq-sec-h" style="cursor:default">
+            <span>🛢 C4 — BUTANE · XNK KHO NGOẠI QUAN</span>
+            <span class="sub">cùng bố cục với C3 · batch C4 dùng chung mã với C3 nên app khớp SAP theo cả Mat</span>
+          </div>
+          <div class="knq-tw tall">
+            <table class="knq-tb wide">
+              <thead><tr>
+                <th style="width:26px" title="Tick khi đã khai Hải quan hoàn thành xuất kho">✔</th>
+                <th style="width:42px">STT</th>
+                <th style="width:112px">Loại dòng / Trạng thái</th>
+                <th style="width:88px">Nhà cung cấp / Lần xuất</th>
+                <th style="width:122px">Tên tàu</th>
+                <th style="width:106px">Ngày tờ khai</th>
+                <th style="width:112px">Số tờ khai</th>
+                <th style="width:106px">Ngày nhập/xuất</th>
+                <th style="width:100px">SAP - Lô / Mat</th>
+                <th style="width:112px">Loại lô</th>
+                <th style="width:96px" title="Lượng tồn của batch tại đầu kỳ đang chọn. Batch ra kho trong kỳ = số khai; batch kỳ trước = thực còn mang sang khi bấm 📌 Chốt kỳ.">Tồn đầu kỳ (kg)</th>
+                <th style="width:92px">Đã dùng trong kỳ (kg)</th>
+                <th style="width:96px">Thực còn KNQ (kg)</th>
+                <th style="width:76px">% đã bơm</th>
+                <th style="width:84px">Dự kiến hết</th>
+                <th style="width:66px">Đơn giá</th>
+                <th style="width:92px">Trọng lượng (kg)</th>
+                <th style="width:96px">Thành tiền</th>
+                <th style="width:96px">Còn lại của chuyến (kg)</th>
+                <th style="width:140px">Ghi chú</th>
+              </tr></thead>
+              <tbody id="knq-body-c4"></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ═══ MODAL — ⛽ FEED OL1 (lượng dùng P / X hằng ngày) ═══ -->
+      <div class="knq-modal" id="knq-ol1">
+        <div class="knq-modal-box wide">
+          <div class="knq-modal-h">
+            <span>⛽ FEED OL1 — LƯỢNG DÙNG HẰNG NGÀY CHO BATCH P VÀ X</span>
+            <span class="spacer"></span>
+            <button onclick="KNQ.closeOl1()" title="Đóng">✕</button>
+          </div>
+          <div class="knq-modal-c">
+            <div class="knq-hint">
+              Bảng này là <b>nguồn trừ lùi FIFO</b> cho batch P và X: batch vào trước dùng trước,
+              mỗi batch chỉ nhận trừ từ <b>ngày xuất kho</b> của chính nó trở đi.
+              Ô <b>P</b> và <b>X</b> gõ tay số thực dùng; cột <b>Plan X</b> nạp từ file Excel
+              (nút 📥) và chỉ dùng để <b>chiếu tới tương lai</b> — ngày nào có số thực thì lấy số thực.
+              Plan P suy từ bình quân 7 ngày gần nhất.
+            </div>
+            <div class="knq-frow">
+              <label>Tháng</label>
+              <input type="month" id="knq-use-month" onchange="KNQ.onUseMonth()">
+              <label>Ngày thêm</label>
+              <input type="date" id="knq-use-new">
+              <button class="knq-btn" onclick="KNQ.addUseRow()">➕ Thêm ngày</button>
+              <button class="knq-btn" onclick="KNQ.fillUseMonth()">📅 Tạo cả tháng</button>
+              <span class="knq-sep"></span>
+              <label>Đơn vị</label>
+              <select id="knq-ol1-unit" onchange="KNQ.onOl1Unit()">
+                <option value="T">Tấn</option><option value="kg">kg</option>
+              </select>
+              <button class="knq-btn primary" onclick="KNQ.pickFile()" title="Đọc cột plan X từ file Excel">📥 Import plan X</button>
+              <input type="file" id="knq-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="KNQ.fileChosen(this)">
+            </div>
+            <div id="knq-imp" style="display:none"></div>
+            <div class="knq-tw">
+              <table class="knq-tb">
+                <thead><tr>
+                  <th style="width:96px">Ngày</th>
+                  <th style="width:110px">Tổng P+X (<span id="knq-use-unit-h">Tấn</span>)</th>
+                  <th style="width:120px">P — Petchem</th>
+                  <th style="width:120px">X — Export Petchem</th>
+                  <th style="width:110px">Plan X (import)</th>
+                  <th style="width:78px">Nguồn</th>
+                  <th>Ghi chú</th>
+                </tr></thead>
+                <tbody id="knq-use-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="knq-modal-f">
+            <button class="knq-btn" onclick="KNQ.closeOl1()">Đóng</button>
+            <button class="knq-btn success" onclick="KNQ.save()">💾 Lưu</button>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- ═══ TL DATA paste modal (RAM-only) ═══ -->
@@ -4312,7 +4469,7 @@
 <script src="js/data/tlxk.js?v=486"></script><!-- v4.86 — TL Data → sheet "Detail" của PHIẾU XUẤT KHO (.xlsm) -->
 <script src="js/data/wg.js"></script>
 <script src="js/data/ws.js"></script>
-<script src="js/data/sp.js"></script>
+<script src="js/data/sp.js?v=489"></script><!-- v4.89 — tách batch SLoc 1100 (bcode) cho tab KNQ -->
 <script src="js/data/ct.js"></script>
 <script src="js/data/pp.js"></script>
 <!-- checks -->
@@ -4327,6 +4484,7 @@
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>
 <script src="js/features/mthr.js"></script>
+<script src="js/features/knq.js?v=493a"></script><!-- v4.93a — XNK KNQ: batch không lọc theo tháng, tháng = KỲ trừ lùi, tồn đầu kỳ + 📌 Chốt kỳ, bảng gọn 20 cột -->
 <script src="js/features/inv.js?v=4.75"></script>
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
