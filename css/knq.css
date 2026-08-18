@@ -122,13 +122,23 @@
 .knq-tb tr.knq-gi td{ border-top:2px solid var(--navy,#123a63);border-bottom:1px solid #cfe2f5; }
 .knq-tb tr.knq-gi td:first-child{ box-shadow:inset 3px 0 0 var(--navy,#123a63); }
 .knq-tb tr.knq-go td:nth-child(2){ color:var(--ink-3); }
-.knq-tb tr.knq-go td:nth-child(5){ font-style:italic; }
+.knq-tb tr.knq-go td:nth-child(4){ font-style:italic; }   /* ô "↳ get out" — v4.95 dời từ cột 5 sang 4 */
 /* nhóm nút cuối dòng */
 .knq-acts{ display:flex;flex-wrap:wrap;gap:3px;align-items:center;margin-top:3px; }
 /* cột "dự kiến hết" khi sắp cạn */
 .knq-tb td.knq-hot{ color:#a8530a;font-weight:800;background:#fffaf2; }
 /* cột plan X trong bảng FEED OL1 — số nạp từ file, chỉ để tham chiếu */
 .knq-tb td.knq-plan{ color:#0d4ea0;font-weight:700;background:var(--blue-soft); }
+/* cột P của bảng FEED OL1 — TỰ TÍNH = TỔNG − X, không gõ được */
+.knq-tb td.knq-calc{ background:var(--panel-2);color:#157a40; }
+.knq-tb td.knq-calc.knq-dim{ color:var(--ink-3);font-weight:600; }
+/* ô dán bảng từ Excel */
+.knq-paste{
+  width:100%;box-sizing:border-box;border:1px dashed var(--blue);border-radius:6px;
+  padding:6px 8px;font-family:ui-monospace,'SFMono-Regular',Menlo,monospace;font-size:11px;
+  background:var(--panel);color:var(--ink);margin:4px 0;resize:vertical;
+}
+.knq-paste:focus{ outline:none;background:#fff; }
 
 /* badge trạng thái */
 .knq-b{

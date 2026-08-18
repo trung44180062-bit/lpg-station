@@ -10,7 +10,7 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=486">
+<link rel="stylesheet" href="css/core.css?v=486a">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
@@ -1649,6 +1649,7 @@
         <button class="eng-btn" id="engLoadAllBtn" onclick="ENG.loadAll()" title="Tải toàn bộ lot từ Firebase (mặc định chỉ tải 10 lot mới nhất)">📥 Load All</button>
         <button class="eng-btn green" onclick="ENG.openPaste()">📋 Paste Data</button>
         <button class="eng-btn blue" onclick="ENG.exportXlsx()">⬇ Export</button>
+        <button class="eng-btn amber" onclick="ENG.coqAudit()" title="Check every loaded lot: does it have an official Filled C3/C4 from the COQ? If not, exactly which input is missing — and back-fill the ones that can already be computed.">◈ COQ audit</button>
         <button class="eng-btn purple" onclick="ENG.openPrint()" title="Tìm lot và in phiếu dữ liệu lô ra khổ A4 (phục vụ đoàn kiểm tra / audit)">🖨 In phiếu</button>
         <button class="eng-btn red" onclick="ENG.rangeDelete()" title="Delete rows by date range (downloads a CSV backup first)">🗑 Range delete</button>
       </div>
@@ -1678,10 +1679,8 @@
             <th style="width:66px;color:var(--blue);background:#e8f4fd">Filled C3</th>
             <th style="width:66px;color:var(--orange);background:#fff5eb">Filled C4</th>
             <th style="width:66px;color:var(--red);background:#fef0f1">Filled LPG</th>
-            <th style="width:64px;color:#7b2d8e;background:#faf5ff" title="Filled C3 from the DENSITY TABLE (segment volume × saturated liquid density at the measured temperature)">C3 ▣Table</th>
-            <th style="width:64px;color:#7b2d8e;background:#faf5ff" title="Filled C4 from the DENSITY TABLE">C4 ▣Table</th>
-            <th style="width:64px;color:#b45309;background:#fffbeb" title="Filled C3 from the COQ (final mass × %wt C3 minus initial mass × %wt C3)">C3 ◈COQ</th>
-            <th style="width:64px;color:#b45309;background:#fffbeb" title="Filled C4 from the COQ">C4 ◈COQ</th>
+            <th style="width:66px;color:#b45309;background:#fffbeb" title="OFFICIAL — Filled C3 from the COQ mass balance: FINAL VOL × COQ density × %wt C3, minus INIT VOL × previous COQ density × previous %wt C3">C3 ◈COQ</th>
+            <th style="width:66px;color:#b45309;background:#fffbeb" title="OFFICIAL — Filled C4 from the COQ mass balance">C4 ◈COQ</th>
             <th style="width:46px" title="Which Filled C3/C4 figures get sent to Scale for the Check Booth — click the cell to change">⇒Scale</th>
             <th style="width:38px;color:var(--green);background:#eef8f2" title="Đã stock transfer trên WMS. Lot chưa tick sẽ được Allocation cộng thêm vào bồn.">ST</th>
             <th style="width:56px">Vol (m³)</th>
@@ -1741,6 +1740,7 @@
           <input type="file" id="engCoqFile" accept=".xlsx,.xls" style="display:none" onchange="ENG.coqChosen(this)">
           <button class="eng-edit-btn opengc" onclick="ENG.importCoq()" title="Import lab COQ (.xlsx) into this row — validates Lot + Shore Tank, fills GC / COQ fields (nothing saved until you press CALC+SAVE or SAVE)">📄 IMPORT COQ</button>
           <button class="eng-edit-btn csn" onclick="ENG.calcSaveClick()" title="DOUBLE-CLICK to recalculate Filled C3/C4 from GC + Final Vol + Density and save. A Pending/Fail row that becomes Pass auto-notifies Scale.">🧮 CALC + 💾 SAVE</button>
+          <button class="eng-edit-btn coqcalc" onclick="ENG.calcCoqOnly()" title="Recalculate ONLY the COQ figures (C3 ◈COQ / C4 ◈COQ) from Init Vol, Final Vol, Density, Pro/Bu %Wt and the initial state — and save them. Shows every step so you can check it by hand. Does not touch the GC columns, Quality, or Scale.">◈ CALC COQ</button>
           <button class="eng-edit-btn notify" onclick="ENG.notifyScale()" title="Push the CURRENT Filled C3/C4 values to the Scale Station 4-slot bar (no recalculation, no save)">📢 NOTIFY</button>
           <button class="eng-edit-btn save" onclick="ENG.saveEdit()">💾 SAVE</button>
           <button class="eng-edit-btn cancel" onclick="ENG.closeEdit()">Cancel</button>
@@ -1989,36 +1989,16 @@
                     onkeydown="MC.gcTabNext(event,this)"></div>
               </div>
               <!-- v4.55 — quality verdict vs spec table -->
-              <!-- v4.85 — HAI CÁCH TÍNH FILLED C3/C4 BỔ SUNG -->
+              <!-- v4.86 — PHƯƠNG PHÁP ② THEO COQ (bảng density đã gỡ) -->
               <div class="mc-alt" id="mc-alt1">
                 <div class="mc-alt-hdr">
-                  <span class="mc-alt-ttl">📐 METHOD ② — DENSITY TABLE</span>
-                  <button type="button" class="mc-alt-btn" onclick="DENS.open()"
-                    title="View / edit the saturated-liquid density table for C3 and C4 (shared by every workstation)">🌡 DENSITY TABLE</button>
+                  <span class="mc-alt-ttl">📄 METHOD ② — COQ (OFFICIAL FIGURE)</span>
                   <span style="flex:1;min-width:4px"></span>
                   <button type="button" class="mc-alt-btn" onclick="MC.altCalc('1')"
-                    title="Recalculate both additional methods">🧮 CALC BOTH</button>
+                    title="Recalculate Filled C3/C4 from the COQ mass balance">🧮 CALC COQ</button>
                 </div>
-                <div class="mc-alt-grid">
-                  <div class="mc-fld"><div class="mc-lbl" title="Tank volume once the FIRST product in the pump order has finished filling">MID VOL m³</div>
-                    <input class="mc-inp" id="dt1-mid" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
-                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue)">C3 TEMP °C</div>
-                    <input class="mc-inp" id="dt1-t3" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
-                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue)">C3 PRES kg/cm²G</div>
-                    <input class="mc-inp" id="dt1-p3" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
-                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">C4 TEMP °C</div>
-                    <input class="mc-inp" id="dt1-t4" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
-                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">C4 PRES kg/cm²G</div>
-                    <input class="mc-inp" id="dt1-p4" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('1')" onkeydown="MC.gcTabNext(event,this)"></div>
-                </div>
-                <div class="mc-alt-chk" id="dt1-chk" style="display:none"></div>
-                <div class="mc-alt-sub">📄 METHOD ③ — COQ · INITIAL STATE (heel in the tank before mixing)
-                  <span class="mc-alt-auto">pulled from the previous lot; click the badge to enter it by hand</span></div>
+                <div class="mc-alt-sub">INITIAL STATE — heel left in the tank before mixing
+                  <span class="mc-alt-auto">pulled from the COQ of the previous lot on this tank; click the badge to enter it by hand</span></div>
                 <div class="mc-alt-grid">
                   <div class="mc-fld"><div class="mc-lbl">INITIAL DENSITY ton/m³
                       <button type="button" id="dt1-icqm" class="mc-cr-mode-btn"
@@ -2035,6 +2015,7 @@
                       title="Re-pull density + Pro/Bu %Wt from the COQ of the most recent Pass lot on this tank">⟲ RE-PULL FROM PREVIOUS LOT</button></div>
                 </div>
                 <div class="mc-alt-src" id="dt1-isrc" style="display:none"></div>
+                <div class="mc-alt-chk" id="dt1-chk" style="display:none"></div>
                 <div class="mc-cmp" id="mc-cmp1" style="display:none"></div>
               </div>
               <div class="mc-qc" id="mc-qc1"></div>
@@ -2274,36 +2255,16 @@
                     onkeydown="MC.gcTabNext(event,this)"></div>
               </div>
               <!-- v4.55 — quality verdict vs spec table -->
-              <!-- v4.85 — HAI CÁCH TÍNH FILLED C3/C4 BỔ SUNG -->
+              <!-- v4.86 — PHƯƠNG PHÁP ② THEO COQ (bảng density đã gỡ) -->
               <div class="mc-alt" id="mc-alt2">
                 <div class="mc-alt-hdr">
-                  <span class="mc-alt-ttl">📐 METHOD ② — DENSITY TABLE</span>
-                  <button type="button" class="mc-alt-btn" onclick="DENS.open()"
-                    title="View / edit the saturated-liquid density table for C3 and C4 (shared by every workstation)">🌡 DENSITY TABLE</button>
+                  <span class="mc-alt-ttl">📄 METHOD ② — COQ (OFFICIAL FIGURE)</span>
                   <span style="flex:1;min-width:4px"></span>
                   <button type="button" class="mc-alt-btn" onclick="MC.altCalc('2')"
-                    title="Recalculate both additional methods">🧮 CALC BOTH</button>
+                    title="Recalculate Filled C3/C4 from the COQ mass balance">🧮 CALC COQ</button>
                 </div>
-                <div class="mc-alt-grid">
-                  <div class="mc-fld"><div class="mc-lbl" title="Tank volume once the FIRST product in the pump order has finished filling">MID VOL m³</div>
-                    <input class="mc-inp" id="dt2-mid" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
-                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue)">C3 TEMP °C</div>
-                    <input class="mc-inp" id="dt2-t3" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
-                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--blue)">C3 PRES kg/cm²G</div>
-                    <input class="mc-inp" id="dt2-p3" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
-                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">C4 TEMP °C</div>
-                    <input class="mc-inp" id="dt2-t4" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
-                  <div class="mc-fld"><div class="mc-lbl" style="color:var(--orange)">C4 PRES kg/cm²G</div>
-                    <input class="mc-inp" id="dt2-p4" type="text" inputmode="decimal"
-                      oninput="MC.altAuto('2')" onkeydown="MC.gcTabNext(event,this)"></div>
-                </div>
-                <div class="mc-alt-chk" id="dt2-chk" style="display:none"></div>
-                <div class="mc-alt-sub">📄 METHOD ③ — COQ · INITIAL STATE (heel in the tank before mixing)
-                  <span class="mc-alt-auto">pulled from the previous lot; click the badge to enter it by hand</span></div>
+                <div class="mc-alt-sub">INITIAL STATE — heel left in the tank before mixing
+                  <span class="mc-alt-auto">pulled from the COQ of the previous lot on this tank; click the badge to enter it by hand</span></div>
                 <div class="mc-alt-grid">
                   <div class="mc-fld"><div class="mc-lbl">INITIAL DENSITY ton/m³
                       <button type="button" id="dt2-icqm" class="mc-cr-mode-btn"
@@ -2320,6 +2281,7 @@
                       title="Re-pull density + Pro/Bu %Wt from the COQ of the most recent Pass lot on this tank">⟲ RE-PULL FROM PREVIOUS LOT</button></div>
                 </div>
                 <div class="mc-alt-src" id="dt2-isrc" style="display:none"></div>
+                <div class="mc-alt-chk" id="dt2-chk" style="display:none"></div>
                 <div class="mc-cmp" id="mc-cmp2" style="display:none"></div>
               </div>
               <div class="mc-qc" id="mc-qc2"></div>
@@ -2440,30 +2402,6 @@
         </div>
       </div>
 
-      <!-- v4.85 — BẢNG TRA DENSITY C3/C4 (lỏng bão hoà) — Firebase dùng chung -->
-      <div class="mc-cfg-backdrop dens-backdrop" id="dens-backdrop" onclick="if(event.target===this)DENS.close()">
-        <div class="mc-cfg-modal dens-modal">
-          <h3>🌡 C3 / C4 DENSITY TABLE (SATURATED LIQUID)</h3>
-          <div class="dens-warn">
-            ⚠ <b>MASTER DATA — EDITING THIS CHANGES CUSTODY-TRANSFER FIGURES.</b>
-            This table decides the C3/C4 mass filled into the tank whenever the density-table method is used.
-            Any change applies immediately on <b>every workstation</b> and requires a typed confirmation.
-          </div>
-          <div class="dens-tabs">
-            <button type="button" class="dens-tab on" id="dens-tab-c3" onclick="DENS.tab('c3')">C3 — PROPANE</button>
-            <button type="button" class="dens-tab" id="dens-tab-c4" onclick="DENS.tab('c4')">C4 — BUTANE</button>
-            <span style="flex:1"></span>
-            <button type="button" class="dens-mini" onclick="DENS.addRow()">➕ ADD ROW</button>
-            <button type="button" class="dens-mini dens-mini-amber" onclick="DENS.resetDraft()">↺ RESET TO DEFAULTS</button>
-          </div>
-          <div class="dens-meta" id="dens-meta"></div>
-          <div id="dens-body"></div>
-          <div class="mc-cfg-foot">
-            <button type="button" class="btn" onclick="DENS.close()">CLOSE</button>
-            <button type="button" class="btn btn-red" onclick="DENS.saveEdit()">💾 SAVE TABLE (CONFIRMATION REQUIRED)</button>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- ═══ VESSEL MIX CALCULATOR — port of V406 sm* (Ship Mixing) ═══ -->
@@ -3481,7 +3419,6 @@
                 <th style="width:26px" title="Tick khi đã khai Hải quan hoàn thành xuất kho">✔</th>
                 <th style="width:42px">STT</th>
                 <th style="width:112px">Loại dòng / Trạng thái</th>
-                <th style="width:88px">Nhà cung cấp / Lần xuất</th>
                 <th style="width:122px">Tên tàu</th>
                 <th style="width:106px">Ngày tờ khai</th>
                 <th style="width:112px">Số tờ khai</th>
@@ -3493,10 +3430,6 @@
                 <th style="width:96px">Thực còn KNQ (kg)</th>
                 <th style="width:76px">% đã bơm</th>
                 <th style="width:84px">Dự kiến hết</th>
-                <th style="width:66px">Đơn giá</th>
-                <th style="width:92px">Trọng lượng (kg)</th>
-                <th style="width:96px">Thành tiền</th>
-                <th style="width:96px">Còn lại của chuyến (kg)</th>
                 <th style="width:140px">Ghi chú</th>
               </tr></thead>
               <tbody id="knq-body-c3"></tbody>
@@ -3516,7 +3449,6 @@
                 <th style="width:26px" title="Tick khi đã khai Hải quan hoàn thành xuất kho">✔</th>
                 <th style="width:42px">STT</th>
                 <th style="width:112px">Loại dòng / Trạng thái</th>
-                <th style="width:88px">Nhà cung cấp / Lần xuất</th>
                 <th style="width:122px">Tên tàu</th>
                 <th style="width:106px">Ngày tờ khai</th>
                 <th style="width:112px">Số tờ khai</th>
@@ -3528,10 +3460,6 @@
                 <th style="width:96px">Thực còn KNQ (kg)</th>
                 <th style="width:76px">% đã bơm</th>
                 <th style="width:84px">Dự kiến hết</th>
-                <th style="width:66px">Đơn giá</th>
-                <th style="width:92px">Trọng lượng (kg)</th>
-                <th style="width:96px">Thành tiền</th>
-                <th style="width:96px">Còn lại của chuyến (kg)</th>
                 <th style="width:140px">Ghi chú</th>
               </tr></thead>
               <tbody id="knq-body-c4"></tbody>
@@ -3553,9 +3481,10 @@
             <div class="knq-hint">
               Bảng này là <b>nguồn trừ lùi FIFO</b> cho batch P và X: batch vào trước dùng trước,
               mỗi batch chỉ nhận trừ từ <b>ngày xuất kho</b> của chính nó trở đi.
-              Ô <b>P</b> và <b>X</b> gõ tay số thực dùng; cột <b>Plan X</b> nạp từ file Excel
-              (nút 📥) và chỉ dùng để <b>chiếu tới tương lai</b> — ngày nào có số thực thì lấy số thực.
-              Plan P suy từ bình quân 7 ngày gần nhất.
+              <b>TỔNG P+X</b> gõ tay — ngày nào chưa gõ thì <b>tạm tính 2.000 tấn</b>.
+              <b>X</b> gõ tay, nạp bằng <b>📥 Import Excel</b> hoặc <b>📋 Dán Excel</b> (copy cả cột
+              trong Excel rồi Ctrl+V ngay vào ô đầu tiên). <b>P = TỔNG − X</b>, tự tính, không gõ.
+              Import lấy số <b>Actual</b> tới ngày đầu tiên thiếu số, từ đó trở đi lấy <b>Plan</b>.
             </div>
             <div class="knq-frow">
               <label>Tháng</label>
@@ -3569,7 +3498,8 @@
               <select id="knq-ol1-unit" onchange="KNQ.onOl1Unit()">
                 <option value="T">Tấn</option><option value="kg">kg</option>
               </select>
-              <button class="knq-btn primary" onclick="KNQ.pickFile()" title="Đọc cột plan X từ file Excel">📥 Import plan X</button>
+              <button class="knq-btn primary" onclick="KNQ.pickFile()" title="Đọc cột X (actual + plan) từ file Excel">📥 Import Excel</button>
+              <button class="knq-btn" onclick="KNQ.pasteOpen()" title="Dán cả bảng copy từ Excel">📋 Dán Excel</button>
               <input type="file" id="knq-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="KNQ.fileChosen(this)">
             </div>
             <div id="knq-imp" style="display:none"></div>
@@ -3577,11 +3507,11 @@
               <table class="knq-tb">
                 <thead><tr>
                   <th style="width:96px">Ngày</th>
-                  <th style="width:110px">Tổng P+X (<span id="knq-use-unit-h">Tấn</span>)</th>
-                  <th style="width:120px">P — Petchem</th>
-                  <th style="width:120px">X — Export Petchem</th>
+                  <th style="width:118px" title="Gõ tay — bỏ trống thì tạm tính 2.000">Tổng P+X (<span id="knq-use-unit-h">Tấn</span>) ✍</th>
+                  <th style="width:120px" title="Tự tính = Tổng − X">P — Petchem <span class="knq-dim">(= Tổng − X)</span></th>
+                  <th style="width:130px" title="Gõ tay / import / dán">X — Export Petchem ✍</th>
                   <th style="width:110px">Plan X (import)</th>
-                  <th style="width:78px">Nguồn</th>
+                  <th style="width:78px">Nguồn X</th>
                   <th>Ghi chú</th>
                 </tr></thead>
                 <tbody id="knq-use-body"></tbody>
@@ -4464,7 +4394,7 @@
 <script src="js/checks/pasteguard.js"></script>
 <!-- data -->
 <script src="js/data/bulkops.js"></script>
-<script src="js/data/density.js?v=485"></script><!-- v4.85 — bảng tra density C3/C4 bão hoà -->
+<!-- v4.86 — js/data/density.js đã gỡ khỏi bản chạy: phương pháp tra bảng density không còn dùng -->
 <script src="js/data/tl.js"></script>
 <script src="js/data/tlxk.js?v=486"></script><!-- v4.86 — TL Data → sheet "Detail" của PHIẾU XUẤT KHO (.xlsm) -->
 <script src="js/data/wg.js"></script>
@@ -4480,7 +4410,7 @@
 <script src="js/features/plan.js?v=484"></script>
 <script src="js/features/scale.js?v=485"></script>
 <script src="js/features/fnote.js?v=484"></script><!-- Sổ ghi chú xe/tài xế — lazy, không tự đọc Firebase -->
-<script src="js/features/eng.js"></script>
+<script src="js/features/eng.js?v=486"></script>
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>
 <script src="js/features/mthr.js"></script>
@@ -4490,7 +4420,7 @@
 <script src="js/features/vlog.js"></script>
 <script src="js/features/plog.js"></script>
 <script src="js/features/staff.js"></script>
-<script src="js/features/mixctrl.js?v=469"></script>
+<script src="js/features/mixctrl.js?v=486"></script>
 <script src="js/features/vmix.js"></script>
 <script src="js/features/mixnotify.js"></script>
 <script src="js/features/cav.js"></script>

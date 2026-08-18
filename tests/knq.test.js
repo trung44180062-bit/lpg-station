@@ -11,7 +11,9 @@
  *   4  P/X — trừ lùi FIFO theo bảng FEED OL1 (vào trước dùng trước)
  *   5  dự báo hết batch bằng PLAN X đã import
  *   6  tách bảng theo Mat · tick ✔ Xong · an toàn ghi Firebase
- *   7b bảng KHÔNG lọc theo tháng · 7c kỳ trừ lùi + 📌 Chốt kỳ · 8 import plan X
+ *   7b bảng KHÔNG lọc theo tháng · 7c kỳ trừ lùi + 📌 Chốt kỳ
+ *   8  TỔNG P+X gõ tay · P = TỔNG − X · ngày trống tạm tính 2.000 T
+ *   8b dán cả cột từ Excel (Ctrl+V) · 9 import file C3 usage: actual → plan
  * Số liệu SAP lấy từ ZMMFR022 SLoc 1100 tải 17/08/2026 (fixtures).
  * ============================================================ */
 const fs=require('fs'), path=require('path');
@@ -285,36 +287,131 @@ chk('op lưu dạng map lồng theo kỳ, key không chứa dấu /',
     S.GO[X1].op && S.GO[X1].op['2026-08']!=null && Object.keys(S.GO[X1].op).every(k=>k.indexOf('/')<0),
     JSON.stringify(S.GO[X1].op));
 
-/* ---------- 8. 📥 import plan X từ file Excel ---------- */
-console.log('\n[8] 📥 IMPORT PLAN X — đúng bố cục sheet "Feed OL1" của người dùng');
-/* AOA y như sheet Feed OL1: Date | Total P+X | P | X | Remark, dòng cuối là TỔNG
-   mang lại ngày 16/08 → phải bị bỏ, không được đè lên plan của ngày đó. */
-const AOA=[['Date','Total P+X','P','X','Remark'],
-  [new Date(Date.UTC(2026,7,13)),1843.2, 894.086, 949.114,'Plan'],
-  [new Date(Date.UTC(2026,7,14)),1902.7,1247.084, 655.616,'Plan'],
-  ['15/08/2026',                 1947.3,1697.412, 249.888,'Plan'],   /* dd/mm/yyyy */
-  [46250,                        1821.1,1165.534, 655.566,'Plan'],   /* serial Excel 16/08 */
-  [new Date(Date.UTC(2026,7,17)),2000  , 674.706,1325.294,'Plan'],
-  [new Date(Date.UTC(2026,7,16)),29895.7,20709.376,9186.324,null]];  /* dòng TỔNG */
-global.XLSX={ read:()=>({SheetNames:['Feed OL1'],Sheets:{'Feed OL1':{}}}),
-  utils:{ sheet_to_json:()=>AOA } };
+/* ---------- 8. TỔNG P+X GÕ TAY · P = TỔNG − X · TẠM TÍNH 2.000 T ---------- */
+console.log('\n[8] TỔNG P+X GÕ TAY · P TỰ TÍNH · NGÀY TRỐNG TẠM TÍNH 2.000 TẤN');
+const DEF=S.DEF_TOT_KG, uOf=S.useOf, tOf=S.totOf;
+chk('mức tạm tính = 2.000 tấn/ngày', DEF===2000000, String(DEF));
+KNQ.setUse('2026-08-06','t','1900');            /* Tấn */
+KNQ.setUse('2026-08-06','x','552.997');
+chk('gõ TỔNG 1 900 T → lưu 1 900 000 kg', S.USE['2026-08-06'].t===1900000, String(S.USE['2026-08-06'].t));
+chk('P tự tính = TỔNG − X = 1 347 003 kg', uOf('2026-08-06','P','act')===1347003,
+    String(uOf('2026-08-06','P','act')));
+chk('X vẫn đúng số đã gõ', uOf('2026-08-06','X','act')===552997, String(uOf('2026-08-06','X','act')));
+KNQ.setUse('2026-08-07','x','654.896');          /* có X, CHƯA gõ TỔNG */
+chk('ngày chưa gõ TỔNG → tạm tính 2.000 T, P = 2 000 000 − 654 896',
+    tOf(S.USE['2026-08-07'])===null && uOf('2026-08-07','P','act')===1345104,
+    String(uOf('2026-08-07','P','act')));
+chk('ngày KHÔNG có dòng trong bảng thì không tạm tính gì cả',
+    uOf('2026-09-30','P','act')===0 && uOf('2026-09-30','X','act')===0);
+KNQ.setUse('2026-08-06','x','2500');             /* X > TỔNG */
+chk('X lớn hơn TỔNG → P về 0, không âm', uOf('2026-08-06','P','act')===0,
+    String(uOf('2026-08-06','P','act')));
+KNQ.setUse('2026-08-06','x','552.997');
+/* dữ liệu cũ (schema {p,x}) vẫn đọc được */
+S.USE['2026-07-20']={ p:1000000, x:400000, xp:'', note:'' };
+chk('dữ liệu cũ chỉ có P và X → quy về TỔNG = 1 400 000 kg',
+    tOf(S.USE['2026-07-20'])===1400000, String(tOf(S.USE['2026-07-20'])));
+chk('… và P đọc lại đúng 1 000 000 kg', uOf('2026-07-20','P','act')===1000000,
+    String(uOf('2026-07-20','P','act')));
+delete S.USE['2026-07-20'];
+
+/* ---------- 8b. 📋 DÁN NHIỀU DÒNG TỪ EXCEL ---------- */
+console.log('\n[8b] 📋 DÁN CẢ CỘT TỪ EXCEL (Ctrl+V) VÀO Ô ĐẦU TIÊN');
+const evOf=txt=>({ clipboardData:{ getData:()=>txt }, preventDefault(){} });
+KNQ.usePaste(evOf('1800\t500\n1850\t520\n1900\t540'),'2026-08-21','t');
+chk('dán 2 cột vào ô TỔNG → điền cả TỔNG lẫn X, xuôi 3 ngày',
+    S.USE['2026-08-21'].t===1800000 && S.USE['2026-08-21'].x===500000 &&
+    S.USE['2026-08-23'].t===1900000 && S.USE['2026-08-23'].x===540000,
+    JSON.stringify([S.USE['2026-08-21'],S.USE['2026-08-23']]));
+chk('ngày chưa có trong bảng được tạo luôn khi dán', !!S.USE['2026-08-22']);
+KNQ.usePaste(evOf('600\n610\n620'),'2026-08-21','x');
+chk('dán 1 cột vào ô X chỉ đụng cột X, TỔNG giữ nguyên',
+    S.USE['2026-08-21'].x===600000 && S.USE['2026-08-21'].t===1800000,
+    JSON.stringify(S.USE['2026-08-21']));
+chk('số dán tay được đánh dấu nguồn "gõ tay" (import không đè)', S.USE['2026-08-21'].xs==='m');
+KNQ.usePaste(evOf('700\n710\n720\n730\n740\n750\n760\n770\n780\n790\n800\n810'),'2026-08-30','x');
+chk('dán tràn sang tháng sau thì DỪNG, không ghi bậy sang tháng 9',
+    S.USE['2026-08-31'].x===710000 && !(S.USE['2026-09-01']||{}).x,
+    String(S.USE['2026-08-31'].x)+' / 01-09: '+String((S.USE['2026-09-01']||{}).x));
+['2026-08-21','2026-08-22','2026-08-23','2026-08-30','2026-08-31'].forEach(d=>KNQ.delUseRow(d));
+
+/* ---------- 9. 📥 IMPORT FILE C3 USAGE (KH) — ACTUAL rồi PLAN ---------- */
+console.log('\n[9] 📥 IMPORT — LẤY ACTUAL TỚI NGÀY THIẾU SỐ RỒI CHUYỂN SANG PLAN');
+/* AOA đúng bố cục sheet "일자별 C3사용량 (예상 및 실적)":
+   không có cột ngày đầy đủ, chỉ có cột 월 (tháng) và 일자 (ngày 1..31);
+   cột 7 = plan (계획으로 추정), cột 9 = actual (실적 기준). */
+const HEAD=['월 Month','일자 Date','Code',
+  '7월 말 재고 July end stock (MT)','8월 통관 수량 Declared qty in Aug (MT)',
+  '수출용 PP 생산계획 Ex.PP Production plan (MT)',
+  '관세유예 C3사용량 C3 EXP Usage qty (생산 계획으로 추정) (Estimated base on production plan) (MT)',
+  '수출용 PP 생산 실적 Actual Ex.PP Production qty (MT)',
+  '관세유예 C3사용량 Actual C3 EXP Usage qty (생산 실적 기준) (Base on actual production) (MT)',
+  '8월 재고 Aug end stock (MT)'];
+const PLAN={1:364.137,2:363.612,3:826.427,4:693.736,5:116.262,6:440.128,7:830.795,8:830.902,
+  9:709.215,10:420.701,11:709.131,12:965.96,13:949.114,14:655.616,15:249.888,16:655.566,
+  17:1325.294,18:1379.688,19:1416.316,20:299.557,21:787.359,22:794.777,23:1166.014,24:1551.004,
+  25:1695.558,26:1166.901,27:485.016,28:181.01,29:453.13,30:589.537,31:589.537};
+const ACT={1:537.413,2:0,3:364.499,4:697.652,5:475.26,6:552.997,7:654.896,8:298.649,
+  9:438.874,10:704.488,11:670.413,12:1280.999,
+  14:999};                       /* BẪY: ngày 13 trống nhưng 14 có số → vẫn phải lấy PLAN */
+const AOA2=[['일자별 C3사용량 (8월 예상 및 실적)'],HEAD];
+for(let d=1;d<=31;d++) AOA2.push([8,d,String(800+d),null,null,400,PLAN[d],null,
+  (ACT[d]===undefined?null:ACT[d]),13496.188]);
+AOA2.push(['Total',null,null,null,14000,22925,23661.888,6027,6676.14,13496.188]);
+global.XLSX={ read:()=>({SheetNames:['일자별 C3사용량 (예상 및 실적)','8월 예상 BOM'],
+    Sheets:{'일자별 C3사용량 (예상 및 실적)':{},'8월 예상 BOM':{}}}),
+  utils:{ sheet_to_json:()=>AOA2 } };
 global.FileReader=function(){ this.readAsArrayBuffer=()=>this.onload({target:{result:new Uint8Array(1)}}); };
-KNQ.fileChosen({ files:[{ name:'Feed OL1.xlsx' }] });
+S.setMonth('2026-08');
+KNQ.fileChosen({ files:[{ name:'2. C3 usage for export production.xlsx' }] });
 const imp=S.imp();
-chk('đọc được file, dựng khay chọn cột', !!imp && imp.body.length===6, imp?String(imp.body.length):'—');
-chk('đoán ĐÚNG cột ngày = 1 và cột plan X = 4 (không nhầm cột "Total P+X")',
-    imp.dCol===0 && imp.xCol===3, 'ngày='+(imp.dCol+1)+' · X='+(imp.xCol+1));
+chk('đọc được file, dựng khay chọn cột', !!imp && imp.body.length===32, imp?String(imp.body.length):'—');
+chk('tự chọn sheet C3 사용량, bỏ qua sheet BOM',
+    imp.sheet==='일자별 C3사용량 (예상 및 실적)', imp.sheet);
+chk('file không có cột ngày đầy đủ → nhận ra cột NGÀY 1–31 (cột 2)',
+    imp.dCol===-1 && imp.dayCol===1, 'dCol='+imp.dCol+' · dayCol='+imp.dayCol);
+chk('đọc "8월" ở tiêu đề → áp vào tháng 2026-08', imp.month==='2026-08', imp.month);
+chk('đoán ĐÚNG cột ACTUAL = 9 (실적 기준), không nhầm sang cột PP',
+    imp.aCol===8, 'cột '+(imp.aCol+1)+' — '+(imp.head[imp.aCol]||'').slice(0,30));
+chk('đoán ĐÚNG cột PLAN = 7 (계획으로 추정), không nhầm cột tồn kho / tổng',
+    imp.pCol===6, 'cột '+(imp.pCol+1)+' — '+(imp.head[imp.pCol]||'').slice(0,30));
 chk('mặc định đơn vị Tấn', imp.unit==='T');
+const pre=S.impRows();
+chk('xem trước: 12 ngày actual, 19 ngày plan (ngày 13 trở đi)',
+    pre.filter(o=>o.src==='a').length===12 && pre.filter(o=>o.src==='p').length===19,
+    pre.filter(o=>o.src==='a').length+' / '+pre.filter(o=>o.src==='p').length);
+chk('dòng Total không có ngày → bị bỏ, không đè lên ngày nào', pre.length===31, String(pre.length));
 KNQ.impApply();
-chk('plan X 17/08 = 1 325.294 T → 1 325 294 kg', K(S.USE['2026-08-17'].xp)===1325294, String(S.USE['2026-08-17'].xp));
-chk('đọc được ngày dd/mm/yyyy (15/08)', K(S.USE['2026-08-15'].xp)===249888, String(S.USE['2026-08-15'].xp));
-chk('đọc được serial Excel (16/08)', K(S.USE['2026-08-16'].xp)===655566, String(S.USE['2026-08-16'].xp));
-chk('dòng TỔNG trùng ngày 16/08 bị bỏ, KHÔNG đè lên plan',
-    K(S.USE['2026-08-16'].xp)!==9186324, String(S.USE['2026-08-16'].xp));
-chk('import CHỈ ghi cột plan X, không đụng số dùng thực P/X đã gõ',
-    S.USE['2026-08-01'].x===537413 && (S.USE['2026-08-17'].x===undefined||S.USE['2026-08-17'].x===''),
-    String(S.USE['2026-08-01'].x));
+chk('ngày 12/08 lấy ACTUAL 1 280.999 T → 1 280 999 kg',
+    K(S.USE['2026-08-12'].x)===1280999 && S.USE['2026-08-12'].xs==='a', String(S.USE['2026-08-12'].x));
+const p02=pre.filter(o=>o.d==='2026-08-02')[0]||{};
+chk('ngày 02/08 actual = 0 vẫn là SỐ THẬT, không coi là trống → không chuyển sang plan',
+    p02.v===0 && p02.src==='a', JSON.stringify(p02));
+chk('ngày 13/08 thiếu actual → chuyển sang PLAN 949.114 T',
+    K(S.USE['2026-08-13'].x)===949114 && S.USE['2026-08-13'].xs==='p', String(S.USE['2026-08-13'].x));
+chk('ngày 14/08 CÓ actual nhưng đã qua mốc → vẫn lấy PLAN 655.616 T (không quay lại)',
+    K(S.USE['2026-08-14'].x)===655616 && S.USE['2026-08-14'].xs==='p', String(S.USE['2026-08-14'].x));
+chk('ngày 17/08 plan 1 325.294 T → 1 325 294 kg', K(S.USE['2026-08-17'].x)===1325294,
+    String(S.USE['2026-08-17'].x));
+chk('cột Plan X vẫn giữ plan gốc của MỌI ngày, kể cả ngày lấy actual',
+    K(S.USE['2026-08-01'].xp)===364137 && K(S.USE['2026-08-17'].xp)===1325294,
+    String(S.USE['2026-08-01'].xp));
+chk('KHÔNG đè số X đã gõ tay (01/08 giữ 537 413 kg dù file ghi khác)',
+    K(S.USE['2026-08-01'].x)===537413 && S.USE['2026-08-01'].xs==='m', String(S.USE['2026-08-01'].x));
+chk('P của ngày lấy plan tự tính theo TỔNG tạm tính 2.000 T',
+    uOf('2026-08-17','P','act')===2000000-1325294, String(uOf('2026-08-17','P','act')));
 chk('khay chọn cột đóng lại sau khi áp dụng', S.imp()===null);
+/* bật "đè cả số đã gõ tay" */
+KNQ.fileChosen({ files:[{ name:'2. C3 usage.xlsx' }] });
+KNQ.impSet('ow',true);
+KNQ.impApply();
+chk('tick "đè cả số đã gõ tay" → 01/08 nhận số của file',
+    K(S.USE['2026-08-01'].x)===537413 && S.USE['2026-08-01'].xs==='a', String(S.USE['2026-08-01'].xs));
+chk('… và 02/08 ghi đúng số 0 của cột actual',
+    S.USE['2026-08-02'].x===0 && S.USE['2026-08-02'].xs==='a', String(S.USE['2026-08-02'].x));
+KNQ.recalc();
+chk('sau import, trừ lùi FIFO vẫn chạy — batch X có số dùng trong kỳ',
+    S.GO[X2].usedKg>0, String(K(S.GO[X2].usedKg)));
 
 console.log('\n'+(fail?('❌ '+fail+' KIỂM TRA THẤT BẠI'):'✅ TẤT CẢ KIỂM TRA ĐỀU ĐẠT'));
 process.exit(fail?1:0);

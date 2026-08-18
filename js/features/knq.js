@@ -1,5 +1,5 @@
 /* ============================================================
- * KNQ — knq.js   (v4.93a) ·  XNK KHO NGOẠI QUAN (bonded warehouse)
+ * KNQ — knq.js   (v4.95) ·  XNK KHO NGOẠI QUAN (bonded warehouse)
  * ------------------------------------------------------------
  * Tab: REPORTS ▸ 🛃 KNQ (XNK)   —   pane #rpt-pg-knq
  * Global: window.KNQ      ·      Firebase node: 'knq_bonded'
@@ -10,8 +10,12 @@
  *   • 1 dòng GET IN   cho MỖI chuyến tàu  (tờ khai nhập, tổng trọng lượng)
  *   • NHIỀU dòng GET OUT dưới nó, mỗi dòng = 1 MÃ BATCH DUY NHẤT
  * Toàn bộ gõ tay (bảng dựng giữa lúc đang vận hành). ĐƠN VỊ = KG.
- * v4.93a — 20 cột, đã bỏ Giờ khai báo · Giờ HQ phản hồi · Số PXK/PNK ·
- * Ngày nộp · Ngày nhận · PXKT/PNKT (quản lý bên Excel) để bảng lọt màn hình.
+ * v4.93a — đã bỏ Giờ khai báo · Giờ HQ phản hồi · Số PXK/PNK · Ngày nộp ·
+ * Ngày nhận · PXKT/PNKT (quản lý bên Excel) để bảng lọt màn hình.
+ * v4.95 — bỏ tiếp Đơn giá · Trọng lượng (kg) · Thành tiền · Còn lại của
+ * chuyến (kg) · Nhà cung cấp / Lần xuất → còn 15 cột. Số cũ KHÔNG bị xoá:
+ * vẫn nằm trong Firebase và vẫn ra sheet Excel khi bấm 📤 Export, chỉ không
+ * hiện / không sửa được trên bảng nữa.
  *
  * ⚠ BẢNG KHÔNG LỌC THEO THÁNG. Hàng vào kho ngoại quan có thể từ nhiều
  * tháng trước và vẫn đang được trừ lùi; batch chỉ rời bộ dữ liệu khi người
@@ -23,6 +27,12 @@
  *   2. Gõ "Tồn đầu kỳ" cho batch mới (batch cũ: khai lượng đang còn).
  *   3. Gõ FEED OL1 hằng ngày → app trừ lùi FIFO trong kỳ, dự báo ngày hết
  *      bằng plan X đã import.
+ *      v4.94 — BẢNG FEED OL1 ĐỔI CÁCH NHẬP:
+ *        • TỔNG P+X  gõ tay (chưa gõ → TẠM TÍNH 2.000 tấn/ngày)
+ *        • X         gõ tay · 📥 import Excel · 📋 dán (Ctrl+V) nhiều dòng
+ *        • P         KHÔNG gõ nữa — tự tính = TỔNG − X
+ *        Import ghép ACTUAL → tới ngày đầu tiên thiếu actual thì lấy PLAN
+ *        cho phần còn lại (đúng cách đọc file C3 usage của KH).
  *   4. Cuối tháng: tick ✔ Xong các batch đã dùng hết → bấm 📌 CHỐT KỲ.
  *      Thực còn cuối kỳ ⇒ TỒN ĐẦU KỲ của kỳ sau (op[kỳ]); batch đã tick
  *      không chuyển sang. Số của kỳ cũ được giữ nguyên để tra lại.
@@ -54,12 +64,19 @@ const KNQ = (function(){
   const WARN_DAYS = 7;             /* còn ≤ 7 ngày → tô cam                 */
   const AVG_DAYS  = 7;             /* bình quân mấy ngày để suy plan P      */
   const HORIZON   = 240;           /* chiếu tối đa bao nhiêu ngày về tương lai */
-  const COLS      = 20;            /* số cột của bảng chính (dùng cho colspan) */
+  const COLS      = 15;            /* số cột của bảng chính (dùng cho colspan) */
+  const DEF_TOT_KG= 2000000;       /* ngày chưa gõ TỔNG P+X → TẠM TÍNH 2.000 tấn */
 
   /* ── RAM ─────────────────────────────────────────────────── */
   const GI  = {};                  /* id → dòng GET IN  (1 chuyến tàu)      */
   const GO  = {};                  /* id → dòng GET OUT (1 mã batch)        */
-  const USE = {};                  /* 'YYYY-MM-DD' → {p,x,xp,note} — KG     */
+  /* USE: 'YYYY-MM-DD' → { t, x, xp, xs, note } — ĐƠN VỊ KG
+       t  = TỔNG P+X gõ tay (chưa gõ → tạm tính DEF_TOT_KG)
+       x  = X (Export Petchem) — gõ tay / import / dán Excel
+       xp = plan X gốc từ file (chỉ để đối chiếu + chiếu tương lai)
+       xs = nguồn của ô x: 'm' gõ tay · 'a' actual từ file · 'p' plan từ file
+       p  = SCHEMA CŨ (P gõ tay) — vẫn đọc để không mất dữ liệu, không ghi mới */
+  const USE = {};
   const SAPB= { C3:{}, C4:{} };    /* mat → mã batch → {endKg,date}         */
 
   let _loaded=false, _allLoaded=false, _initDone=false;
@@ -67,6 +84,9 @@ const KNQ = (function(){
   let _month='', _useMonth='', _sapAsOf='';
   let _olUnit='T';                 /* đơn vị gõ ở modal OL1: 'T' hay 'kg'   */
   let _imp=null;                   /* bảng thô vừa đọc từ file Excel        */
+  let _wb=null;                    /* workbook đang mở (để đổi sheet)       */
+  let _paste=false;                /* đang mở ô dán từ Excel                */
+  let _avg={P:0,X:0};              /* bình quân 7 ngày, tính 1 lần mỗi recalc */
   const _open={};                  /* giId → false nếu đang gập             */
 
   /* ============================================================
@@ -175,25 +195,55 @@ const KNQ = (function(){
     return Object.values(GO).filter(r=>r.giId===giId)
       .sort((a,b)=>{ const ka=_sortKey(a), kb=_sortKey(b); return ka<kb?-1:(ka>kb?1:0); });
   }
-  /* lượng dùng KG của ngày d cho loại L.
-     mode 'act'  = CHỈ số gõ tay — dùng cho "Thực còn", tuyệt đối không lấy
-                   plan, vì con số này sẽ bị đóng băng khi Chốt kỳ.
-     mode 'proj' = số gõ tay, thiếu thì plan X, thiếu nữa thì bình quân. */
-  function _useOf(d,L,mode,avg){
-    const u=USE[d], k=(L==='P')?'p':'x';
-    if(L!=='P'&&L!=='X') return 0;
-    if(u){ const a=_num(u[k]); if(a!=null) return a; }
+  /* ============================================================
+     LƯỢNG DÙNG MỘT NGÀY  —  TỔNG P+X GÕ TAY, P SUY RA
+     ------------------------------------------------------------
+     Người dùng gõ TỔNG P+X (feed OL1 cả ngày) và X (Export Petchem,
+     gõ tay / import / dán Excel).  P = TỔNG − X, KHÔNG gõ nữa.
+     Ngày chưa gõ TỔNG → TẠM TÍNH DEF_TOT_KG (2.000 tấn/ngày).
+  ============================================================ */
+  /* TỔNG P+X thật của ngày (kg) — null nếu chưa gõ.
+     Dữ liệu cũ chỉ có {p,x} rời → quy về tổng để không mất số. */
+  function _totOf(u){
+    if(!u) return null;
+    const t=_num(u.t); if(t!=null) return t;
+    const p=_num(u.p);                       /* schema cũ */
+    if(p!=null){ const x=_num(u.x); return p+(x==null?0:x); }
+    return null;
+  }
+  function _totEff(u){ const t=_totOf(u); return (t!=null)?t:DEF_TOT_KG; }
+  /* X có hiệu lực (kg).
+     'act'  = CHỈ ô X (gõ tay hoặc đã import vào ô X) — dùng cho Thực còn.
+     'proj' = thiếu thì lấy plan X, thiếu nữa thì bình quân. */
+  function _xOf(u,mode,avg){
+    const x=_num(u&&u.x); if(x!=null) return x;
     if(mode!=='proj') return 0;
-    if(L==='X' && u){ const p=_num(u.xp); if(p!=null) return p; }
+    const p=_num(u&&u.xp); if(p!=null) return p;
     return avg||0;
   }
-  /* bình quân AVG_DAYS ngày gần nhất CÓ GÕ SỐ (kg/ngày) */
+  /* P suy ra của ngày (kg), không âm */
+  function _pOf(u,mode,avgX){ return Math.max(0,_totEff(u)-_xOf(u,mode,avgX)); }
+  function _useOf(d,L,mode,avg){
+    if(L!=='P'&&L!=='X') return 0;
+    const pj=(mode==='proj');
+    const u=USE[d];
+    /* ngày KHÔNG có dòng trong bảng FEED OL1: lượt thực = 0, lượt chiếu =
+       bình quân. KHÔNG áp 2.000 tấn ở đây — mức tạm tính chỉ dành cho ngày
+       ĐÃ có dòng mà người dùng chưa gõ TỔNG. */
+    if(!u) return pj?(avg||0):0;
+    if(L==='X') return _xOf(u,mode,pj?avg:0);
+    return _pOf(u,mode,pj?_avg.X:0);
+  }
+  /* bình quân AVG_DAYS ngày gần nhất CÓ SỐ (kg/ngày) */
   function _avgRate(L){
-    const k=(L==='P')?'p':'x';
-    const t=_today();
-    const ds=Object.keys(USE).filter(d=>d<=t && _num(USE[d][k])!=null).sort().slice(-AVG_DAYS);
-    if(!ds.length) return 0;
-    return ds.reduce((a,d)=>a+_n(USE[d][k]),0)/ds.length;
+    const t=_today(), v=[];
+    Object.keys(USE).filter(d=>d<=t).sort().forEach(d=>{
+      const u=USE[d]||{};
+      if(L==='X'){ const x=_num(u.x); if(x!=null) v.push(x); }
+      else if(_totOf(u)!=null) v.push(_pOf(u,'act',0));
+    });
+    const last=v.slice(-AVG_DAYS);
+    return last.length ? last.reduce((a,b)=>a+b,0)/last.length : 0;
   }
 
   function recalc(){
@@ -247,12 +297,13 @@ const KNQ = (function(){
        (số của kỳ trước đã nằm trong tồn đầu kỳ rồi — trừ lại là đếm đôi).
        • lượt 1 "thực": chỉ ngày trong kỳ và ≤ hôm nay        → Thực còn
        • lượt 2 "chiếu": chạy tiếp sang các kỳ sau bằng plan  → Dự kiến hết */
+    _avg={ P:_avgRate('P'), X:_avgRate('X') };
     MATS.forEach(mat=>{
       ['P','X'].forEach(L=>{
         const rows=gos.filter(r=>r.mat===mat && r.letter===L && !r.hqDone && r.baseKg!=null)
           .sort((a,b)=>{ const ka=_sortKey(a), kb=_sortKey(b); return ka<kb?-1:(ka>kb?1:0); });
         if(!rows.length) return;
-        const avg=_avgRate(L);
+        const avg=_avg[L];
         const eligible=(r,d)=>{ const out=_outDate(r); return !(out && out>d); };
 
         /* ---- lượt 1: THỰC CÒN ---- */
@@ -637,11 +688,47 @@ const KNQ = (function(){
   function _disp(kg){ if(kg==null) return ''; const v=kg/_f();
     return Number(v).toLocaleString('en-US',{maximumFractionDigits:_olUnit==='kg'?0:3}); }
 
+  /* ghi 1 ô số của bảng FEED OL1.
+     field 't' = TỔNG P+X · 'x' = X. Field 'p' (schema cũ) vẫn nhận để dữ
+     liệu/kiểm thử cũ không vỡ, nhưng UI không còn ô P nữa. */
   function setUse(date,field,val){
     const u=USE[date]||{}; const v=_num(val);
     u[field]=(v==null?'':Math.round(v*_f()*1000)/1000);
+    if(field==='x') u.xs=(v==null?'':'m');       /* gõ tay → không cho import đè */
+    if(field==='t' && _num(u.t)!=null) delete u.p;   /* tổng là số chính, bỏ P cũ */
     USE[date]=u; _mark('use/'+date,u);
-    _renderUse();
+    _renderUse(); render();
+  }
+  /* ── DÁN NHIỀU DÒNG TỪ EXCEL ────────────────────────────────
+     Copy 1 cột (hoặc 2 cột TỔNG + X) trong Excel → bấm vào ô đầu → Ctrl+V.
+     Dán xuôi xuống theo NGÀY, thiếu ngày thì tự tạo trong tháng đang xem. */
+  function usePaste(ev,date,field){
+    const cb=ev&&(ev.clipboardData||window.clipboardData); if(!cb) return;
+    let txt=''; try{ txt=cb.getData('text/plain')||''; }catch(_){ return; }
+    if(!/[\r\n\t]/.test(txt.trim())) return;        /* 1 ô → dán bình thường */
+    ev.preventDefault();
+    const grid=txt.replace(/\r/g,'').split('\n').filter(l=>l.trim()!=='').map(l=>l.split('\t'));
+    const order=(field==='t')?['t','x']:['x'];
+    let n=0, out=0;
+    grid.forEach((cells,k)=>{
+      const d=_addDays(date,k);
+      if(!d || _ym(d)!==_ym(date)){ out++; return; }   /* không tràn sang tháng khác */
+      const u=USE[d]||{};
+      order.forEach((f,c)=>{
+        if(c>=cells.length) return;
+        const raw=String(cells[c]==null?'':cells[c]).trim();
+        const v=_num(raw);
+        if(v==null && raw!=='') return;                /* ô chữ → bỏ qua, giữ số cũ */
+        u[f]=(v==null?'':Math.round(v*_f()*1000)/1000);
+        if(f==='x') u.xs=(v==null?'':'m');
+      });
+      if(_num(u.t)!=null) delete u.p;
+      USE[d]=u; _mark('use/'+d,u); n++;
+    });
+    _useMonth=_ym(date);
+    _renderUse(); render();
+    _say('📋 Đã dán '+n+' ngày từ '+_dmy(date)+
+         (out?(' · bỏ '+out+' dòng tràn sang tháng khác'):'')+' — nhớ 💾 Lưu','ok');
   }
   function setUseNote(date,val){ const u=USE[date]||{}; u.note=val; USE[date]=u; _mark('use/'+date,u); }
   function useKey(ev,date,field){
@@ -656,7 +743,7 @@ const KNQ = (function(){
     const inp=document.getElementById('knq-use-new');
     const d=(inp&&inp.value)||_today();
     if(USE[d]){ _say('Ngày '+_dmy(d)+' đã có','warn'); return; }
-    USE[d]={ p:'', x:'', xp:'', note:'' }; _mark('use/'+d,USE[d]);
+    USE[d]={ t:'', x:'', xp:'', note:'' }; _mark('use/'+d,USE[d]);
     _useMonth=_ym(d); const m=document.getElementById('knq-use-month'); if(m) m.value=_useMonth;
     _renderUse();
   }
@@ -666,7 +753,7 @@ const KNQ = (function(){
     let n=0;
     for(let d=1;d<=last;d++){
       const k=_useMonth+'-'+String(d).padStart(2,'0');
-      if(!USE[k]){ USE[k]={p:'',x:'',xp:'',note:''}; _mark('use/'+k,USE[k]); n++; }
+      if(!USE[k]){ USE[k]={t:'',x:'',xp:'',note:''}; _mark('use/'+k,USE[k]); n++; }
     }
     _renderUse(); _say('📅 Thêm '+n+' ngày trống cho tháng '+_useMonth,'ok');
   }
@@ -680,8 +767,16 @@ const KNQ = (function(){
     _useMonth=e.value||''; _renderUse(); }
 
   /* ============================================================
-     📥 IMPORT PLAN X TỪ EXCEL
-     Đọc file → cho người dùng chọn CỘT NGÀY và CỘT PLAN X → áp dụng.
+     📥 IMPORT X TỪ EXCEL  /  📋 DÁN TỪ EXCEL
+     ------------------------------------------------------------
+     Bố cục file KH (sheet "일자별 C3사용량 (예상 및 실적)"):
+        cột NGÀY = ngày trong tháng (1..31), KHÔNG phải ngày đầy đủ
+        cột PLAN   = 관세유예 C3사용량 (생산 계획으로 추정)
+        cột ACTUAL = 관세유예 C3사용량 (생산 실적 기준)
+     GHÉP: lấy ACTUAL từ đầu tháng cho tới NGÀY ĐẦU TIÊN THIẾU ACTUAL,
+     từ ngày đó trở đi lấy PLAN cho hết tháng (không quay lại actual nữa,
+     đúng như cách người dùng đọc file).  Kết quả ghi thẳng vào ô X;
+     cột "Plan X" vẫn giữ số plan gốc để đối chiếu.
   ============================================================ */
   function pickFile(){ const f=document.getElementById('knq-file'); if(f){ f.value=''; f.click(); } }
   function fileChosen(input){
@@ -690,52 +785,123 @@ const KNQ = (function(){
     const rd=new FileReader();
     rd.onload=e=>{
       try{
-        const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
-        const sh=wb.Sheets[wb.SheetNames[0]];
-        const aoa=XLSX.utils.sheet_to_json(sh,{header:1,raw:true,defval:null});
-        _imp=_prepImp(aoa,f.name);
+        _wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+        const names=_wb.SheetNames||[];
+        const sh=_pickSheet(names);
+        _paste=false;
+        _imp=_prepImp(_aoaOf(sh),f.name,sh,names);
         _renderImp();
-        _say('📥 Đã đọc '+f.name+' — chọn cột rồi bấm ÁP DỤNG','ok');
+        _say('📥 Đã đọc '+f.name+' — kiểm tra cột rồi bấm ÁP DỤNG','ok');
       }catch(err){ console.warn('[KNQ] import',err); _say('❌ Không đọc được file: '+err.message,'er'); }
     };
     rd.readAsArrayBuffer(f);
   }
-  /* chuẩn hoá bảng thô: tìm dòng tiêu đề, đoán cột ngày + cột plan X */
-  function _prepImp(aoa,fname){
+  function _aoaOf(name){
+    const sh=_wb&&_wb.Sheets?_wb.Sheets[name]:null;
+    return XLSX.utils.sheet_to_json(sh||{},{header:1,raw:true,defval:null});
+  }
+  /* sheet nào chứa lượng dùng C3 hằng ngày */
+  function _pickSheet(names){
+    const L=names||[];
+    let best=L[0]||'', bs=-1;
+    L.forEach(n=>{
+      const h=String(n).toLowerCase();
+      let sc=0;
+      if(/c3/.test(h))                              sc+=4;
+      if(/사용량|usage|feed|ol1|dùng/.test(h))       sc+=4;
+      if(/일자별|daily|hằng ngày|hang ngay/.test(h)) sc+=3;
+      if(/bom|생산|production|재고|stock/.test(h))   sc-=3;
+      if(sc>bs){ bs=sc; best=n; }
+    });
+    return best;
+  }
+  /* 📋 dán bảng từ Excel → đi chung đường với import file */
+  function pasteOpen(){ _paste=true; _imp=null; _renderImp();
+    setTimeout(()=>{ const t=document.getElementById('knq-paste-txt'); if(t) t.focus(); },40); }
+  function pasteCancel(){ _paste=false; _renderImp(); }
+  function pasteRead(){
+    const t=document.getElementById('knq-paste-txt');
+    const txt=(t&&t.value)||'';
+    if(!txt.trim()){ _say('⚠ Chưa dán gì cả','warn'); return; }
+    const aoa=txt.replace(/\r/g,'').split('\n').filter(l=>l.trim()!=='')
+                 .map(l=>l.split('\t').map(c=>{ const n=_num(c); return (n!=null&&String(c).trim()!=='')?n:c; }));
+    try{
+      _paste=false;
+      _imp=_prepImp(aoa,'(dán từ Excel)','',[]);
+      _renderImp();
+      _say('📋 Đã đọc '+_imp.body.length+' dòng — kiểm tra cột rồi bấm ÁP DỤNG','ok');
+    }catch(err){ _say('❌ Không đọc được: '+err.message,'er'); }
+  }
+
+  /* chấm điểm 1 tiêu đề cột cho vai trò 'act' (thực tế) hoặc 'plan' */
+  function _hScore(h,kind){
+    h=String(h||'').toLowerCase();
+    let s=0;
+    if(/c3/.test(h))                                              s+=5;
+    if(/사용량|usage|feed|dùng|dung/.test(h))                     s+=4;
+    if(/생산|production|\bpp\b/.test(h))                          s-=3;
+    if(/stock|재고|통관|declared|tồn|ton kho/.test(h))            s-=6;
+    if(/total|합계|tổng|sum|p\s*\+\s*x/.test(h))                  s-=6;
+    if(/(^|[^a-z])x([^a-z]|$)/.test(h))                           s+=3;
+    const isAct =/actual|실적|thực|thuc te/.test(h);
+    const isPlan=/plan|계획|예상|추정|estimat|kế hoạch|ke hoach/.test(h);
+    if(kind==='act'){ if(isAct) s+=6; if(isPlan) s-=6; }
+    else            { if(isPlan) s+=6; if(isAct) s-=6; }
+    return s;
+  }
+  /* chuẩn hoá bảng thô: tìm dòng tiêu đề, đoán cột ngày + cột actual/plan */
+  function _prepImp(aoa,fname,sheet,sheets){
     const rows=(aoa||[]).filter(r=>r&&r.some(c=>c!=null&&String(c).trim()!==''));
-    if(!rows.length) throw new Error('file rỗng');
+    if(!rows.length) throw new Error('không có dòng nào');
     let hdr=0, best=-1;
-    rows.slice(0,10).forEach((r,i)=>{
+    rows.slice(0,12).forEach((r,i)=>{
       const s=r.filter(c=>typeof c==='string'&&String(c).trim()).length;
       if(s>best){ best=s; hdr=i; }
     });
-    const head=(rows[hdr]||[]).map((c,i)=>String(c==null?('Cột '+(i+1)):c).trim()||('Cột '+(i+1)));
+    const head=(rows[hdr]||[]).map((c,i)=>
+      (String(c==null?'':c).replace(/\s+/g,' ').trim())||('Cột '+(i+1)));
     const body=rows.slice(hdr+1);
     const nc=Math.max(head.length,...body.map(r=>r.length));
     while(head.length<nc) head.push('Cột '+(head.length+1));
-    /* cột ngày = cột parse được nhiều ngày nhất */
+
+    /* cột NGÀY ĐẦY ĐỦ = cột parse được nhiều ngày nhất */
     let dCol=-1, dBest=0;
-    for(let c=0;c<nc;c++){
-      let k=0; body.forEach(r=>{ if(_toIso(r[c])) k++; });
-      if(k>dBest){ dBest=k; dCol=c; }
-    }
-    /* cột plan X — CHẤM ĐIỂM, không lấy cột đầu tiên khớp mờ.
-       Bẫy đã dính: "Total P+X" cũng chứa chữ x nên từng bị chọn nhầm. */
-    let xCol=-1, xBest=0;
+    for(let c=0;c<nc;c++){ let k=0; body.forEach(r=>{ if(_toIso(r[c])) k++; });
+      if(k>dBest){ dBest=k; dCol=c; } }
+    if(dBest<3) dCol=-1;
+    /* không có → cột NGÀY TRONG THÁNG 1..31 (file Hàn tách cột 월 / 일자) */
+    let dayCol=-1, dayBest=0;
     for(let c=0;c<nc;c++){
       if(c===dCol) continue;
-      if(!body.some(r=>_num(r[c])!=null)) continue;
-      const h=head[c].toLowerCase().trim().replace(/\s+/g,' ');
-      let s=1;
-      if(/total|tổng|sum|p\s*\+\s*x/.test(h))   s=0.5;      /* cột tổng → hạ điểm */
-      if(/export\s*petchem/.test(h))            s=6;
-      if(/(^|[^a-z])x([^a-z]|$)/.test(h))       s=Math.max(s,7);
-      if(/plan/.test(h))                        s=Math.max(s,8);
-      if(/plan/.test(h)&&/x/.test(h))           s=10;
-      if(h==='x'||h==='plan x'||h==='x plan')   s=12;
-      if(s>xBest){ xBest=s; xCol=c; }
+      const seen={}; let k=0;
+      body.forEach(r=>{ const v=_num(r[c]);
+        if(v!=null&&v>=1&&v<=31&&Math.abs(v-Math.round(v))<1e-9&&!seen[v]){ seen[v]=1; k++; } });
+      if(k>dayBest){ dayBest=k; dayCol=c; }
     }
-    return { name:fname, head, body, dCol, xCol, unit:'T' };
+    if(dayBest<15) dayCol=-1;
+    if(dCol<0 && dayCol<0) throw new Error('không thấy cột ngày');
+
+    /* cột số: chấm điểm riêng cho ACTUAL và PLAN */
+    let aCol=-1,aBest=0, pCol=-1,pBest=0;
+    for(let c=0;c<nc;c++){
+      if(c===dCol||c===dayCol) continue;
+      if(!body.some(r=>_num(r[c])!=null)) continue;
+      const sa=_hScore(head[c],'act'), sp=_hScore(head[c],'plan');
+      if(sa>aBest){ aBest=sa; aCol=c; }
+      if(sp>pBest){ pBest=sp; pCol=c; }
+    }
+    if(aCol===pCol && aCol>=0){                       /* chỉ có 1 cột số hợp lệ */
+      if(aBest>=pBest) pCol=-1; else aCol=-1;
+    }
+    /* tháng áp dụng: lấy từ tiêu đề "8월" nếu có, không thì tháng đang xem */
+    let month=_useMonth||_ym(_today());
+    const title=String((rows[0]||[]).join(' ')+' '+sheet).match(/(\d{1,2})\s*월/);
+    if(title){
+      const mm=+title[1];
+      if(mm>=1&&mm<=12) month=(month.slice(0,4))+'-'+String(mm).padStart(2,'0');
+    }
+    return { name:fname, sheet:sheet||'', sheets:sheets||[], head, body,
+             dCol, dayCol, aCol, pCol, unit:'T', month, ow:false };
   }
   function _toIso(v){
     if(v==null) return '';
@@ -753,29 +919,70 @@ const KNQ = (function(){
       return y+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'); }
     return '';
   }
-  function impSet(field,val){ if(!_imp) return; _imp[field]=(field==='unit')?val:(+val); _renderImp(); }
-  function impCancel(){ _imp=null; _renderImp(); }
-  function impApply(){
-    if(!_imp){ return; }
-    const { body, dCol, xCol, unit }=_imp;
-    if(dCol<0||xCol<0){ _say('⚠ Chọn cả cột Ngày và cột Plan X','warn'); return; }
-    const f=(unit==='kg')?1:1000;
-    let n=0, skip=0, dup=0;
-    const done={};
+  function impSet(field,val){
+    if(!_imp) return;
+    if(field==='sheet'){
+      try{ const keep=_imp.name;
+        _imp=_prepImp(_aoaOf(val),keep,val,_imp.sheets);
+      }catch(err){ _say('❌ Sheet này không đọc được: '+err.message,'er'); }
+    }
+    else if(field==='unit'||field==='month') _imp[field]=val;
+    else if(field==='ow') _imp.ow=!!val;
+    else _imp[field]=(+val);
+    _renderImp();
+  }
+  function impCancel(){ _imp=null; _paste=false; _renderImp(); }
+  /* danh sách ngày + giá trị sau khi ghép actual → plan (dùng cho cả xem trước) */
+  function _impRows(){
+    if(!_imp) return [];
+    const { body, dCol, dayCol, aCol, pCol, month }=_imp;
+    const seen={}, list=[];
     body.forEach(r=>{
-      const d=_toIso(r[dCol]); const v=_num(r[xCol]);
-      if(!d||v==null){ skip++; return; }
-      /* file thường có 1 dòng TỔNG mang lại ngày đã có → giữ dòng ĐẦU, bỏ dòng sau */
-      if(done[d]){ dup++; return; }
-      done[d]=1;
-      const u=USE[d]||{p:'',x:'',xp:'',note:''};
-      u.xp=Math.round(v*f*1000)/1000;
-      USE[d]=u; _mark('use/'+d,u); n++;
+      let d=(dCol>=0)?_toIso(r[dCol]):'';
+      if(!d && dayCol>=0){
+        const v=_num(r[dayCol]);
+        if(v!=null&&v>=1&&v<=31&&Math.abs(v-Math.round(v))<1e-9)
+          d=month+'-'+String(Math.round(v)).padStart(2,'0');
+      }
+      if(!d || seen[d]) return;          /* dòng TỔNG mang lại ngày cũ → bỏ */
+      seen[d]=1;
+      list.push({ d, a:(aCol>=0?_num(r[aCol]):null), p:(pCol>=0?_num(r[pCol]):null) });
     });
-    _imp=null; _renderImp(); _renderUse(); render();
-    _say('📥 Đã nạp plan X cho '+n+' ngày'+
-         (skip?(' · bỏ qua '+skip+' dòng không có ngày/số'):'')+
-         (dup?(' · bỏ qua '+dup+' dòng trùng ngày (dòng tổng?)'):'')+' — nhớ 💾 Lưu','ok');
+    list.sort((u,v)=>u.d<v.d?-1:(u.d>v.d?1:0));
+    let stop=(aCol<0);
+    list.forEach(o=>{
+      if(!stop && o.a==null) stop=true;  /* ngày đầu tiên thiếu actual → chuyển plan */
+      o.src=stop?'p':'a';
+      o.v=stop?o.p:o.a;
+    });
+    return list;
+  }
+  function impApply(){
+    if(!_imp) return;
+    const { dCol, dayCol, aCol, pCol, unit, ow }=_imp;
+    if(dCol<0&&dayCol<0){ _say('⚠ Chưa nhận ra cột Ngày','warn'); return; }
+    if(aCol<0&&pCol<0){ _say('⚠ Chọn ít nhất một cột số (Actual hoặc Plan)','warn'); return; }
+    const f=(unit==='kg')?1:1000;
+    const R=_impRows();
+    let na=0, np=0, skip=0, keep=0;
+    R.forEach(o=>{
+      const u=USE[o.d]||{ t:'', x:'', xp:'', note:'' };
+      if(o.p!=null) u.xp=Math.round(o.p*f*1000)/1000;   /* cột Plan X giữ plan gốc */
+      if(o.v==null){ skip++; }
+      else if(u.xs==='m' && !ow){ keep++; }             /* đã gõ tay → không đè */
+      else {
+        u.x=Math.round(o.v*f*1000)/1000; u.xs=o.src;
+        if(o.src==='a') na++; else np++;
+      }
+      USE[o.d]=u; _mark('use/'+o.d,u);
+    });
+    const firstPlan=(R.filter(o=>o.src==='p')[0]||{}).d;
+    if(R.length) _useMonth=_ym(R[0].d);
+    _imp=null; _paste=false; _renderImp(); _renderUse(); render();
+    _say('📥 Nạp X: '+na+' ngày ACTUAL'+(np?(' · '+np+' ngày PLAN'):'')+
+         (firstPlan?(' (plan từ '+_dmy(firstPlan)+')'):'')+
+         (keep?(' · giữ '+keep+' ngày đã gõ tay'):'')+
+         (skip?(' · '+skip+' ngày không có số'):'')+' — nhớ 💾 Lưu','ok');
   }
 
   /* ============================================================
@@ -868,13 +1075,13 @@ const KNQ = (function(){
         h+=_goRow(r,i+1);
       });
     });
-    h+='<tr class="knq-tot"><td colspan="10">TỔNG '+mat+' — '+gis.length+' chuyến · '+nGo+
-       ' get out đang trừ lùi · kỳ '+(_month||'—')+'</td>'+
+    h+='<tr class="knq-tot"><td colspan="9">TỔNG '+mat+' — '+gis.length+' chuyến · '+nGo+
+       ' get out đang trừ lùi · kỳ '+(_month||'—')+
+       (tQty?(' · nhập '+_K(tQty)+' kg'):'')+'</td>'+
        '<td class="n">'+_K(tBase)+'</td><td class="n">'+_K(tUsed)+'</td>'+
        '<td class="n">'+_K(tLeft)+'</td>'+
        '<td class="n">'+(tBase>0?((tUsed/tBase*100).toFixed(1)+'%'):'')+'</td>'+
-       '<td colspan="2"></td><td class="n">'+_K(tQty)+'</td>'+
-       '<td colspan="3"></td></tr>';
+       '<td colspan="2"></td></tr>';
     tb.innerHTML=h;
   }
 
@@ -889,7 +1096,6 @@ const KNQ = (function(){
       '<td class="c"><span class="knq-b gin" onclick="KNQ.toggleGroup(\''+id+'\')" '+
         'title="Gập/mở các dòng get out">'+(open?'▼':'▶')+' GET IN</span>'+
         '<div class="sm">'+nCh+' get out</div></td>'+
-      '<td>'+_inp('gi',id,'vendor',g.vendor,'','','nhà cung cấp',88)+'</td>'+
       '<td>'+_inp('gi',id,'vessel',g.vessel,'','b','tên tàu / chuyến',130)+'</td>'+
       '<td>'+_inp('gi',id,'regDate',g.regDate,'date')+'</td>'+
       '<td>'+_inp('gi',id,'decl',g.decl,'','mono','tờ khai nhập',110)+'</td>'+
@@ -900,11 +1106,6 @@ const KNQ = (function(){
       '<td class="n knq-dim">—</td><td class="n knq-dim">—</td>'+
       '<td class="n b">'+_K(g.remainKg||0)+'<div class="sm">tổng batch còn</div></td>'+
       '<td class="n knq-dim">—</td><td class="n knq-dim">—</td>'+
-      '<td class="n">'+_inp('gi',id,'price',g.price,'','n','đơn giá',64)+'</td>'+
-      '<td class="n">'+_inp('gi',id,'qtyKg',g.qtyKg,'','n','kg nhập',88)+
-        (g.qtyN!=null?('<div class="sm">'+_T(g.qtyN)+' T</div>'):'')+'</td>'+
-      '<td class="n">'+_K(g.amount)+'</td>'+
-      '<td class="n b">'+_K(g.balKg)+'<div class="sm">chưa xuất</div></td>'+
       '<td>'+_inp('gi',id,'note',g.note,'','','ghi chú',110)+
         (g.warn?('<div class="knq-warn">⚠ '+_esc(g.warn)+'</div>'):'')+
         '<div class="knq-acts">'+
@@ -934,7 +1135,6 @@ const KNQ = (function(){
         ' onchange="KNQ.toggleDone(\'go\',\''+id+'\',this)"></td>'+
       '<td class="c sm">'+i+'</td>'+
       '<td>'+_stTxt(r)+'</td>'+
-      '<td>'+_inp('go',id,'time',r.time,'','','1st time',80)+'</td>'+
       '<td class="knq-dim sm">↳ get out</td>'+
       '<td>'+_inp('go',id,'regDate',r.regDate,'date')+'</td>'+
       '<td>'+_inp('go',id,'decl',r.decl,'','mono','tờ khai xuất',110)+'</td>'+
@@ -952,11 +1152,6 @@ const KNQ = (function(){
       '<td class="n">'+(r.baseKg>0?((r.pct*100).toFixed(1)+'%'):'')+
         '<div class="knq-pbar"><i style="width:'+((r.pct||0)*100).toFixed(1)+'%"></i></div></td>'+
       '<td class="n'+(soon?' knq-hot':'')+'">'+(r.eta?(_dmy(r.eta)+'<div class="sm">'+r.etaDays+' ngày</div>'):'')+'</td>'+
-      '<td class="n">'+_inp('go',id,'price',r.price,'','n','đơn giá',64)+'</td>'+
-      '<td class="n">'+_inp('go',id,'qtyKg',r.qtyKg,'','n','kg xuất',88)+
-        (r.qtyN!=null?('<div class="sm">'+_T(r.qtyN)+' T</div>'):'')+'</td>'+
-      '<td class="n">'+_K(r.amount)+'</td>'+
-      '<td class="n">'+_K(r.balKg)+'</td>'+
       '<td>'+_inp('go',id,'note',r.note,'','','ghi chú',110)+
         (r.warn?('<div class="knq-warn">⚠ '+_esc(r.warn)+'</div>'):'')+
         '<div class="knq-acts">'+
@@ -965,7 +1160,9 @@ const KNQ = (function(){
     '</tr>';
   }
 
-  /* ── BẢNG FEED OL1 trong modal ── */
+  /* ── BẢNG FEED OL1 trong modal ──────────────────────────────
+     TỔNG P+X gõ tay · X gõ tay/import/dán · P = TỔNG − X (chỉ đọc).
+     Ngày chưa gõ TỔNG → hiện số tạm tính 2.000 T bằng chữ mờ. */
   function _renderUse(){
     const tb=document.getElementById('knq-use-body'); if(!tb) return;
     const _fk=_focusKey();
@@ -976,55 +1173,112 @@ const KNQ = (function(){
     if(uh) uh.textContent=(_olUnit==='kg'?'kg':'Tấn');
     if(!days.length){
       tb.innerHTML='<tr><td colspan="7" class="knq-empty">Tháng '+_useMonth+
-        ' chưa có ngày nào — bấm <b>📅 Tạo cả tháng</b> hoặc <b>📥 Import plan X</b>.</td></tr>';
+        ' chưa có ngày nào — bấm <b>📅 Tạo cả tháng</b>, <b>📥 Import Excel</b> hoặc <b>📋 Dán Excel</b>.</td></tr>';
       _renderImp(); return;
     }
-    let sp=0,sx=0,st=0;
+    let sT=0,sP=0,sX=0,nDef=0;
     tb.innerHTML=days.map(d=>{
-      const u=USE[d]||{}, p=_num(u.p), x=_num(u.x), xp=_num(u.xp);
-      const xe=(x!=null)?x:xp;                       /* X có hiệu lực */
-      const act=(d<=T&&(p!=null||x!=null));
-      const tot=(p!=null||xe!=null)?((p||0)+(xe||0)):null;
-      if(p!=null) sp+=p; if(xe!=null) sx+=xe; if(tot!=null) st+=tot;
+      const u=USE[d]||{}, x=_num(u.x), xp=_num(u.xp);
+      const tRaw=_totOf(u), def=(tRaw==null);
+      const tot=def?DEF_TOT_KG:tRaw;
+      const xe=(x!=null)?x:xp;
+      const p=Math.max(0,tot-(x!=null?x:0));
+      if(def) nDef++;
+      sT+=tot; sP+=p; if(xe!=null) sX+=xe;
+      const src=(x!=null)
+        ? (u.xs==='p' ? '<span class="knq-b wait" title="Số PLAN nạp từ file">Plan</span>'
+                      : '<span class="knq-b using" title="Số thực tế">Actual</span>')
+        : (xp!=null ? '<span class="knq-b wait" title="Chỉ có plan X, chưa có số thực">Plan</span>'
+                    : '<span class="knq-b" title="Chưa có số X">—</span>');
       return '<tr'+(d===T?' class="knq-todayrow"':'')+'>'+
         '<td class="c">'+_dmy(d)+'</td>'+
-        '<td class="n b">'+_disp(tot)+'</td>'+
-        '<td><input class="knq-in n" data-u="'+d+'|p" inputmode="decimal" value="'+_disp(p)+'"'+
-          ' onkeydown="KNQ.useKey(event,\''+d+'\',\'p\')" onchange="KNQ.setUse(\''+d+'\',\'p\',this.value)"></td>'+
+        '<td><input class="knq-in n b" data-u="'+d+'|t" inputmode="decimal"'+
+          ' value="'+(def?'':_disp(tot))+'" placeholder="'+_disp(DEF_TOT_KG)+'"'+
+          ' title="TỔNG feed OL1 cả ngày — gõ tay. Bỏ trống = tạm tính '+_disp(DEF_TOT_KG)+
+          '. Dán nhiều dòng từ Excel được (Ctrl+V)."'+
+          ' onpaste="KNQ.usePaste(event,\''+d+'\',\'t\')"'+
+          ' onkeydown="KNQ.useKey(event,\''+d+'\',\'t\')" onchange="KNQ.setUse(\''+d+'\',\'t\',this.value)"></td>'+
+        '<td class="n b knq-calc'+(def?' knq-dim':'')+'" title="P = TỔNG − X, tự tính">'+
+          _disp(p)+(def?'<div class="sm">tạm tính TỔNG '+_disp(DEF_TOT_KG)+'</div>':'')+'</td>'+
         '<td><input class="knq-in n" data-u="'+d+'|x" inputmode="decimal" value="'+_disp(x)+'"'+
+          ' title="X — Export Petchem. Gõ tay, import file hoặc dán nhiều dòng (Ctrl+V)."'+
+          ' onpaste="KNQ.usePaste(event,\''+d+'\',\'x\')"'+
           ' onkeydown="KNQ.useKey(event,\''+d+'\',\'x\')" onchange="KNQ.setUse(\''+d+'\',\'x\',this.value)"'+
           (xp!=null&&x==null?(' placeholder="'+_disp(xp)+'"'):'')+'></td>'+
         '<td class="n knq-plan">'+(xp!=null?_disp(xp):'')+'</td>'+
-        '<td class="c">'+(act?'<span class="knq-b using">Actual</span>'
-                             :'<span class="knq-b wait">Plan</span>')+'</td>'+
+        '<td class="c">'+src+'</td>'+
         '<td><input class="knq-in" value="'+_esc(u.note||'')+'" onchange="KNQ.setUseNote(\''+d+'\',this.value)">'+
           '<button class="knq-x" onclick="KNQ.delUseRow(\''+d+'\')">✕</button></td></tr>';
     }).join('')+
       '<tr class="knq-tot"><td class="c">TỔNG '+_useMonth+'</td>'+
-      '<td class="n">'+_disp(st)+'</td><td class="n">'+_disp(sp)+'</td>'+
-      '<td class="n">'+_disp(sx)+'</td><td colspan="3"></td></tr>';
+      '<td class="n">'+_disp(sT)+'</td><td class="n">'+_disp(sP)+'</td>'+
+      '<td class="n">'+_disp(sX)+'</td>'+
+      '<td colspan="3">'+(nDef?('<span class="knq-warn">⚠ '+nDef+
+        ' ngày chưa gõ TỔNG P+X — đang tạm tính '+_disp(DEF_TOT_KG)+
+        ' mỗi ngày</span>'):'')+'</td></tr>';
     _renderImp();
     _refocus(_fk);
   }
 
-  /* ── khay chọn cột sau khi đọc file Excel ── */
+  /* ── khay chọn cột sau khi đọc file / dán bảng ── */
   function _renderImp(){
     const box=document.getElementById('knq-imp'); if(!box) return;
+    if(_paste){
+      box.style.display='';
+      box.innerHTML=
+        '<div class="knq-hint"><b>📋 Dán từ Excel</b> — bôi đen vùng dữ liệu trong Excel '+
+        '(kèm dòng tiêu đề càng tốt), Ctrl+C rồi Ctrl+V vào ô dưới đây, bấm <b>ĐỌC</b>.</div>'+
+        '<textarea id="knq-paste-txt" class="knq-paste" rows="6" '+
+        'placeholder="Dán vào đây… (mỗi dòng 1 ngày, các cột cách nhau bằng Tab)"></textarea>'+
+        '<div class="knq-frow">'+
+          '<button class="knq-btn primary" onclick="KNQ.pasteRead()">✔ ĐỌC</button>'+
+          '<button class="knq-btn" onclick="KNQ.pasteCancel()">Huỷ</button>'+
+        '</div>';
+      return;
+    }
     if(!_imp){ box.innerHTML=''; box.style.display='none'; return; }
     box.style.display='';
-    const opts=_imp.head.map((h,i)=>({v:i,l:(i+1)+'. '+h}));
+    const opts=_imp.head.map((h,i)=>({v:i,l:(i+1)+'. '+(h.length>46?(h.slice(0,46)+'…'):h)}));
+    const none=[{v:-1,l:'— không có —'}];
+    const R=_impRows();
+    const nA=R.filter(o=>o.src==='a'&&o.v!=null).length;
+    const nP=R.filter(o=>o.src==='p'&&o.v!=null).length;
+    const fp=(R.filter(o=>o.src==='p'&&o.v!=null)[0]||{}).d;
+    const la=(R.filter(o=>o.src==='a'&&o.v!=null).slice(-1)[0]||{}).d;
     box.innerHTML=
-      '<div class="knq-hint"><b>📥 '+_esc(_imp.name)+'</b> — '+_imp.body.length+
-      ' dòng. Chọn cột <b>Ngày</b> và cột <b>Plan X</b> rồi bấm ÁP DỤNG. '+
-      'Plan X chỉ ghi vào cột <i>Plan X</i>; số dùng thực tế P và X vẫn gõ tay.</div>'+
+      '<div class="knq-hint"><b>📥 '+_esc(_imp.name)+'</b>'+
+      (_imp.sheet?(' · sheet <b>'+_esc(_imp.sheet)+'</b>'):'')+' — '+_imp.body.length+' dòng. '+
+      'App lấy <b>ACTUAL</b> tới ngày đầu tiên thiếu số, từ đó trở đi lấy <b>PLAN</b>. '+
+      'Kết quả ghi vào ô <b>X</b>; cột Plan X vẫn giữ số plan gốc.</div>'+
       '<div class="knq-frow">'+
-        '<label>Cột ngày</label><select onchange="KNQ.impSet(\'dCol\',this.value)">'+_op(opts,_imp.dCol)+'</select>'+
-        '<label>Cột plan X</label><select onchange="KNQ.impSet(\'xCol\',this.value)">'+_op(opts,_imp.xCol)+'</select>'+
+        (_imp.sheets&&_imp.sheets.length>1
+          ? ('<label>Sheet</label><select onchange="KNQ.impSet(\'sheet\',this.value)">'+
+             _op(_imp.sheets.map(n=>({v:n,l:n})),_imp.sheet)+'</select>')
+          : '')+
+        (_imp.dCol>=0
+          ? ('<label>Cột ngày</label><select onchange="KNQ.impSet(\'dCol\',this.value)">'+
+             _op(none.concat(opts),_imp.dCol)+'</select>')
+          : ('<label>Cột ngày (1–31)</label><select onchange="KNQ.impSet(\'dayCol\',this.value)">'+
+             _op(none.concat(opts),_imp.dayCol)+'</select>'+
+             '<label>Tháng</label><input type="month" value="'+_esc(_imp.month)+'"'+
+             ' onchange="KNQ.impSet(\'month\',this.value)">'))+
+        '<label>Cột ACTUAL</label><select onchange="KNQ.impSet(\'aCol\',this.value)">'+
+          _op(none.concat(opts),_imp.aCol)+'</select>'+
+        '<label>Cột PLAN</label><select onchange="KNQ.impSet(\'pCol\',this.value)">'+
+          _op(none.concat(opts),_imp.pCol)+'</select>'+
         '<label>Đơn vị</label><select onchange="KNQ.impSet(\'unit\',this.value)">'+
           _op([{v:'T',l:'Tấn'},{v:'kg',l:'kg'}],_imp.unit)+'</select>'+
+        '<label title="Ngày đã gõ tay mặc định KHÔNG bị file đè">'+
+          '<input type="checkbox"'+(_imp.ow?' checked':'')+
+          ' onchange="KNQ.impSet(\'ow\',this.checked)"> đè cả số đã gõ tay</label>'+
         '<button class="knq-btn primary" onclick="KNQ.impApply()">✔ ÁP DỤNG</button>'+
         '<button class="knq-btn" onclick="KNQ.impCancel()">Huỷ</button>'+
-      '</div>';
+      '</div>'+
+      '<div class="knq-hint '+(R.length?'':'knq-warn')+'">'+
+        (R.length
+          ? ('Sẽ nạp <b>'+R.filter(o=>o.v!=null).length+'</b> ngày: <b>'+nA+'</b> actual'+
+             (la?(' (tới '+_dmy(la)+')'):'')+' · <b>'+nP+'</b> plan'+(fp?(' (từ '+_dmy(fp)+')'):'')+'.')
+          : 'Chưa nhận ra ngày nào — chọn lại cột ngày.')+'</div>';
   }
 
   /* ============================================================
@@ -1056,12 +1310,16 @@ const KNQ = (function(){
       XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([H].concat(rows)),mat+' '+MAT_NAME[mat]);
     });
     const use=Object.keys(USE).sort().map(d=>{
-      const u=USE[d]||{}, p=_num(u.p), x=_num(u.x), xp=_num(u.xp), xe=(x!=null)?x:xp;
-      return [d,((p||0)+(xe||0))/1000,(p==null?null:p/1000),(x==null?null:x/1000),
-              (xp==null?null:xp/1000),(d<=_today()&&(p!=null||x!=null))?'Actual':'Plan',u.note||''];
+      const u=USE[d]||{}, x=_num(u.x), xp=_num(u.xp);
+      const tRaw=_totOf(u), tot=(tRaw==null)?DEF_TOT_KG:tRaw;
+      const p=Math.max(0,tot-(x!=null?x:0));
+      return [d,tot/1000,p/1000,(x==null?null:x/1000),(xp==null?null:xp/1000),
+              (x==null?(xp==null?'':'Plan'):(u.xs==='p'?'Plan':'Actual')),
+              (tRaw==null?'tạm tính':''),u.note||''];
     });
     XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(
-      [['Date','Total P+X (T)','P (T)','X (T)','Plan X (T)','Remark','Ghi chú']].concat(use)),'Feed OL1');
+      [['Date','Total P+X (T)','P = Total − X (T)','X (T)','Plan X (T)','Nguồn X','TỔNG','Ghi chú']]
+      .concat(use)),'Feed OL1');
     XLSX.writeFile(wb,'XNK_KhoNgoaiQuan_'+(_month||_ym(_today()))+'.xlsx');
     _say('📤 Đã xuất Excel','ok');
   }
@@ -1093,10 +1351,12 @@ const KNQ = (function(){
     pullSap, copySap,
     addGi, addGo, cloneGo, setGi, setGo, delGi, delGo, toggleDone, toggleGroup,
     onMonth, closeMonth, setOp, childrenOf, visibleGi,
-    openOl1, closeOl1, onOl1Unit, setUse, setUseNote, useKey,
+    openOl1, closeOl1, onOl1Unit, setUse, setUseNote, useKey, usePaste,
     addUseRow, fillUseMonth, delUseRow, onUseMonth,
     pickFile, fileChosen, impSet, impApply, impCancel,
-    _state:{ GI, GO, USE, SAPB, sapAsOf:()=>_sapAsOf, imp:()=>_imp,
+    pasteOpen, pasteRead, pasteCancel,
+    _state:{ GI, GO, USE, SAPB, sapAsOf:()=>_sapAsOf, imp:()=>_imp, impRows:()=>_impRows(),
+             totOf:_totOf, useOf:_useOf, DEF_TOT_KG,
              month:()=>_month, setMonth:m=>{ _month=m; _useMonth=m; } }
   };
 })();

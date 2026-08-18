@@ -3417,3 +3417,51 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
   background:#f8fafc;border:1px solid var(--line,#d8dee6);border-radius:6px;
   padding:5px 10px;margin-top:-2px;font-family:monospace;}
 @media(max-width:900px){ .eng-rbwrap{grid-template-columns:1fr;} }
+
+/* ═══ v4.86 — ◈ COQ AUDIT (Tank Log) ═══════════════════════════════ */
+.eng-btn.amber{background:#fffbeb;border-color:#fde68a;color:#92610a;}
+.eng-btn.amber:hover{background:#fef3c7;}
+.cqa-modal{max-width:1180px;width:96vw;}
+.cqa-sum{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:6px 0 8px;}
+.cqa-scope{font-size:10.5px;color:var(--ink-2,#5b6472);}
+.cqa-note{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a5f;font-size:11px;line-height:1.65;
+  border-radius:6px;padding:7px 10px;margin-bottom:8px;}
+.cqa-note code{background:#fff;border:1px solid #cbd5e1;border-radius:4px;padding:1px 5px;font-size:10.5px;}
+.cqa-b{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.3px;
+  padding:2px 7px;border-radius:99px;border:1px solid transparent;white-space:nowrap;}
+.cqa-ok  {background:#dcfce7;color:#166534;border-color:#86efac;}
+.cqa-fix {background:#dbeafe;color:#1e40af;border-color:#93c5fd;}
+.cqa-miss{background:#fffbeb;color:#92610a;border-color:#fde68a;}
+.cqa-no  {background:#fef2f2;color:#991b1b;border-color:#fecaca;}
+.cqa-wrap{max-height:58vh;overflow:auto;border:1px solid var(--line,#d8dee6);border-radius:6px;}
+.cqa-tbl{width:100%;border-collapse:collapse;font-size:11px;}
+.cqa-tbl thead th{position:sticky;top:0;z-index:2;background:#f1f5f9;padding:5px 6px;
+  border-bottom:1px solid var(--line,#d8dee6);font-size:9.5px;letter-spacing:.3px;white-space:nowrap;}
+.cqa-tbl td{border-bottom:1px solid #eef1f5;padding:3px 6px;white-space:nowrap;}
+.cqa-tbl td.td-r{text-align:right;font-family:monospace;}
+.cqa-tbl td.cqa-q{color:#b45309;font-weight:600;background:#fffbeb;}
+.cqa-tbl td.cqa-need{white-space:normal;font-size:10px;color:#92610a;max-width:340px;}
+.cqa-tbl tr.cqa-r-fix  td{background:#f8fbff;}
+.cqa-tbl tr.cqa-r-nocoq td{background:#fffafa;}
+.cqa-tbl tr:hover td{background:#f4f6f9;}
+.cqa-dev-hi{color:var(--red,#dc2626);font-weight:700;}
+
+/* ═══ v4.86.1 — nút ◈ CALC COQ + khối diễn giải trong modal sửa dòng ═══ */
+.eng-edit-btn.coqcalc{background:#fffbeb;border-color:#fcd34d;color:#92400e;font-weight:700;}
+.eng-edit-btn.coqcalc:hover{background:#fef3c7;}
+.eng-cqi{margin:10px 0 0;padding:10px 12px;border-radius:8px;font-size:12px;line-height:1.6;}
+.eng-cqi.lv-ok  {background:#fffbeb;border:1px solid #fde68a;color:#7c3f04;}
+.eng-cqi.lv-warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412;}
+.eng-cqi.lv-bad {background:#fef2f2;border:1px solid #fecaca;color:#991b1b;}
+.eng-cqi .cqi-t{width:100%;border-collapse:collapse;margin:7px 0 4px;font-size:11.5px;}
+.eng-cqi .cqi-t td{padding:3px 7px;border-bottom:1px solid rgba(0,0,0,.07);white-space:nowrap;}
+.eng-cqi .cqi-t td.n{text-align:right;font-family:ui-monospace,Menlo,Consolas,monospace;}
+.eng-cqi .cqi-t tr.cqi-r td{border-top:1.5px solid currentColor;border-bottom:none;}
+.eng-cqi .cqi-t tr.cqi-g td{opacity:.75;font-size:11px;}
+.eng-cqi .cqi-hint{font-size:10.5px;opacity:.8;margin-top:5px;}
+.eng-cqi .cqi-warn{margin-top:5px;font-weight:700;}
+
+/* ═══ v4.87 — cờ ⚠ khi lot Pass chưa có số theo COQ ═══ */
+.eng-tbl td.td-cq-miss{background:#fff7ed;color:#b45309;font-weight:800;text-align:center;cursor:help;}
+.eng-cqi .cqi-list{margin:6px 0 4px;padding:7px 9px;border-radius:6px;
+  background:rgba(255,255,255,.6);font-size:11.5px;line-height:1.75;}
