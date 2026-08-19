@@ -101,6 +101,41 @@
  *   (sapT), P/X chỉ ghi sapEnd để ĐỐI CHIẾU (P/X vẫn trừ lùi theo FEED OL1).
  *   Thêm nút ⇐ SAP qty đổ End Stock của SAP vào cột SAP qty cho MỌI loại lô.
  *   Cột Actual left có ký hiệu ✓ SAP / Δ để biết đang khớp hay lệch với SAP.
+ * ------------------------------------------------------------
+ * v4.102 — ⭐ DỮ LIỆU SỐNG ĐỒNG BỘ MỌI MÁY · KỲ CŨ CHỈ LƯU TRỮ ⭐
+ *
+ *   ① CON TRỎ KỲ  `knq_bonded/meta/curPeriod` = KỲ ĐANG MỞ, dùng chung cho
+ *      mọi máy. Kỳ ≥ curPeriod là DỮ LIỆU SỐNG: tải về + gắn listener
+ *      realtime. Kỳ < curPeriod là LƯU TRỮ: vẫn nằm nguyên trên Firebase
+ *      nhưng KHÔNG tải về, KHÔNG đồng bộ nữa — mở bằng nút 📜 Archive
+ *      (đọc `knq_bonded/periods/<YYYY-MM>` một lần, read-only).
+ *
+ *   ② ĐỒNG BỘ THẬT: gắn child_added/changed/removed cho gi · go · use.
+ *      Máy A gõ FEED OL1 → máy B thấy ngay, không cần F5. Ghi của CHÍNH
+ *      máy mình bị chặn dội ngược (_echo) để khỏi vẽ lại thừa. Ô đang gõ
+ *      dở (còn trong _dirty) LUÔN thắng số từ xa cho tới khi đẩy xong.
+ *
+ *   ③ TỰ ĐẨY: mọi thao tác sửa đều hẹn giờ đẩy lên Firebase sau 1,5 s
+ *      (_schedulePush). 💾 Save chỉ là "đẩy ngay". Không còn cảnh gõ OL1
+ *      xong quên bấm Save ⇒ máy khác không thấy gì.
+ *
+ *   ④ 📌 CLOSE PERIOD ĐỌC SAP LÀM SỐ CHÍNH THỨC
+ *      SAP cho lô P và X bị CHẬM VÀI NGÀY sau ngày chốt kỳ (độ trễ của
+ *      công tác đóng kỳ đẩy dữ liệu lên SAP). Vì vậy nút này KHÔNG lấy
+ *      mốc D-1 như ⬇ Sync from SAP, mà lấy End Stock tại **NGÀY CUỐI
+ *      CÙNG CỦA KỲ** (_lastDay(M)) và ĐÈ vào tồn đầu kỳ mới cho CẢ 4
+ *      loại lô P/X/D/E. Lô nào SAP chưa có số ở ngày đó thì mới lui về
+ *      số app tự tính; đều được đếm và báo rõ trong hộp xác nhận.
+ *      Đóng kỳ xong: ghi snapshot `periods/<M>`, đẩy `meta/curPeriod`
+ *      lên Firebase NGAY để mọi máy nhảy kỳ theo.
+ *
+ *   ⑤ QUÁ HẠN ĐÓNG KỲ (đã sang tháng mới mà chưa bấm 📌)
+ *      • Dải #knq-alerts hiện BANNER ĐỎ kèm nút đóng kỳ ngay tại chỗ.
+ *      • Số KHÔNG đứng lại: kỳ đang MỞ thì lượt trừ lùi THỰC chạy tới
+ *        _asOf() thay vì dừng ở ngày cuối tháng ⇒ vẫn trừ tiếp trên BỘ
+ *        BATCH CỦA KỲ CŨ bằng FEED OL1 của tháng mới người dùng nhập.
+ *        Kỳ ĐÃ ĐÓNG vẫn kẹp ở cuối tháng để lịch sử tra lại không đổi.
+ * ⚠ Firebase rules: cần ".indexOn": ["st"] cho knq_bonded/gi và /go.
  * ============================================================ */
 "use strict";
 
@@ -134,6 +169,18 @@ const KNQ = (function(){
   let _loaded=false, _allLoaded=false, _initDone=false;
   let _dirty={}, _fb=null, _seq=0;
   let _month='', _useMonth='', _sapAsOf='', _sapWant='';
+  /* ⭐ v4.102 — KỲ ĐANG MỞ, chốt bởi 📌 Close period, lưu ở knq_bonded/meta.
+     Mọi máy đọc chung con trỏ này. Kỳ ≥ _curPeriod = dữ liệu SỐNG (tải về +
+     đồng bộ realtime); kỳ < _curPeriod = LƯU TRỮ (nằm trên Firebase, mở bằng
+     📜 Archive, không tải về, không gắn listener). */
+  let _curPeriod='';
+  let _closed={};                  /* 'YYYY-MM' → {at,by,sapAsOf} kỳ đã đóng */
+  let _live=false;                 /* đã gắn listener realtime chưa          */
+  let _echo=0, _echoUntil=0;       /* chặn dội ngược ghi của CHÍNH máy này   */
+  let _pushT=null, _renT=null;     /* hẹn giờ tự đẩy / vẽ lại                */
+  let _pushing=0;                  /* số lệnh update() đang bay             */
+  let _arch=null, _archM='';       /* snapshot kỳ đã đóng đang mở ở 📜 Archive */
+  let _archBusy=false;
   let _olUnit='T';                 /* đơn vị gõ ở modal OL1: 'T' hay 'kg'   */
   let _imp=null;                   /* bảng thô vừa đọc từ file Excel        */
   let _wb=null;                    /* workbook đang mở (để đổi sheet)       */
@@ -225,6 +272,33 @@ const KNQ = (function(){
     if(!y||!m) return '';
     m++; if(m>12){ m=1; y++; }
     return y+'-'+String(m).padStart(2,'0');
+  }
+  /* ── v4.102 — KỲ ĐANG MỞ ─────────────────────────────────────
+     Chưa đọc được meta (lần đầu dùng app / đang tải) thì coi tháng này là
+     kỳ mở — giữ đúng hành vi cũ, không bắt người dùng làm gì thêm. */
+  function _curP(){ return _curPeriod || _ym(_today()); }
+  function _isOpenP(M){ return String(M||'') >= _curP(); }
+  /* đã sang tháng mới mà kỳ cũ chưa đóng? */
+  function _overdue(){ return _ym(_today()) > _curP(); }
+  /* CỬA SỔ ĐỒNG BỘ của bảng FEED OL1: từ đầu kỳ mở lùi 31 ngày (đủ cho bình
+     quân 7 ngày vắt qua đầu tháng). Ngày cũ hơn thuộc kỳ đã đóng — vẫn nằm
+     trên Firebase nhưng KHÔNG tải về, KHÔNG đồng bộ. */
+  function _liveFrom(){ return _addDays(_curP()+'-01',-31); }
+  function _who(){
+    try{ return (typeof CURRENT_USER!=='undefined' && CURRENT_USER && CURRENT_USER.name) ? CURRENT_USER.name : ''; }
+    catch(_){ return ''; }
+  }
+  function _stamp(){
+    const d=new Date(), z=n=>String(n).padStart(2,'0');
+    return d.getFullYear()+'-'+z(d.getMonth()+1)+'-'+z(d.getDate())+' '+z(d.getHours())+':'+z(d.getMinutes());
+  }
+  function _hm(){ const d=new Date(), z=n=>String(n).padStart(2,'0');
+    return z(d.getHours())+':'+z(d.getMinutes())+':'+z(d.getSeconds()); }
+  function _el(id){ try{ return document.getElementById(id); }catch(_){ return null; } }
+  /* đồng bộ 2 ô <input type=month> trên thanh công cụ với _month/_useMonth */
+  function _syncEls(){
+    const m=_el('knq-month');     if(m) m.value=_month;
+    const u=_el('knq-use-month'); if(u) u.value=_useMonth;
   }
 
   /* ============================================================
@@ -393,8 +467,13 @@ const KNQ = (function(){
         /* ---- lượt 1: THỰC CÒN ---- */
         const p1=rows.map(r=>({ r, left:r.baseKg }));
         /* ⭐ v4.99 — trừ lùi THỰC dừng ở HÔM QUA, không đụng ngày hôm nay:
-           hôm nay đang bơm dở, chưa có số cuối cùng. */
-        const end1=(M9<A?M9:A);
+           hôm nay đang bơm dở, chưa có số cuối cùng.
+           ⭐ v4.102 — KỲ ĐANG MỞ thì KHÔNG kẹp ở ngày cuối tháng nữa. Đã sang
+           tháng mới mà chưa bấm 📌 Close period ⇒ vẫn trừ tiếp trên BỘ BATCH
+           CỦA KỲ CŨ bằng FEED OL1 của tháng mới người dùng nhập vào (cảnh báo
+           chứ không đứng số). Kỳ ĐÃ ĐÓNG giữ nguyên cách kẹp cũ để số lịch sử
+           tra lại không đổi. */
+        const end1=_isOpenP(M) ? A : (M9<A?M9:A);
         for(let d=M0; d && d<=end1; d=_addDays(d,1)){
           let need=_useOf(d,L,'act');
           if(!(need>0)) continue;
@@ -583,14 +662,14 @@ const KNQ = (function(){
       const pre=path+'/';
       Object.keys(_dirty).forEach(k=>{ if(k.indexOf(pre)===0) delete _dirty[k]; });
     }
-    _dirty[path]=val; _btn();
+    _dirty[path]=val; _btn(); _schedulePush();
   }
   /* Firebase update() KHÔNG cho map chứa đồng thời 'a/b' (object) và 'a/b/c' */
   function _markField(base,field,val){
     const par=_dirty[base];
     if(par && typeof par==='object') par[field]=val;
     else _dirty[base+'/'+field]=val;
-    _btn();
+    _btn(); _schedulePush();
   }
   /* op là map lồng — KHÔNG được nhét key 'op/2026-08' vào object, Firebase
      cấm dấu / trong key của payload; phải tạo object con. */
@@ -598,7 +677,151 @@ const KNQ = (function(){
     const base='go/'+id, par=_dirty[base];
     if(par && typeof par==='object'){ par.op=par.op||{}; par.op[M]=val; }
     else _dirty[base+'/op/'+M]=val;
-    _btn();
+    _btn(); _schedulePush();
+  }
+  /* ── v4.102 · ĐỒNG BỘ NHIỀU MÁY ───────────────────────────────
+     _mine()      — event vừa nhận có phải tiếng vọng của chính máy này không
+     _dirtyOver() — số từ xa KHÔNG được đè ô người dùng đang gõ dở (_dirty)
+     _scheduleRender() — gom nhiều event thành 1 lần vẽ lại */
+  function _mine(){ return _echo>0 && Date.now()<_echoUntil; }
+  function _dirtyOver(base,obj){
+    const o=Object.assign({},obj||{});
+    const par=_dirty[base];
+    if(par && typeof par==='object') return Object.assign(o,par);
+    const pre=base+'/';
+    Object.keys(_dirty).forEach(k=>{
+      if(k.indexOf(pre)!==0) return;
+      const seg=k.slice(pre.length).split('/');
+      let t=o;
+      for(let i=0;i<seg.length-1;i++){ t[seg[i]]=Object.assign({},t[seg[i]]); t=t[seg[i]]; }
+      t[seg[seg.length-1]]=_dirty[k];
+    });
+    return o;
+  }
+  function _scheduleRender(){
+    if(_renT) return;
+    _renT=setTimeout(()=>{ _renT=null;
+      render();
+      const m=_el('knq-ol1'); if(m && m.classList && m.classList.contains('on')) _renderUse();
+    },160);
+  }
+  function _syncTag(txt,cls){
+    const e=_el('knq-sync'); if(!e) return;
+    e.textContent=txt||''; e.className='knq-sync '+(cls||'');
+    e.title='KNQ data is shared: every change is pushed to Firebase and lands on the other '+
+            'machines within a second or two. Archived periods stay on Firebase but stop syncing.';
+  }
+  /* mọi thao tác sửa đều hẹn giờ đẩy — không còn cảnh quên bấm 💾 Save */
+  function _schedulePush(){
+    if(!_canWrite()) return;
+    if(_pushT) clearTimeout(_pushT);
+    _syncTag('… pending','wait');
+    _pushT=setTimeout(()=>{ _pushT=null; _flush(false); },1500);
+  }
+  /* gắn cờ st (open/done) vào map trước khi đẩy */
+  function _stampSt(){
+    [[GI,'gi'],[GO,'go']].forEach(([BAG,key])=>{
+      Object.values(BAG).forEach(r=>{
+        const st=r.hqDone?'done':'open';
+        if(r._svSt===st) return;
+        const base=key+'/'+r._id, par=_dirty[base];
+        if(par && typeof par==='object') par.st=st; else _dirty[base+'/st']=st;
+        r._prevSt=r._svSt; r._svSt=st;
+      });
+    });
+  }
+  /* ĐẨY LÊN FIREBASE. loud=true khi người dùng bấm 💾 Save (có toast). */
+  function _flush(loud){
+    if(_pushT){ clearTimeout(_pushT); _pushT=null; }
+    if(!_canWrite()){ if(loud) _say('⛔ Your account has no write permission','er'); return Promise.resolve(false); }
+    /* ⚠ KHÔNG bỏ qua khi đang có lệnh ghi dở. Lần ghi trước cầm map RIÊNG của
+       nó (_dirty đã được thay bằng object mới), nên hai lệnh update() không
+       giẫm chân nhau. Bỏ qua ở đây từng làm 📌 Close period im lặng không
+       đẩy gì lên Firebase. */
+    recalc(); _stampSt();
+    const map=_dirty; _dirty={};
+    const n=Object.keys(map).length;
+    if(!n){ if(loud) _say('Nothing to save',''); _btn(); return Promise.resolve(true); }
+    _pushing++; _syncTag('⇪ saving…','wait');
+    _echo++; _echoUntil=Date.now()+2500;
+    const rel=()=>{ setTimeout(()=>{ if(_echo>0) _echo--; },800); };
+    return _ref().update(map)
+      .then(()=>{
+        if(_pushing>0) _pushing--; rel();
+        if(!_pushing) _syncTag('✓ synced '+_hm(),'ok');
+        if(loud) _say('✅ Saved '+n+' field(s) — synced to every machine','ok');
+        _btn(); render(); return true;
+      })
+      .catch(e=>{
+        if(_pushing>0) _pushing--; rel();
+        console.warn('[KNQ] save',e);
+        [GI,GO].forEach(BAG=>Object.values(BAG).forEach(r=>{
+          if(r._prevSt!==undefined){ r._svSt=r._prevSt; delete r._prevSt; } }));
+        Object.keys(map).forEach(k=>{ if(_dirty[k]===undefined) _dirty[k]=map[k]; });
+        _btn(); _syncTag('✗ not saved','er');
+        _say('❌ Save failed: '+e.message+' — will retry','er');
+        if(_pushT) clearTimeout(_pushT);
+        _pushT=setTimeout(()=>{ _pushT=null; _flush(false); },5000);
+        return false;
+      });
+  }
+  /* ── LISTENER REALTIME ────────────────────────────────────────
+     Chỉ gắn trong CỬA SỔ SỐNG: gi/go còn st='open', use từ _liveFrom().
+     Kỳ đã đóng nằm ngoài cửa sổ ⇒ không có listener ⇒ không tốn băng thông
+     và không bị kéo về máy. */
+  function _attachLive(){
+    if(_live || typeof firebase==='undefined') return;
+    _live=true;
+    const R=_ref();
+    /* meta — máy nào bấm 📌 Close period thì mọi máy nhảy kỳ theo */
+    try{
+      R.child('meta').on('value',s=>{
+        const v=s.val()||{};
+        _closed=v.closed||{};
+        const p=v.curPeriod||'';
+        if(!p || p===_curPeriod) return;
+        const was=_curPeriod; _curPeriod=p;
+        if(_month<p){ _month=p; _useMonth=p; _syncEls(); }
+        if(was && was<p) _say('📌 Period '+was+' was closed on another machine — now working on '+p,'ok');
+        _scheduleRender();
+      },e=>console.warn('[KNQ] meta live',e));
+    }catch(e){ console.warn('[KNQ] meta live',e); }
+
+    const rowOn=(node,BAG)=>{
+      try{
+        const q=R.child(node).orderByChild('st').equalTo('open');
+        const put=snap=>{
+          if(_mine()) return;
+          const id=snap.key, v=snap.val(); if(!v) return;
+          const r=Object.assign({_id:id},_dirtyOver(node+'/'+id,v));
+          r._svSt=v.st||'open';
+          BAG[id]=r; _scheduleRender();
+        };
+        q.on('child_added',put);
+        q.on('child_changed',put);
+        q.on('child_removed',snap=>{
+          if(_mine()) return;
+          delete BAG[snap.key]; _scheduleRender();
+        });
+      }catch(e){ console.warn('[KNQ] live '+node,e); }
+    };
+    rowOn('gi',GI); rowOn('go',GO);
+
+    try{
+      const uq=R.child('use').orderByKey().startAt(_liveFrom());
+      const uput=snap=>{
+        if(_mine()) return;
+        const d=snap.key;
+        if(_dirty['use/'+d]!==undefined) return;   /* đang gõ dở → giữ số của mình */
+        USE[d]=snap.val()||{}; _scheduleRender();
+      };
+      uq.on('child_added',uput);
+      uq.on('child_changed',uput);
+      uq.on('child_removed',snap=>{
+        if(_mine()) return;
+        delete USE[snap.key]; _scheduleRender();
+      });
+    }catch(e){ console.warn('[KNQ] live use',e); }
   }
   function _btn(){
     const b=document.getElementById('knq-save');
@@ -613,18 +836,34 @@ const KNQ = (function(){
                    'note','vas','vasDate','hqDone','hqDate','st'];
   function _strip(r,F){ const o={}; F.forEach(k=>{ if(r[k]!==undefined) o[k]=r[k]; }); return o; }
 
+  /* ⭐ v4.102 — ĐỌC META TRƯỚC rồi mới tải dữ liệu, vì con trỏ kỳ quyết định
+     CỬA SỔ tải về: kỳ đã đóng nằm nguyên trên Firebase nhưng không kéo về
+     máy nữa. */
+  function _loadMeta(){
+    return _ref().child('meta').once('value')
+      .then(s=>{
+        const v=s.val()||{};
+        _closed=v.closed||{};
+        if(v.curPeriod) _curPeriod=v.curPeriod;
+      })
+      .catch(e=>console.warn('[KNQ] meta',e));
+  }
   function _load(){
-    const jobs=[];
-    jobs.push(_ref().child('gi').orderByChild('st').equalTo('open').once('value')
-      .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ GI[k]=Object.assign({_id:k},v[k]); }); })
-      .catch(e=>console.warn('[KNQ] gi',e)));
-    jobs.push(_ref().child('go').orderByChild('st').equalTo('open').once('value')
-      .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ GO[k]=Object.assign({_id:k},v[k]); }); })
-      .catch(e=>console.warn('[KNQ] go',e)));
-    jobs.push(_ref().child('use').orderByKey().startAt(_addDays(_today(),-120)).once('value')
-      .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ USE[k]=v[k]; }); })
-      .catch(e=>console.warn('[KNQ] use',e)));
-    return Promise.all(jobs);
+    return _loadMeta().then(()=>{
+      const from=_liveFrom();
+      const jobs=[];
+      jobs.push(_ref().child('gi').orderByChild('st').equalTo('open').once('value')
+        .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ GI[k]=Object.assign({_id:k},v[k]); }); })
+        .catch(e=>console.warn('[KNQ] gi',e)));
+      jobs.push(_ref().child('go').orderByChild('st').equalTo('open').once('value')
+        .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ GO[k]=Object.assign({_id:k},v[k]); }); })
+        .catch(e=>console.warn('[KNQ] go',e)));
+      /* CHỈ ngày trong cửa sổ sống — ngày của kỳ đã đóng thuộc về 📜 Archive */
+      jobs.push(_ref().child('use').orderByKey().startAt(from).once('value')
+        .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ USE[k]=v[k]; }); })
+        .catch(e=>console.warn('[KNQ] use',e)));
+      return Promise.all(jobs);
+    });
   }
   function loadOld(){
     if(_allLoaded){ _say('Everything is already loaded',''); return; }
@@ -639,28 +878,8 @@ const KNQ = (function(){
     ]).then(()=>{ _allLoaded=true; render(); _say('📂 Full history loaded','ok'); })
       .catch(e=>{ console.warn('[KNQ] loadOld',e); _say('❌ Could not load archived data','er'); });
   }
-  function save(){
-    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
-    recalc();
-    [[GI,'gi'],[GO,'go']].forEach(([BAG,key])=>{
-      Object.values(BAG).forEach(r=>{
-        const st=r.hqDone?'done':'open';
-        if(r._svSt===st) return;
-        _markField(key+'/'+r._id,'st',st);
-        r._prevSt=r._svSt; r._svSt=st;
-      });
-    });
-    const map=_dirty; _dirty={};
-    if(!Object.keys(map).length){ _say('Nothing to save',''); return; }
-    _ref().update(map)
-      .then(()=>{ _say('✅ Saved '+Object.keys(map).length+' field(s)','ok'); _btn(); render(); })
-      .catch(e=>{
-        console.warn('[KNQ] save',e);
-        [GI,GO].forEach(BAG=>Object.values(BAG).forEach(r=>{
-          if(r._prevSt!==undefined){ r._svSt=r._prevSt; delete r._prevSt; } }));
-        Object.assign(_dirty,map); _btn(); _say('❌ Save failed: '+e.message,'er');
-      });
-  }
+  /* 💾 Save = "đẩy ngay" (dữ liệu vẫn tự đẩy sau 1,5 s nếu người dùng không bấm) */
+  function save(){ return _flush(true); }
 
   /* ============================================================
      ⬇ CẬP NHẬT D/E TỪ SAP  —  khớp theo MÃ BATCH người dùng gõ
@@ -893,41 +1112,221 @@ const KNQ = (function(){
   function toggleGroup(id){ _open[id]=(_open[id]===false); render(); }
   /* đổi KỲ trừ lùi — bảng batch không đổi, chỉ đổi dữ liệu OL1 đem đi trừ */
   function onMonth(){ const e=document.getElementById('knq-month'); if(!e) return;
-    _month=e.value||_ym(_today());
-    _useMonth=_month;
-    const u=document.getElementById('knq-use-month'); if(u) u.value=_useMonth;
+    const v=e.value||_curP();
+    /* ⭐ v4.102 — kỳ đã đóng không còn dữ liệu sống trên máy (use của kỳ đó
+       không được tải về nữa), tính lại sẽ ra số sai. Đẩy sang 📜 Archive. */
+    if(_closed && _closed[v]){
+      _say('📜 Period '+v+' is closed — opening the read-only archive instead','');
+      _month=_curP(); _useMonth=_month; _syncEls();
+      _archM=v; openArch(); loadArch(); render(); return;
+    }
+    _month=v; _useMonth=_month; _syncEls();
     render(); }
 
   /* ============================================================
-     📌 CHỐT KỲ — kết thúc tháng, mở kỳ mới
-     Thực còn cuối kỳ này ⇒ TỒN ĐẦU KỲ của kỳ sau (ghi vào op[kỳ sau]).
-     Batch đã tick ✔ Xong KHÔNG được chuyển sang — đúng ý "tick cho nó biến
-     mất khỏi bộ dữ liệu trừ lùi".
+     📌 CLOSE PERIOD — chốt kỳ, mở kỳ mới, LẤY SỐ SAP LÀM SỐ CHÍNH THỨC
+     ------------------------------------------------------------
+     ⭐ v4.102. SAP cho lô P và X bị CHẬM VÀI NGÀY so với ngày chốt kỳ (độ
+     trễ của công tác đóng kỳ đưa dữ liệu lên SAP). Cho nên nút này KHÔNG
+     dùng mốc D-1 như ⬇ Sync from SAP mà đọc End Stock tại **NGÀY CUỐI CÙNG
+     CỦA KỲ** rồi ĐÈ vào tồn đầu kỳ mới cho CẢ 4 loại lô P/X/D/E — người
+     dùng bấm nút khi SAP đã đẩy đủ số, nên số SAP lúc đó là số chính thức.
+     Lô nào SAP chưa có số ở ngày đó mới lui về số app tự tính; hộp xác nhận
+     đếm rõ bao nhiêu lô lấy từ SAP, bao nhiêu lô lấy từ app, lệch bao nhiêu.
+     Batch đã tick ✔ Done KHÔNG được chuyển sang.
+     Đóng xong: snapshot kỳ cũ vào periods/<M>, đẩy meta/curPeriod lên
+     Firebase NGAY để mọi máy nhảy kỳ theo và ngừng đồng bộ kỳ cũ.
   ============================================================ */
+  /* End Stock của SAP tại một NGÀY BẤT KỲ (lấy dòng gần nhất ≤ ngày đó).
+     Khác _sapOf/pullSap ở chỗ mốc do người gọi quyết định. */
+  function _sapAt(day){
+    const out={ map:{C3:{},C4:{}}, asOf:'', ok:false, err:'' };
+    if(typeof SP==='undefined' || !SP.batch1100){ out.err='the SAP tab is not loaded yet'; return out; }
+    let res=null;
+    try{ res=SP.batch1100(); }catch(e){ out.err='the SAP tab raised an error: '+e.message; return out; }
+    if(!res || !res.rows || !res.rows.length){
+      out.err='the SAP tab has no SLoc 1100 row with a split batch code'+
+              ((res&&res.legacy)?(' ('+res.legacy+' row(s) still in the old merged form)'):'');
+      return out;
+    }
+    res.rows.forEach(r=>{
+      if(!r.date || r.date>day) return;
+      const B=out.map[r.mat]; if(!B) return;
+      const code=String(r.batch||'').trim().toUpperCase(); if(!code) return;
+      const cur=B[code];
+      if(!cur || r.date>=cur.date) B[code]={ date:r.date, endKg:Math.round(r.end) };
+      if(r.date>out.asOf) out.asOf=r.date;
+    });
+    out.ok=!!out.asOf;
+    if(!out.ok) out.err='the SAP tab has no SLoc 1100 data on or before '+_dmy(day);
+    return out;
+  }
+
   function closeMonth(){
-    if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
-    const M=_month||_ym(_today()), N=_nextYm(M);
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
+    const M=_month||_curP(), N=_nextYm(M), M9=_lastDay(M);
     if(!N){ _say('❌ No period selected','er'); return; }
+    if(_closed && _closed[M]){
+      _say('❌ Period '+M+' has already been closed — open it read-only with 📜 Archive','er'); return; }
     const S=recalc();
     const carry=S.gos.filter(r=>!r.hqDone && _ym(_outDate(r))<=M);
     const zero =carry.filter(r=>!(r.remainKg>0.5));
     const done =S.gos.filter(r=>r.hqDone).length;
-    if(!confirm('📌 CLOSE PERIOD '+M+'  →  OPEN PERIOD '+N+'\n\n'+
-      '• '+carry.length+' batch(es) carried over — SAP Qty of '+N+' = actual left at end of '+M+'\n'+
-      '• '+done+' batch(es) ticked ✔ Done — NOT carried over\n'+
-      (zero.length?('\n⚠ '+zero.length+' batch(es) are at 0 but NOT ticked ✔ Done yet.\n'+
-        '   Tick them first, otherwise they stay in next period\'s run-down.\n'):'')+
-      '\nContinue?')) return;
+
+    /* ── ① ĐỌC SAP TẠI NGÀY CUỐI KỲ ─────────────────────────── */
+    const sap=_sapAt(M9);
+    if(!sap.ok){
+      if(!confirm('⚠ NO SAP FIGURE FOR '+_dmy(M9)+'\n\n'+
+        'Reason: '+sap.err+'.\n\n'+
+        'SAP publishes the P / X batches a few days after month end, so this is normal if you\n'+
+        'are closing on the 1st. Paste the ZMMFR022 export covering '+_dmy(M9)+' in\n'+
+        'LPG Sales ▸ SAP and press this button again to let SAP decide the opening balance.\n\n'+
+        'Close '+M+' now using the figures this app computed from FEED OL1 instead?')) return;
+    }else if(sap.asOf<M9){
+      if(!confirm('⚠ SAP HAS NOT CAUGHT UP WITH THE END OF '+M+'\n\n'+
+        'Period ends '+_dmy(M9)+' · newest SLoc 1100 data in the SAP tab is '+_dmy(sap.asOf)+'.\n\n'+
+        'Batches that already have a SAP figure will take it; the rest carry the app-computed\n'+
+        'actual left. You can also cancel, paste a fresher ZMMFR022 and try again.\n\n'+
+        'Close '+M+' anyway?')) return;
+    }
+
+    /* ── ② SỐ SAP ĐÈ APP CHO MỌI LOẠI LÔ ────────────────────── */
+    const plan=[]; let nSap=0, nApp=0;
     carry.forEach(r=>{
-      const v=Math.max(0,r.remainKg||0);
-      r.op=r.op||{}; r.op[N]=v; _markOp(r._id,N,v);
+      const code=String(r.batch||'').trim().toUpperCase();
+      const b=(code && sap.map[r.mat]) ? sap.map[r.mat][code] : null;
+      const app=Math.max(0,r.remainKg||0);
+      if(b) nSap++; else nApp++;
+      plan.push({ r:r, v:(b?Math.max(0,b.endKg):app), src:(b?'sap':'app'), app:app,
+                  sapKg:(b?b.endKg:null), sapDate:(b?b.date:''),
+                  diff:(b?(b.endKg-app):null) });
     });
-    _month=N; _useMonth=N;
-    const e=document.getElementById('knq-month'); if(e) e.value=N;
-    const u=document.getElementById('knq-use-month'); if(u) u.value=N;
+    const off=plan.filter(p=>p.diff!=null && Math.abs(p.diff)>SAP_TOL)
+                  .sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
+    if(!confirm('📌 CLOSE PERIOD '+M+'  →  OPEN PERIOD '+N+'\n\n'+
+      '• '+carry.length+' batch(es) carried over — their opening balance (SAP qty) in '+N+'\n'+
+      '     · '+nSap+' from the SAP End Stock of '+(sap.ok?_dmy(sap.asOf):'—')+'  (SAP is the official figure)\n'+
+      '     · '+nApp+' have no SAP row at that date → the app-computed actual left is used\n'+
+      '• '+done+' batch(es) ticked ✔ Done — NOT carried over\n'+
+      (zero.length?('\n⚠ '+zero.length+' batch(es) are at 0 but NOT ticked ✔ Done yet — they stay in\n'+
+        '   next period\'s run-down. Cancel and tick them first if that is wrong.\n'):'')+
+      (off.length?('\n⚠ '+off.length+' batch(es) differ from what this app computed:\n'+
+        off.slice(0,6).map(p=>'     '+(p.r.batch||'?')+'   app '+_K(p.app)+'  →  SAP '+_K(p.sapKg)+
+          '   ('+(p.diff>0?'+':'')+_K(p.diff)+' kg)').join('\n')+
+        (off.length>6?('\n     …+'+(off.length-6)+' more'):'')+'\n'):'')+
+      '\nPeriod '+M+' is then archived on Firebase and stops syncing to the machines.\n'+
+      'Continue?')) return;
+
+    /* ── ③ GHI: op kỳ mới · snapshot kỳ cũ · con trỏ kỳ ─────── */
+    const at=_stamp(), by=_who(), rows={};
+    plan.forEach(p=>{
+      const r=p.r;
+      r.op=r.op||{}; r.op[N]=p.v; _markOp(r._id,N,p.v);
+      rows[r._id]={ mat:r.mat||'', batch:r.batch||'', letter:r.letter||'',
+        vessel:(GI[r.giId]&&GI[r.giId].vessel)||'', decl:r.decl||'',
+        open:_n(r.baseKg), used:_n(r.usedKg), left:_n(p.app),
+        sapEnd:(p.sapKg==null?'':p.sapKg), sapDate:p.sapDate||'',
+        carry:p.v, src:p.src };
+    });
+    S.gos.filter(r=>r.hqDone).forEach(r=>{
+      rows[r._id]={ mat:r.mat||'', batch:r.batch||'', letter:r.letter||'',
+        vessel:(GI[r.giId]&&GI[r.giId].vessel)||'', decl:r.decl||'',
+        open:_n(r.baseKg), used:_n(r.usedKg), left:0,
+        sapEnd:'', sapDate:'', carry:0, src:'done' };
+    });
+    const use={};
+    Object.keys(USE).forEach(d=>{ if(_ym(d)===M) use[d]=USE[d]; });
+    _dirty['periods/'+M]={ closedAt:at, closedBy:by, periodEnd:M9,
+                           sapAsOf:sap.asOf||'', fromSap:nSap, fromApp:nApp,
+                           rows:rows, use:use };
+    _dirty['meta/curPeriod']=N;
+    _dirty['meta/closed/'+M]={ at:at, by:by, sapAsOf:sap.asOf||'', batches:carry.length };
+
+    if(N>_curPeriod) _curPeriod=N;
+    _closed[M]={ at:at, by:by, sapAsOf:sap.asOf||'', batches:carry.length };
+    _month=N; _useMonth=N; _syncEls();
     render();
-    _say('📌 Period '+M+' closed · '+carry.length+' batch(es) opened in '+N+
-         (zero.length?(' · '+zero.length+' at 0 but not ticked ✔'):'')+' — remember to 💾 Save','ok');
+    _flush(false);
+    _say('📌 Period '+M+' closed → '+N+' is open · '+nSap+' opening balance(s) from SAP, '+
+         nApp+' from the app · '+M+' archived and no longer synced','ok');
+  }
+
+  /* ============================================================
+     📜 ARCHIVE — xem lại KỲ ĐÃ ĐÓNG, read-only
+     Kỳ đã đóng KHÔNG còn được tải về / đồng bộ. Nút này đọc thẳng
+     knq_bonded/periods/<YYYY-MM> MỘT LẦN (once, không gắn listener) rồi
+     hiện bảng chỉ để đọc. Không đụng gì tới dữ liệu đang chạy.
+  ============================================================ */
+  function openArch(){
+    const m=_el('knq-arch'); if(!m) return;
+    const sel=_el('knq-arch-m');
+    if(sel){
+      const ks=Object.keys(_closed||{}).sort().reverse();
+      sel.innerHTML=ks.length
+        ? ks.map(k=>'<option value="'+k+'">'+k+'</option>').join('')
+        : '<option value="">— no closed period yet —</option>';
+      if(_archM && ks.indexOf(_archM)>-1) sel.value=_archM;
+    }
+    m.classList.add('on');
+    _renderArch();
+    if(sel && sel.value) loadArch();
+  }
+  function closeArch(){ const m=_el('knq-arch'); if(m) m.classList.remove('on'); }
+  function loadArch(){
+    const sel=_el('knq-arch-m'); const M=(sel&&sel.value)||'';
+    if(!M){ _arch=null; _archM=''; _renderArch(); return; }
+    if(_archBusy) return;
+    _archBusy=true; _archM=M; _arch=null; _renderArch();
+    _ref().child('periods/'+M).once('value')
+      .then(s=>{ _arch=s.val()||null; _archBusy=false; _renderArch(); })
+      .catch(e=>{ console.warn('[KNQ] archive',e); _archBusy=false; _arch=null;
+        _renderArch('❌ Could not read the archive of '+M+': '+e.message); });
+  }
+  function _renderArch(err){
+    const box=_el('knq-arch-body'); if(!box) return;
+    if(err){ box.innerHTML='<div class="knq-empty">'+_esc(err)+'</div>'; return; }
+    if(_archBusy){ box.innerHTML='<div class="knq-empty">Loading '+_esc(_archM)+'…</div>'; return; }
+    if(!_archM){ box.innerHTML='<div class="knq-empty">No period has been closed yet. '+
+      'Closed periods stay on Firebase and are opened here read-only — they are no longer '+
+      'downloaded to the machines.</div>'; return; }
+    if(!_arch){ box.innerHTML='<div class="knq-empty">No archive stored for '+_esc(_archM)+
+      '. Periods closed before v4.102 were not snapshotted — use 📂 Load archived on the main '+
+      'table to review those rows instead.</div>'; return; }
+    const rows=Object.keys(_arch.rows||{}).map(k=>_arch.rows[k])
+      .sort((a,b)=>{ const ka=(a.mat||'')+(a.batch||''), kb=(b.mat||'')+(b.batch||'');
+                     return ka<kb?-1:(ka>kb?1:0); });
+    let tOpen=0,tUsed=0,tLeft=0;
+    rows.forEach(r=>{ tOpen+=_n(r.open); tUsed+=_n(r.used); tLeft+=_n(r.carry); });
+    const days=Object.keys(_arch.use||{}).sort();
+    let uT=0,uX=0;
+    days.forEach(d=>{ const u=_arch.use[d]||{}; const t=_totOf(u); uT+=(t==null?0:t); uX+=_n(u.x); });
+    box.innerHTML=
+      '<div class="knq-hint">Period <b>'+_esc(_archM)+'</b> · closed '+_esc(_arch.closedAt||'—')+
+        (_arch.closedBy?(' by <b>'+_esc(_arch.closedBy)+'</b>'):'')+
+        ' · SAP as of <b>'+_dmy(_arch.sapAsOf||'')+'</b>'+
+        ' · '+(_arch.fromSap||0)+' closing balance(s) taken from SAP, '+(_arch.fromApp||0)+' from the app.'+
+        ' <b>Read-only</b> — this period no longer syncs to the machines.</div>'+
+      '<div class="knq-tw"><table class="knq-tb"><thead><tr>'+
+        '<th>Mat</th><th>Batch</th><th>Lot</th><th>Vessel</th>'+
+        '<th class="n">Opening</th><th class="n">Used</th><th class="n">App left</th>'+
+        '<th class="n">SAP end</th><th class="n">Carried to next</th><th>Source</th></tr></thead><tbody>'+
+      (rows.length?rows.map(r=>
+        '<tr><td>'+_esc(r.mat)+'</td><td class="knq-bcell knq-lot-'+
+          _esc(String(r.letter||'').toLowerCase()||'n')+'">'+_esc(r.batch)+'</td>'+
+        '<td>'+_esc(LETTER_NAME[r.letter]||r.letter||'')+'</td><td>'+_esc(r.vessel||'')+'</td>'+
+        '<td class="n">'+_K(_n(r.open))+'</td><td class="n">'+_K(_n(r.used))+'</td>'+
+        '<td class="n">'+_K(_n(r.left))+'</td>'+
+        '<td class="n">'+(r.sapEnd===''||r.sapEnd==null?'—':_K(_n(r.sapEnd)))+'</td>'+
+        '<td class="n"><b>'+_K(_n(r.carry))+'</b></td>'+
+        '<td>'+(r.src==='sap'?'<span class="knq-b sap">SAP</span>':
+                r.src==='done'?'<span class="knq-b done">✔ Done</span>':
+                '<span class="knq-b wait">app</span>')+'</td></tr>').join('')
+        :'<tr><td colspan="10" class="knq-empty">No batch stored in this snapshot.</td></tr>')+
+      '</tbody><tfoot><tr class="knq-tot"><td colspan="4">TOTAL '+_esc(_archM)+'</td>'+
+        '<td class="n">'+_K(tOpen)+'</td><td class="n">'+_K(tUsed)+'</td><td class="n"></td>'+
+        '<td class="n"></td><td class="n">'+_K(tLeft)+'</td><td></td></tr></tfoot></table></div>'+
+      '<div class="knq-hint">FEED OL1 of '+_esc(_archM)+': <b>'+days.length+'</b> day(s) · '+
+        'TOTAL P+X <b>'+_K(uT)+'</b> kg · X <b>'+_K(uX)+'</b> kg · P <b>'+_K(Math.max(0,uT-uX))+'</b> kg.</div>';
   }
 
   /* ============================================================
@@ -935,7 +1334,10 @@ const KNQ = (function(){
   ============================================================ */
   function openOl1(){
     const m=document.getElementById('knq-ol1'); if(!m) return;
-    if(!_useMonth) _useMonth=_month||_ym(_today());
+    if(!_useMonth) _useMonth=_month||_curP();
+    /* ⭐ v4.102 — kỳ quá hạn đóng: mở thẳng THÁNG ĐANG CHẠY, vì đó mới là
+       tháng người dùng cần gõ OL1 (số vẫn trừ vào bộ batch của kỳ cũ). */
+    if(_overdue() && _month===_curP() && _useMonth<_ym(_today())) _useMonth=_ym(_today());
     const sel=document.getElementById('knq-use-month'); if(sel) sel.value=_useMonth;
     const u=document.getElementById('knq-ol1-unit'); if(u) u.value=_olUnit;
     m.classList.add('on');
@@ -1320,6 +1722,21 @@ const KNQ = (function(){
     const box=document.getElementById('knq-alerts'); if(!box) return;
     const A=_asOf(), out=[];
 
+    /* ⭐ v4.102 — QUÁ HẠN ĐÓNG KỲ. Đã sang tháng mới mà chưa bấm 📌 Close
+       period: số KHÔNG đứng lại, vẫn trừ tiếp trên bộ batch của kỳ cũ bằng
+       FEED OL1 của tháng mới — nhưng phải nói thẳng ra cho người dùng biết,
+       vì tồn đầu kỳ mới chỉ chốt được khi SAP đã đẩy đủ lô P/X. */
+    if(_overdue()){
+      const P=_curP();
+      out.push(['bad','<b>Period '+P+' is still open — we are already in '+_ym(_today())+'.</b> '+
+        'Figures keep running down on the <b>'+P+'</b> batch set, drawing the FEED OL1 days you '+
+        'enter for '+_ym(_today())+' — nothing is frozen. But the opening balance of the new period '+
+        'is only fixed when you close: SAP publishes the P / X batches a few days after month end, '+
+        'so click <b>📌 Close period</b> once the ZMMFR022 covering '+_dmy(_lastDay(P))+' is pasted '+
+        'in LPG Sales ▸ SAP. '+
+        '<button class="knq-btn accent" onclick="KNQ.closeMonth()">📌 Close '+P+' now</button>']);
+    }
+
     if(!_sapAsOf){
       out.push(['info','SAP not pulled yet — click <b>⬇ Sync from SAP</b> to load the End Stock of '+
         _dmy(A)+' (yesterday) for every batch code.']);
@@ -1332,7 +1749,12 @@ const KNQ = (function(){
     /* hôm qua có gõ TỔNG P+X chưa? chưa gõ = đang chạy mức tạm tính */
     const uA=USE[A];
     const hasPX=S.gos.some(r=>!r.hqDone && (r.letter==='P'||r.letter==='X') && r.baseKg!=null);
-    if(hasPX && _ym(A)===(_month||_ym(_today()))){
+    /* ⭐ v4.102 — CỬA SỔ KỲ = từ đầu kỳ tới ngày dữ liệu. Kỳ mở quá hạn thì
+       cửa sổ vắt sang tháng mới, đúng chỗ mà số đang thật sự bị trừ. */
+    const W0=(_month||_curP())+'-01';
+    const W9=_isOpenP(_month||_curP()) ? A : (_lastDay(_month||_curP())<A?_lastDay(_month||_curP()):A);
+    const inW=d=>(d>=W0 && d<=W9);
+    if(hasPX && inW(A)){
       if(!uA){
         out.push(['warn','<b>'+_dmy(A)+' (yesterday) has no FEED OL1 row at all.</b> The P/X run-down '+
           'therefore drew nothing for that day. Open <b>⛽ FEED OL1</b> and enter the day.']);
@@ -1343,8 +1765,8 @@ const KNQ = (function(){
       }
     }
     /* các ngày khác trong kỳ còn thiếu TỔNG — gộp thành 1 dòng */
-    const M=_month||_ym(_today());
-    const miss=Object.keys(USE).filter(d=>_ym(d)===M && d<=A && d!==A && _totOf(USE[d])==null);
+    const M=_month||_curP();
+    const miss=Object.keys(USE).filter(d=>inW(d) && d!==A && _totOf(USE[d])==null);
     if(miss.length) out.push(['warn',miss.length+' earlier day(s) in '+M+' still run on the assumed '+
       _K(DEF_TOT_KG)+' kg/day TOTAL P+X: '+miss.slice(0,6).map(_dmy).join(', ')+
       (miss.length>6?(' …+'+(miss.length-6)):'')+'.']);
@@ -1355,9 +1777,12 @@ const KNQ = (function(){
       (bad.length>5?(' …+'+(bad.length-5)):'')+'. Check the FEED OL1 figures or the declared SAP qty.']);
 
     box.innerHTML=out.length
-      ? out.map(o=>'<div class="knq-al '+o[0]+'">'+(o[0]==='warn'?'⚠':'ℹ')+' '+o[1]+'</div>').join('')
-      : '<div class="knq-al ok">✓ Data as of <b>'+_dmy(A)+'</b> (yesterday) — SAP in sync, every batch matches, '+
-        'no missing FEED OL1 total. Today onward is forecast only.</div>';
+      ? out.map(o=>'<div class="knq-al '+o[0]+'">'+
+          (o[0]==='bad'?'⛔':o[0]==='warn'?'⚠':'ℹ')+' '+o[1]+'</div>').join('')
+      : '<div class="knq-al ok">✓ Data as of <b>'+_dmy(A)+'</b> (yesterday) · period <b>'+_curP()+
+        '</b> open — SAP in sync, every batch matches, no missing FEED OL1 total. '+
+        'Today onward is forecast only. Every edit here is pushed to Firebase and lands on the '+
+        'other machines automatically.</div>';
     box.style.display='';
   }
 
@@ -1383,14 +1808,24 @@ const KNQ = (function(){
       '<span class="knq-chip tot">Actual left <b>'+_K(left)+'</b> / '+_K(base)+' kg</span>'+
       '<span class="knq-chip asof" title="SAP closes one day late and today is still being pumped, so the last '+
         'final figures are yesterday\'s. Everything from today on is forecast.">data as of <b>'+_dmy(_asOf())+'</b></span>'+
+      '<span class="knq-chip '+(_overdue()?'soon':'per')+'" title="The open period. Periods before it are '+
+        'archived on Firebase and no longer synced to this machine — open them with 📜 Archive.">period <b>'+
+        _curP()+'</b>'+(_overdue()?' · overdue':'')+'</span>'+
       (_sapAsOf?('<span class="knq-chip '+(_sapAsOf<_asOf()?'soon':'sap')+'">SAP '+
         (_sapAsOf<_asOf()?'behind — ':'')+'<b>'+_dmy(_sapAsOf)+'</b></span>'):
         '<span class="knq-chip soon">SAP not pulled</span>')+
       (filterOn()?('<span class="knq-chip filt">filtered <b>'+_nShown+'</b> / '+S.gos.length+
         ' batches <button class="knq-x" title="Clear the filter" onclick="KNQ.clearFilter()">✕</button></span>'):'');
     const b=document.getElementById('knq-close');
-    if(b) b.title='Close period '+(_month||'—')+': the actual left at period end becomes the '+
-      'SAP Qty (opening balance) of the next period. Batches ticked ✔ Done are not carried over.';
+    if(b){
+      b.title='Close period '+(_month||'—')+': reads the SAP End Stock at '+
+        _dmy(_lastDay(_month||_curP()))+' (the last day of the period, NOT D-1 — SAP publishes the '+
+        'P / X batches a few days late) and writes it as the SAP Qty (opening balance) of the next '+
+        'period for every lot type. Batches with no SAP row at that date carry the app-computed '+
+        'actual left; batches ticked ✔ Done are not carried over. The closed period is archived on '+
+        'Firebase and stops syncing to the machines.';
+      b.classList.toggle('hot',_overdue());
+    }
   }
 
   function _renderMat(mat){
@@ -1760,8 +2195,7 @@ const KNQ = (function(){
   function init(){
     if(_initDone) return; _initDone=true;
     _month=_ym(_today()); _useMonth=_month;
-    const m=document.getElementById('knq-month'); if(m) m.value=_month;
-    const u=document.getElementById('knq-use-month'); if(u) u.value=_useMonth;
+    _syncEls();
   }
   function onTabEnter(){
     init();
@@ -1772,8 +2206,14 @@ const KNQ = (function(){
     _load().then(()=>{
       Object.values(GI).forEach(r=>{ r._svSt=r.st||'open'; });
       Object.values(GO).forEach(r=>{ r._svSt=r.st||'open'; });
+      /* ⭐ v4.102 — kỳ MỞ mới là kỳ làm việc. Con trỏ nằm trên Firebase nên
+         máy nào mở lên cũng vào đúng kỳ, không phụ thuộc lịch của máy. */
+      if(_curPeriod && _month<_curPeriod){ _month=_curPeriod; _useMonth=_curPeriod; }
+      _syncEls();
       _autoCollapse();      /* chuyến đã bơm ra hết → gập sẵn cho đỡ nhiễu */
       render();
+      _attachLive();        /* ⭐ từ đây mọi máy thấy nhau theo thời gian thực */
+      _syncTag('✓ synced '+_hm(),'ok');
     }).catch(e=>{ console.warn('[KNQ] load',e); render(); _say('❌ Could not load KNQ data','er'); });
   }
 
@@ -1782,6 +2222,7 @@ const KNQ = (function(){
     pullSap, copySap, fillSapQty,
     addGi, addGo, cloneGo, setGi, setGo, delGi, delGo, toggleDone, toggleVas, toggleGroup,
     onMonth, closeMonth, setOp, childrenOf, visibleGi,
+    openArch, closeArch, loadArch,
     onFilter, clearFilter, collapseAll, shownChildren, matchGo, filterOn,
     openOl1, closeOl1, onOl1Unit, setUse, setUseNote, useKey, usePaste,
     addUseRow, fillUseMonth, delUseRow, onUseMonth,
@@ -1793,7 +2234,14 @@ const KNQ = (function(){
              open:_open, autoCollapse:()=>{ _autoDone=false; _autoCollapse(); },
              filter:()=>({ q:_fq, st:_fSt, lot:_fLot }),
              setFilter:(q,st,lot)=>{ _fq=q||''; _fSt=st||''; _fLot=lot||''; },
-             month:()=>_month, setMonth:m=>{ _month=m; _useMonth=m; } }
+             month:()=>_month, setMonth:m=>{ _month=m; _useMonth=m; },
+             /* v4.102 — kỳ mở / kỳ đã đóng / đồng bộ (dùng cho kiểm thử) */
+             curPeriod:()=>_curP(), rawPeriod:()=>_curPeriod,
+             setPeriod:p=>{ _curPeriod=p||''; },
+             overdue:_overdue, isOpenP:_isOpenP, liveFrom:_liveFrom,
+             closed:()=>_closed, setClosed:c=>{ _closed=c||{}; },
+             sapAt:_sapAt, dirty:()=>_dirty, flush:_flush,
+             arch:()=>_arch, dirtyOver:_dirtyOver }
   };
 })();
 window.KNQ = KNQ;

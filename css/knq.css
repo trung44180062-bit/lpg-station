@@ -358,3 +358,33 @@
 /* hôm qua mà chưa gõ TỔNG P+X ⇒ số "đã bơm" là số ĐOÁN — tô đỏ */
 .knq-tb tr.knq-asofbad{ background:#fff1f1; }
 .knq-tb tr.knq-asofbad td:first-child{ box-shadow:inset 3px 0 0 #d9534f; }
+
+/* ═══════════════════════════════════════════════════════════
+   v4.102 — ĐỒNG BỘ NHIỀU MÁY · KỲ QUÁ HẠN · 📜 ARCHIVE
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── chỉ báo trạng thái đẩy lên Firebase (cạnh nút 💾 Save) ──
+   Người dùng phải NHÌN THẤY dữ liệu đã lên hay chưa, vì từ v4.102 mọi
+   thao tác tự đẩy — không còn thói quen "bấm Save mới yên tâm". */
+.knq-sync{
+  font-size:10px;font-weight:800;letter-spacing:.2px;white-space:nowrap;
+  padding:3px 8px;border-radius:999px;border:1px solid transparent;color:var(--ink-3);
+}
+.knq-sync:empty{ display:none; }
+.knq-sync.ok  { background:var(--green-soft);border-color:#bfe6cd;color:#157a40; }
+.knq-sync.wait{ background:var(--orange-soft);border-color:#f6d4b4;color:#a8530a; }
+.knq-sync.er  { background:#fde8e8;border-color:#f3c4c4;color:#a02020; }
+
+/* ── chip KỲ ĐANG MỞ trên thanh thống kê ─────────────────── */
+.knq-chip.per{ background:#ede8fb;border-color:#d3c8f2;color:#4a2f9e; }
+
+/* ── cảnh báo NẶNG: quá hạn đóng kỳ (đỏ, không phải cam) ──── */
+.knq-al.bad{ background:#fdecec;border-color:#f0bcbc;color:#9a1c1c; }
+.knq-al.bad b{ color:#7a1212; }
+.knq-al.bad .knq-btn{ margin-left:6px;vertical-align:baseline; }
+
+/* ── nguồn số tồn đầu kỳ trong 📜 Archive ─────────────────── */
+.knq-b.sap{ background:var(--blue-soft);border-color:#9fc4ea;color:#0d4ea0; }
+
+/* ── ô batch của bảng archive: lô không đọc được chữ cái ──── */
+.knq-bcell.knq-lot-n{ background:var(--panel-2);color:var(--ink-3); }

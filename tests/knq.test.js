@@ -542,5 +542,119 @@ chk('_asOf() = hôm qua, KHÔNG phải hôm nay', S.asOf()===YD && S.asOf()!==TD
   KNQ.delGi(V); KNQ._state.setMonth('2026-08');
 })();
 
+/* ---------- 12. v4.102 — ĐỒNG BỘ NHIỀU MÁY · KỲ QUÁ HẠN · ĐÓNG KỲ THEO SAP ---------- */
+console.log('\n[12] v4.102 — KỲ MỞ / KỲ ĐÃ ĐÓNG · TRỪ LÙI VƯỢT THÁNG · 📌 CLOSE PERIOD LẤY SỐ SAP');
+(function(){
+  const OLD_MONTH=S.month(), OLD_P=S.rawPeriod(), OLD_CL=S.closed();
+
+  /* ── 12.1 CỬA SỔ ĐỒNG BỘ: kỳ cũ nằm ngoài, không tải về ── */
+  S.setPeriod('2026-08'); S.setClosed({});
+  chk('cửa sổ đồng bộ bắt đầu trước đầu kỳ mở 31 ngày (kỳ cũ KHÔNG tải về)',
+      S.liveFrom()==='2026-07-01', S.liveFrom());
+  chk('kỳ MỞ và kỳ SAU nó là dữ liệu sống, kỳ TRƯỚC là lưu trữ',
+      S.isOpenP('2026-08') && S.isOpenP('2026-09') && !S.isOpenP('2026-07'));
+
+  /* ── 12.2 QUÁ HẠN ĐÓNG KỲ ⇒ TRỪ LÙI KHÔNG DỪNG Ở CUỐI THÁNG ──
+     Dựng riêng 1 hàng đợi (C4 × X) để không ai tranh FIFO. Kỳ 7 là kỳ ĐANG
+     MỞ (chưa ai bấm 📌), hôm nay đã là tháng 8 ⇒ OL1 của 05/08 vẫn phải
+     được trừ vào batch của kỳ 7. */
+  const V=gi('C4',{ no:'OD', vessel:'OVERDUE TEST', decl:'od' });
+  /* tồn cực lớn để không bao giờ cạn — đo bằng ĐỘ CHÊNH, không phải số tuyệt
+     đối, vì bảng FEED OL1 của cả file test dùng chung */
+  const B=go(V,{ decl:'od1', batch:'260701X900', sapKg:'999999999' });
+  KNQ.setUse('2026-08-05','t','0'); KNQ.setUse('2026-08-05','x','1000');   /* SANG THÁNG 8 */
+
+  S.setPeriod('2026-08'); S.setMonth('2026-07'); KNQ.recalc();
+  const uClosed=K(S.GO[B].usedKg);        /* kỳ 7 ĐÃ ĐÓNG ⇒ kẹp ở 31/07 */
+  S.setPeriod('2026-07'); S.setMonth('2026-07'); KNQ.recalc();
+  const uOpen=K(S.GO[B].usedKg);          /* kỳ 7 vẫn MỞ ⇒ chạy tới hôm qua */
+  chk('kỳ 7 đang MỞ dù đã sang tháng 8 ⇒ _overdue() = true', S.overdue()===true);
+  chk('QUÁ HẠN: số KHÔNG đứng lại — vẫn trừ tiếp bằng OL1 của tháng 8',
+      uOpen>uClosed, uClosed+' → '+uOpen);
+  /* gõ thêm 1 500 T vào một ngày CỦA THÁNG 8 ⇒ kỳ MỞ phải tăng đúng ngần ấy */
+  KNQ.setUse('2026-08-05','x','2500');
+  S.setPeriod('2026-07'); KNQ.recalc();
+  chk('thêm 1 500 T vào ngày 05/08 ⇒ kỳ 7 (đang mở) trừ thêm ĐÚNG 1 500 000 kg',
+      K(S.GO[B].usedKg)===uOpen+1500000, uOpen+' → '+K(S.GO[B].usedKg));
+  S.setPeriod('2026-08'); KNQ.recalc();
+  chk('cùng số đó, kỳ 7 ĐÃ ĐÓNG thì lịch sử ĐỨNG YÊN ở 31/07',
+      K(S.GO[B].usedKg)===uClosed, uClosed+' → '+K(S.GO[B].usedKg));
+
+  /* ── 12.3 _sapAt(): End Stock tại MỘT NGÀY BẤT KỲ ──
+     Fixture SAP chỉ có dòng ngày 17/08/2026. */
+  chk('_sapAt() trước ngày SAP có số ⇒ không đọc được (đúng cảnh SAP còn trễ)',
+      S.sapAt('2026-07-31').ok===false, S.sapAt('2026-07-31').err);
+  const sA=S.sapAt('2026-08-31');
+  chk('_sapAt() sau đó ⇒ lấy dòng gần nhất ≤ ngày yêu cầu', sA.ok===true && sA.asOf==='2026-08-17', sA.asOf);
+  chk('_sapAt() tra được End Stock theo mã batch',
+      sA.map.C3['260714X001'] && sA.map.C3['260714X001'].endKg===1172329,
+      JSON.stringify(sA.map.C3['260714X001']||null));
+
+  /* ── 12.4 📌 CLOSE PERIOD ĐÈ SỐ SAP VÀO TỒN ĐẦU KỲ MỚI ──
+     Batch mang đúng mã có trong SAP; app tự tính ra một số KHÁC ⇒ sau khi
+     đóng kỳ, tồn đầu kỳ 9 phải bằng SỐ SAP chứ không phải số app. */
+  const V2=gi('C3',{ no:'CS', vessel:'CLOSE SAP', decl:'cs' });
+  const B2=go(V2,{ decl:'cs1', batch:'260714X001', sapKg:'9000000' });
+  S.setPeriod('2026-08'); S.setMonth('2026-08'); S.setClosed({});
+  KNQ.recalc();
+  const appLeft=K(S.GO[B2].remainKg);
+  chk('trước khi đóng kỳ, app tính ra số KHÁC số SAP (mới có cái để so)',
+      appLeft!==1172329, appLeft+' vs SAP 1 172 329');
+  captured=null;
+  KNQ.closeMonth();
+  chk('đóng kỳ 8 ⇒ kỳ hiện tại nhảy sang 2026-09', S.curPeriod()==='2026-09', S.curPeriod());
+  chk('⭐ tồn đầu kỳ 9 LẤY SỐ SAP (đè số app tính)',
+      S.GO[B2].op && K(S.GO[B2].op['2026-09'])===1172329,
+      JSON.stringify(S.GO[B2].op||null));
+  chk('lô KHÔNG có số SAP ở ngày đó thì lui về số app tự tính',
+      S.GO[B].op && K(S.GO[B].op['2026-09'])===K(S.GO[B].remainKg),
+      K(S.GO[B].op?S.GO[B].op['2026-09']:0)+' / '+K(S.GO[B].remainKg));
+
+  /* ── 12.5 ĐÓNG KỲ ĐẨY THẲNG LÊN FIREBASE (mọi máy nhảy kỳ theo) ── */
+  const paths=Object.keys(captured||{});
+  chk('đóng kỳ ĐẨY NGAY, không chờ 💾 Save', paths.length>0, paths.length+' path');
+  chk('ghi con trỏ kỳ meta/curPeriod = 2026-09', captured['meta/curPeriod']==='2026-09',
+      String(captured['meta/curPeriod']));
+  chk('ghi sổ kỳ đã đóng meta/closed/2026-08',
+      !!captured['meta/closed/2026-08'] && captured['meta/closed/2026-08'].sapAsOf==='2026-08-17',
+      JSON.stringify(captured['meta/closed/2026-08']||null));
+  const AR=captured['periods/2026-08'];
+  chk('ghi snapshot LƯU TRỮ periods/2026-08 (kỳ cũ ở lại Firebase)', !!AR);
+  chk('snapshot ghi rõ số nào từ SAP, số nào từ app',
+      AR && AR.rows[B2] && AR.rows[B2].src==='sap' && K(AR.rows[B2].carry)===1172329 &&
+      AR.rows[B] && AR.rows[B].src==='app',
+      AR?JSON.stringify({b2:AR.rows[B2].src,b:AR.rows[B].src}):'—');
+  chk('snapshot kèm luôn FEED OL1 của kỳ đó', AR && AR.use && AR.use['2026-08-05']!=null);
+  chk('không còn key nào chứa dấu / trong payload lồng',
+      AR && Object.keys(AR.rows).every(k=>k.indexOf('/')<0) &&
+      Object.keys(AR.use).every(k=>k.indexOf('/')<0));
+
+  /* ── 12.6 KỲ ĐÃ ĐÓNG KHÔNG ĐÓNG LẠI ĐƯỢC ── */
+  S.setMonth('2026-08'); captured=null;
+  KNQ.closeMonth();
+  chk('kỳ đã đóng thì bấm 📌 lần nữa KHÔNG ghi gì thêm', captured===null);
+
+  /* ── 12.7 SỐ TỪ XA KHÔNG ĐƯỢC ĐÈ Ô ĐANG GÕ DỞ ── */
+  S.setMonth('2026-09'); S.setPeriod('2026-09');
+  const R=go(V2,{ decl:'mg1', batch:'260901X777' });
+  const D=S.dirty();
+  /* dòng MỚI TINH chưa đẩy lần nào ⇒ giữ nguyên vẹn bản của mình */
+  chk('dòng mới tinh chưa đẩy: bản ghi từ máy khác KHÔNG đè lên được',
+      S.dirtyOver('go/'+R,{ decl:'của máy khác' }).decl==='mg1',
+      S.dirtyOver('go/'+R,{ decl:'của máy khác' }).decl);
+  /* giờ giả lập: dòng ĐÃ nằm trên Firebase, chỉ còn MỘT ô đang gõ dở */
+  delete D['go/'+R];
+  D['go/'+R+'/sapKg']='123';
+  const merged=S.dirtyOver('go/'+R,{ sapKg:999999, note:'từ máy khác' });
+  chk('bản ghi từ máy khác về: ô đang gõ dở GIỮ số của mình…',
+      String(merged.sapKg)==='123', String(merged.sapKg));
+  chk('…nhưng field khác vẫn nhận số mới từ máy kia', merged.note==='từ máy khác',
+      String(merged.note));
+
+  KNQ.delGi(V); KNQ.delGi(V2);
+  KNQ.delUseRow('2026-08-05');
+  S.setPeriod(OLD_P); S.setClosed(OLD_CL); S.setMonth(OLD_MONTH);
+})();
+
 console.log('\n'+(fail?('❌ '+fail+' KIỂM TRA THẤT BẠI'):'✅ TẤT CẢ KIỂM TRA ĐỀU ĐẠT'));
 process.exit(fail?1:0);

@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
 <link rel="stylesheet" href="css/alloc.css?v=468"><!-- Allocation planner (LPG Sales) — link ACTIVE -->
-<link rel="stylesheet" href="css/knq.css?v=499"><!-- KNQ XNK kho ngoại quan (Reports) — link ACTIVE -->
+<link rel="stylesheet" href="css/knq.css?v=4102"><!-- KNQ XNK kho ngoại quan (Reports) — link ACTIVE -->
 <!-- ⚠ BẪY: khối dưới đây là COMMENT — mọi <link> trong nó KHÔNG được nạp.
      Toàn bộ app CSS thực sự nằm trong core.css. Khi thêm style mới thì viết
      vào core.css, ĐỪNG thêm link ở đây rồi tưởng là đã nạp (v4.82 dính đúng
@@ -3450,6 +3450,7 @@
         <div class="knq-cfg"><label>Run-down period</label>
           <input type="month" id="knq-month" onchange="KNQ.onMonth()" title="The month whose FEED OL1 figures are used for the run-down. The batch table itself is NEVER filtered by month."></div>
         <button class="knq-btn accent" id="knq-close" onclick="KNQ.closeMonth()">📌 Close period</button>
+        <button class="knq-btn" id="knq-arch-btn" onclick="KNQ.openArch()" title="Open a period that has already been closed, read-only. Closed periods stay on Firebase for the record but are no longer downloaded to the machines, so they cannot be edited here.">📜 Archive</button>
         <span class="knq-sep"></span>
         <button class="knq-btn primary" onclick="KNQ.addGi('C3')" title="Declare a new C3 vessel (Get In row)">➕ Get In C3</button>
         <button class="knq-btn primary" onclick="KNQ.addGi('C4')" title="Declare a new C4 vessel (Get In row)">➕ Get In C4</button>
@@ -3459,7 +3460,8 @@
         <div class="knq-stats" id="knq-stats"></div>
         <div class="spacer"></div>
         <button class="knq-btn accent" onclick="KNQ.loadOld()" title="Load the rows already ticked Done so you can review them">📂 Load archived</button>
-        <button class="knq-btn" id="knq-save" onclick="KNQ.save()">💾 Save</button>
+        <span class="knq-sync" id="knq-sync"></span>
+        <button class="knq-btn" id="knq-save" onclick="KNQ.save()" title="Push straight away. Every change is pushed to Firebase automatically about 1.5 s after you stop typing and lands on the other machines, so this button is only a “send it now”.">💾 Save</button>
         <button class="knq-btn success" onclick="KNQ.exportXlsx()">📤 Export</button>
       </div>
 
@@ -3571,6 +3573,32 @@
       </div>
 
       <!-- ═══ MODAL — ⛽ FEED OL1 (lượng dùng P / X hằng ngày) ═══ -->
+      <!-- ═══ 📜 ARCHIVE (v4.102) — KỲ ĐÃ ĐÓNG, CHỈ ĐỌC ═══════════════
+           Kỳ đã đóng vẫn nằm nguyên trên Firebase (knq_bonded/periods/<kỳ>)
+           nhưng KHÔNG còn được tải về / đồng bộ về máy. Hộp này đọc thẳng
+           node đó một lần khi người dùng chọn kỳ. ═══ -->
+      <div class="knq-modal" id="knq-arch">
+        <div class="knq-modal-box wide">
+          <div class="knq-modal-h">
+            <b>📜 Closed period — read-only archive</b>
+            <button class="knq-x" onclick="KNQ.closeArch()" title="Close">✕</button>
+          </div>
+          <div class="knq-modal-c">
+            <div class="knq-frow">
+              <label>Period</label>
+              <select id="knq-arch-m" onchange="KNQ.loadArch()"></select>
+              <button class="knq-btn" onclick="KNQ.loadArch()" title="Read this period again from Firebase">↻ Reload</button>
+              <span class="knq-sep"></span>
+              <span class="knq-dim">Snapshot taken the moment 📌 Close period was pressed: opening balance, used in period, actual left, the SAP End Stock that decided the carry-over, and the FEED OL1 totals of that month.</span>
+            </div>
+            <div id="knq-arch-body"></div>
+          </div>
+          <div class="knq-modal-f">
+            <button class="knq-btn" onclick="KNQ.closeArch()">Close</button>
+          </div>
+        </div>
+      </div>
+
       <div class="knq-modal" id="knq-ol1">
         <div class="knq-modal-box wide">
           <div class="knq-modal-h">
@@ -4517,7 +4545,7 @@
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>
 <script src="js/features/mthr.js"></script>
-<script src="js/features/knq.js?v=499"></script><!-- v4.99 — KNQ chốt số theo NGÀY HÔM QUA (D-1): trừ lùi thực dừng ở hôm qua, hôm nay trở đi là dự báo; ⬇ Sync from SAP lấy End Stock đúng ngày D-1 cho cả 4 loại lô; ⇐ SAP qty from SAP; ✓/Δ khớp SAP; dải cảnh báo #knq-alerts -->
+<script src="js/features/knq.js?v=4102"></script><!-- v4.102 — KNQ đồng bộ THẬT nhiều máy: gi/go/use gắn listener realtime + tự đẩy sau 1,5s (💾 Save chỉ là đẩy ngay); con trỏ kỳ knq_bonded/meta/curPeriod dùng chung, kỳ đã đóng lưu ở periods/<YYYY-MM> và NGỪNG đồng bộ về máy (xem bằng 📜 Archive); 📌 Close period đọc End Stock SAP tại NGÀY CUỐI KỲ (không phải D-1, vì SAP lô P/X chậm vài ngày) và đè vào tồn đầu kỳ mới cho cả 4 loại lô; quá hạn đóng kỳ thì banner đỏ + vẫn trừ lùi tiếp bằng OL1 tháng mới -->
 <script src="js/features/inv.js?v=4.75"></script>
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>

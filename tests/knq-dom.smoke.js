@@ -322,6 +322,46 @@ const CSSFLAT=(function(){
   }
   return out;
 })();
+/* ── v4.102 — ĐỒNG BỘ NHIỀU MÁY · KỲ QUÁ HẠN · 📜 ARCHIVE ─────────────── */
+console.log('\n— v4.102 ĐỒNG BỘ NHIỀU MÁY · QUÁ HẠN ĐÓNG KỲ · 📜 ARCHIVE —');
+chk('markup có chỉ báo trạng thái đẩy lên Firebase', pane.indexOf('id="knq-sync"')>-1);
+chk('markup có nút 📜 Archive + modal kỳ đã đóng',
+    pane.indexOf('KNQ.openArch()')>-1 && pane.indexOf('id="knq-arch"')>-1 &&
+    pane.indexOf('id="knq-arch-m"')>-1 && pane.indexOf('id="knq-arch-body"')>-1);
+chk('mọi thao tác sửa đều tự hẹn giờ đẩy (không chờ 💾 Save)',
+    /_schedulePush\(\)/.test(SRC) && /function _flush/.test(SRC) &&
+    /function save\(\)\{ return _flush\(true\); \}/.test(SRC));
+chk('có listener realtime cho gi · go · use + con trỏ kỳ meta',
+    /child_added/.test(SRC) && /child_changed/.test(SRC) && /child_removed/.test(SRC) &&
+    /child\('meta'\)\.on\('value'/.test(SRC));
+chk('cửa sổ tải về bám theo KỲ MỞ, không phải 120 ngày cứng như trước',
+    /_liveFrom\(\)/.test(SRC) && SRC.indexOf('-120')<0);
+chk('📌 Close period đọc SAP tại NGÀY CUỐI KỲ, không phải D-1',
+    /_sapAt\(M9\)/.test(SRC) && /function _sapAt/.test(SRC));
+chk('đóng kỳ ghi con trỏ kỳ + snapshot lưu trữ',
+    /_dirty\['meta\/curPeriod'\]=N/.test(SRC) && /_dirty\['periods\/'\+M\]/.test(SRC));
+(function(){
+  const S2=KNQ._state, was=S2.rawPeriod(), wasM=S2.month();
+  /* kỳ 7 vẫn mở trong khi hôm nay đã sang tháng khác ⇒ phải hiện banner ĐỎ */
+  S2.setPeriod('2026-07'); S2.setMonth('2026-07'); KNQ.render();
+  const H2=CACHE['knq-alerts'].innerHTML;
+  chk('QUÁ HẠN đóng kỳ ⇒ dải cảnh báo hiện banner ĐỎ kèm nút đóng kỳ',
+      H2.indexOf('knq-al bad')>-1 && H2.indexOf('is still open')>-1 &&
+      H2.indexOf('KNQ.closeMonth()')>-1,
+      H2.slice(0,90));
+  chk('chip thống kê nói rõ kỳ nào đang mở',
+      CACHE['knq-stats'].innerHTML.indexOf('period <b>2026-07</b>')>-1);
+  S2.setPeriod(was||'2026-08'); S2.setMonth(wasM); KNQ.render();
+})();
+(function(){
+  /* 📜 Archive: chưa đóng kỳ nào ⇒ nói rõ, không để hộp trống */
+  KNQ._state.setClosed({});
+  KNQ.openArch();
+  chk('📜 Archive lúc chưa có kỳ nào đóng ⇒ có lời giải thích, không trống trơn',
+      CACHE['knq-arch-body'].innerHTML.indexOf('No period has been closed yet')>-1);
+  KNQ.closeArch();
+})();
+
 const seen={}, dup=[];
 [...CSSFLAT.matchAll(/([^{}]+)\{([^}]*)\}/g)].forEach(m=>{
   const sel=m[1].trim().split('\n').pop().trim();
