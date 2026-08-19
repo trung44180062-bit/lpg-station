@@ -566,7 +566,7 @@ const MC = (function(){
   /* ── v4.68 — SPECIAL-RATIO MIX PLANNER ──────────────────────────────
      Question it answers: "mix BAO NHIÊU m³ hàng đặc biệt (tỷ lệ s) để sau
      khi bán xong, chỉ cần bơm C3 (hoặc C4) vào là tank quay về tỷ lệ
-     thường t (~53–54%) với volume càng sát tank-max (570) càng tốt — và
+     thường t (mặc định 55%) với volume càng sát tank-max (570) càng tốt — và
      vẫn an toàn nếu khách hủy bớt xe?"
 
      Toán (thể tích, bỏ qua pha hơi — đủ chính xác để lên kế hoạch):
@@ -606,7 +606,7 @@ const MC = (function(){
     const _set0 = (id,v)=>{ const e=_gid(id); if(e){ e.value=v; e.classList.remove('mc-inp-bad','mc-inp-warn'); } };
     _set0('spp-sell', '');              // sản lượng bán — LUÔN phải nhập lại
     _set0('spp-resv', '0');             // dự phòng hủy
-    _set0('spp-norm', '53.5');          // tỉ lệ thường
+    _set0('spp-norm', '55');            // v4.101 — tỉ lệ thường mặc định 55 %
     _set0('spp-fail', '12');            // dự phòng mix hỏng (gợi ý)
     _set0('spp-max',  String(MC_TARGET));// mức mix thường ngày (KHÔNG phải trần)
     /* v4.101 — TUẦN HOÀN ĐƯỜNG ỐNG: mặc định CÓ. Chỉ bỏ tick sẵn khi panel
@@ -695,8 +695,9 @@ const MC = (function(){
       cNote.innerHTML = !circOn
         ? '⚠ Tính KHÔNG tuần hoàn — chỉ chỉnh phần hàng trong bồn'
         : (same ? 'Tỉ lệ đặc biệt = tỉ lệ thường → tuần hoàn không đổi kết quả'
-                : 'Ống giữ '+_fmt(Vp,0)+' m³ @ '+(s*100).toFixed(0)+'% cũng phải đưa về '+(t*100).toFixed(1)+'% → '
-                  + 'tốn thêm <b>'+_fmt(pipeCost,1)+'</b> m³ chỗ trong bồn');
+                : 'Trộn xong, ống giữ '+_fmt(Vp,0)+' m³ @ '+(s*100).toFixed(0)+'% — cũng phải kéo về '+(t*100).toFixed(1)+'% → '
+                  + 'tốn thêm <b>'+_fmt(pipeCost,1)+'</b> m³ chỗ trong bồn'
+                  + ' <span style="color:#6b8299;font-weight:500">(khác với tuần hoàn lúc TRỘN ở panel — không tính trùng)</span>');
     }
     const _td = v => '<td>'+v+'</td>';
     const _scen = (label, sold, soldT)=>{
@@ -764,7 +765,11 @@ const MC = (function(){
            : ' Bỏ tick tuần hoàn: chỉ chỉnh phần hàng nằm TRONG BỒN — nếu thực tế vẫn chạy tuần hoàn thì số này LẠC QUAN hơn thực tế.')
        + '</div>';
     res.innerHTML = h;
-    res.dataset.v0 = V0.toFixed(1);
+    /* v4.101 — LÀM TRÒN XUỐNG 0,1 m³. Làm tròn lên (toFixed) khiến TARGET VOL
+       nhỉnh hơn số tính đúng, và sai số đó được KHUẾCH ĐẠI lên k lần ở bước
+       hồi phục → phương án bơm thêm vượt mức nhắm tới vài chục lít. Thà thiếu
+       một hào còn hơn thừa. */
+    res.dataset.v0 = (Math.floor(V0*10)/10).toFixed(1);
   }
   function spPlanApply(){
     const n = _sppTank;
