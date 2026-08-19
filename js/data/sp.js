@@ -30,6 +30,18 @@ const SP = (function(){
   let _versions = { sap:0 };
   let _pendingDiff = null;
   let dateFilter = '';
+  /* ── v4.100 — BỘ LỌC SLoc / Batch / Batch code + TỔNG THEO LỌC ──────
+     • dateFilter mặc định = NGÀY HÔM QUA (D-1) ngay lần đầu mở tab SAP:
+       SAP chốt số theo ngày đã đóng sổ, hôm nay chưa có ZMMFR022 đủ.
+       Chỉ set 1 lần (_dfInit) — người dùng xoá/đổi thì tôn trọng lựa chọn.
+     • slocFilter / batchFilter (1 ký tự P/X/D/E) / bcodeFilter (mã batch
+       đầy đủ của kho ngoại quan 1100) đều là AND với nhau và với ô Search.
+     • Danh sách Batch code trong dropdown dựng ĐỘNG theo date+sloc+batch
+       đang chọn ⇒ không bao giờ hiện mã không có dòng nào. */
+  let slocFilter  = '';
+  let batchFilter = '';
+  let bcodeFilter = '';
+  let _dfInit = false;
   let _analysisVisible = true;
   const LS_KEY = 'lpg_v4_sap_v1';
   const NUM_FIELDS = new Set(['init','gr','gi','trs','end']);
@@ -69,6 +81,22 @@ const SP = (function(){
     if(!iso) return '';
     const p=iso.split('-'); return(p.length===3)?p[2]+'/'+p[1]+'/'+p[0].slice(2):iso;
   }
+  /* NGÀY HÔM QUA ở dạng DD/MM/YY — cùng khuôn với dateFilter (normalizeDate). */
+  function yesterdayDMY(){
+    const d=new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-1);
+    const p=n=>String(n).padStart(2,'0');
+    return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+String(d.getFullYear()).slice(-2);
+  }
+  /* Set dateFilter + đồng bộ ô nhập / nút ✕ (không tự rebuild bảng). */
+  function setDateFilter(dmy){
+    dateFilter=dmy||'';
+    const inp=document.getElementById('spDateFilter');
+    if(inp){ inp.value=dateFilter; inp.classList.toggle('active',!!dateFilter); }
+    const clr=document.getElementById('spDateClear');
+    if(clr) clr.classList.toggle('on',!!dateFilter);
+    const pick=document.getElementById('spDatePick');
+    if(pick && !dateFilter) pick.value='';
+  }
   /* ============================================================
      v4.89 — TÁCH BATCH Ở SLoc 1100 (kho ngoại quan)
      ------------------------------------------------------------
@@ -80,10 +108,20 @@ const SP = (function(){
         • `batch` vẫn là 1 ký tự → mọi module khác (alloc/cav/rpt) cộng dồn
           theo ký tự nên KHÔNG bị ảnh hưởng, chỉ là nhiều dòng hơn
         • compKey gồm bcode ⇒ 1100 tách dòng, các SLoc khác giữ nguyên khoá
-     Dòng 1100 GỘP CŨ (không có bcode) sẽ được đề nghị xoá khi dán bản mới
-     phủ đúng ngày+mat+batch đó — xem findLegacy1100().
+     Dòng 1100 GỘP CŨ (không có bcode) sẽ được đề nghị xoá NGAY TRONG BẢNG
+     XÁC NHẬN khi dán bản mới phủ đúng ngày+mat đó — xem findLegacy1100().
+     v4.99 — đã BỎ nút 🧹 Clean 1100: cách xử lý chính thức khi dữ liệu cũ
+     lộn xộn là XOÁ SẠCH rồi dán lại (🗑 Range delete), không dọn từng phần.
      ============================================================ */
   const SLOC_SPLIT_BATCH = { '1100':1 };
+  /* ── v4.98 — MÃ BATCH HỢP LỆ CỦA SLoc 1100 ────────────────────
+     Kho ngoại quan luôn đánh mã YYMMDD + P/X/D/E + số thứ tự: 260714X001.
+     ⚠ Mã lạ thì VẪN GIỮ DÒNG, chỉ báo cảnh báo — KHÔNG được bỏ đi.
+     Bỏ dòng sẽ làm hụt tổng End/GR/GI của SLoc 1100 trong Daily Stock
+     (cav.js cộng theo sloc|ký-tự-batch|mat). Điều bắt buộc duy nhất là
+     mã lạ đó vẫn nằm ở bcode RIÊNG của nó ⇒ không bao giờ bị gộp chung. */
+  const BCODE_RE = /^\d{6}[DEPX]\d{1,4}$/;
+  function isBcode(v){ return BCODE_RE.test(String(v||'').trim().toUpperCase()); }
   function compKey(r){
     return(r.date||'')+'|'+(r.sloc||'')+'|'+(r.mat||'')+'|'+(r.batch||'')+'|'+(r.bcode||'');
   }
@@ -99,6 +137,7 @@ const SP = (function(){
   }
   function parseSapSheet(tsvRows){
     const agg={}; let rawCount=0,skippedSloc=0;
+    const bad1100=[];                 /* mã batch 1100 sai khuôn — KHÔNG gộp */
     tsvRows.forEach(cols=>{
       if(cols.length<10) return;
       const c0=String(cols[0]||'').trim().toLowerCase();
@@ -106,10 +145,24 @@ const SP = (function(){
       const mat=MAT_MAP[String(cols[2]||'').trim()]; if(!mat) return;
       const sloc=String(cols[4]||'').trim(); if(!ALLOWED_SLOC[sloc]){skippedSloc++;return;}
       const date=sapParseDate(cols[6]); if(!date||date.length<10) return;
-      const bType=sapBatch(cols[7]); if(!bType) return;
+      const raw=String(cols[7]||'').trim().toUpperCase();
+      /* ── SLoc 1100 = kho ngoại quan: LUÔN tách theo MÃ BATCH ĐẦY ĐỦ ──
+         bcode = nguyên mã ⇒ hai batch cùng chữ cái, cùng ngày KHÔNG bao giờ
+         bị cộng chung. Mã lạ (không đúng khuôn YYMMDD+P/X/D/E+số) vẫn được
+         giữ nguyên dòng — chỉ đưa vào bad1100 để cảnh báo — vì bỏ đi sẽ làm
+         hụt tổng SLoc 1100 của Daily Stock.
+         Các SLoc khác (2100 / 2101 / B100) giữ nguyên cách gộp 1 ký tự. */
+      let bcode='', bType='';
+      if(SLOC_SPLIT_BATCH[sloc]){
+        if(!raw) return;                              /* dòng tổng của SAP */
+        bType=isBcode(raw) ? raw[6] : sapBatch(raw);
+        if(!bType) return;
+        bcode=raw;
+        if(!isBcode(raw)) bad1100.push({date,mat,raw,batch:bType});
+      }else{
+        bType=sapBatch(raw); if(!bType) return;
+      }
       rawCount++;
-      /* SLoc 1100 (KNQ): giữ nguyên mã batch đầy đủ để trừ lùi từng tờ khai */
-      const bcode=SLOC_SPLIT_BATCH[sloc] ? String(cols[7]||'').trim().toUpperCase() : '';
       const k=date+'|'+sloc+'|'+mat+'|'+bType+'|'+bcode;
       if(!agg[k]) agg[k]={date,sloc,mat,batch:bType,bcode,init:0,gr:0,gi:0,trs:0,end:0};
       agg[k].init+=sapNum(cols[8]); agg[k].gr+=sapNum(cols[11]); agg[k].gi+=sapNum(cols[13]);
@@ -117,7 +170,8 @@ const SP = (function(){
     });
     const result=Object.values(agg);
     result.forEach(r=>{r.init=Math.round(r.init);r.gr=Math.round(r.gr);r.gi=Math.round(r.gi);r.trs=Math.round(r.trs);r.end=Math.round(r.end);});
-    return{rows:result,rawCount,skippedSloc};
+    const n1100=result.filter(r=>r.sloc==='1100').length;
+    return{rows:result,rawCount,skippedSloc,bad1100,n1100};
   }
 
   function applyAndPush(changes, reason){
@@ -195,9 +249,19 @@ const SP = (function(){
   function spRows(){
     let arr=Object.values(ROWS);
     const q=(document.getElementById('spSearch').value||'').trim().toLowerCase();
-    if(q) arr=arr.filter(r=>((r.date||'')+(r.sloc||'')+(r.mat||'')+(r.batch||'')+(SLOC_NAME[r.sloc]||'')).toLowerCase().includes(q));
-    if(dateFilter) arr=arr.filter(r=>isoToDisplay(r.date)===dateFilter);
-    arr.sort((a,b)=>{const ka=(a.date||'')+a.sloc+a.mat+a.batch,kb=(b.date||'')+b.sloc+b.mat+b.batch;return ka<kb?-1:(ka>kb?1:0);});
+    /* v4.98 — tìm & sắp theo CẢ MÃ BATCH ĐẦY ĐỦ: gõ "260714X001" vào ô tìm
+       là ra đúng dòng, và các batch của cùng ngày/mat xếp theo mã cho dễ đối
+       chiếu với tab KNQ. */
+    if(q) arr=arr.filter(r=>((r.date||'')+(r.sloc||'')+(r.mat||'')+(r.batch||'')+
+      (r.bcode||'')+(SLOC_NAME[r.sloc]||'')).toLowerCase().includes(q));
+    if(dateFilter)  arr=arr.filter(r=>isoToDisplay(r.date)===dateFilter);
+    if(slocFilter)  arr=arr.filter(r=>String(r.sloc||'')===slocFilter);
+    if(batchFilter) arr=arr.filter(r=>String(r.batch||'').toUpperCase()===batchFilter);
+    if(bcodeFilter) arr=arr.filter(r=>String(r.bcode||'').toUpperCase()===bcodeFilter);
+    arr.sort((a,b)=>{
+      const ka=(a.date||'')+a.sloc+a.mat+a.batch+(a.bcode||''),
+            kb=(b.date||'')+b.sloc+b.mat+b.batch+(b.bcode||'');
+      return ka<kb?-1:(ka>kb?1:0); });
     return arr;
   }
   function buildColumns(){
@@ -220,6 +284,9 @@ const SP = (function(){
     ];
   }
   function buildTable(){
+    /* Lần đầu mở tab SAP: chốt mặc định về NGÀY HÔM QUA (D-1). */
+    if(!_dfInit){ _dfInit=true; setDateFilter(yesterdayDMY()); }
+    refreshBcodeOptions();
     if(table){try{table.destroy();}catch(_){} table=null;}
     table=new Tabulator('#spGrid',{data:spRows(),layout:'fitDataStretch',height:'100%',index:'_rid',
       columns:buildColumns(),placeholder:'No SAP data — click "📋 Paste from Excel" to import',clipboard:true,clipboardPasteAction:'replace'});
@@ -227,7 +294,8 @@ const SP = (function(){
     table.on('tableBuilt',()=>{refreshCounts();refreshBadge();renderAnalysis();});
   }
   function rebuildTableData(){
-    if(!table){buildTable();return;} try{table.replaceData(spRows());}catch(_){buildTable();} refreshCounts();renderAnalysis();
+    if(!table){buildTable();return;} refreshBcodeOptions();
+    try{table.replaceData(spRows());}catch(_){buildTable();} refreshCounts();renderAnalysis();
   }
   function refreshCounts(){
     const all=Object.values(ROWS),data=spRows(),dates={};
@@ -236,6 +304,85 @@ const SP = (function(){
     document.getElementById('spCntRows').textContent=data.length;
     document.getElementById('spCntShown').textContent=data.length;
     document.getElementById('spCntTotal').textContent=all.length;
+    renderTotals(data);
+  }
+
+  /* ============================================================
+     TỔNG CỦA PHẦN ĐANG LỌC  (v4.100)
+     ------------------------------------------------------------
+     Cộng đúng những dòng đang hiển thị trong bảng (search + date +
+     sloc + batch + batch code). Init/GR/GI/Trs/End là số SAP thô,
+     KHÔNG nắn, KHÔNG suy diễn — chỉ cộng. Thêm dòng tách C3/C4 để
+     đối chiếu nhanh với Daily Stock / KNQ.
+     ⚠ Init & End là số TỒN tại mốc: cộng nhiều NGÀY lại thì con số
+     tổng vô nghĩa. Nên khi phạm vi lọc trải > 1 ngày, hai ô đó hiện
+     dấu ⚠ để người dùng biết chỉ GR/GI/Trs mới cộng dồn được.
+     ============================================================ */
+  function totFmt(v){
+    v=Math.round(v||0);
+    if(!v) return '<span style="color:var(--ink-3)">0</span>';
+    const s=v.toLocaleString('en-US');
+    return v<0?'<span style="color:var(--red)">'+s+'</span>':s;
+  }
+  function renderTotals(rows){
+    const bar=document.getElementById('spTotBar'); if(!bar) return;
+    const data=rows||spRows();
+    const T={init:0,gr:0,gi:0,trs:0,end:0};
+    const M={C3:{init:0,gr:0,gi:0,trs:0,end:0},C4:{init:0,gr:0,gi:0,trs:0,end:0}};
+    const days={};
+    data.forEach(r=>{
+      ['init','gr','gi','trs','end'].forEach(k=>{
+        const n=+r[k]||0; T[k]+=n; if(M[r.mat]) M[r.mat][k]+=n;
+      });
+      if(r.date) days[r.date]=1;
+    });
+    const nDays=Object.keys(days).length, multi=nDays>1;
+    const warn=multi?' <span class="sp-tot-warn" title="Đang lọc nhiều ngày — Init/End là số tồn tại mốc, cộng dồn nhiều ngày không có ý nghĩa">⚠</span>':'';
+    const set=(id,html)=>{const el=document.getElementById(id); if(el) el.innerHTML=html;};
+    set('spTotInit',totFmt(T.init)+warn);
+    set('spTotGr',  totFmt(T.gr));
+    set('spTotGi',  totFmt(T.gi));
+    set('spTotTrs', totFmt(T.trs));
+    set('spTotEnd', totFmt(T.end)+warn);
+    /* nhãn phạm vi lọc */
+    const parts=[];
+    if(dateFilter)  parts.push('📅 '+dateFilter);
+    if(slocFilter)  parts.push('🏷 '+slocFilter+(SLOC_NAME[slocFilter]?' · '+SLOC_NAME[slocFilter]:''));
+    if(batchFilter) parts.push('🔖 Batch '+batchFilter);
+    if(bcodeFilter) parts.push('🧾 '+bcodeFilter);
+    const q=(document.getElementById('spSearch')||{}).value||'';
+    if(q.trim()) parts.push('🔍 "'+q.trim()+'"');
+    set('spTotScope', parts.length?parts.map(escapeHtml).join(' <i>·</i> ')
+        :'<span style="color:var(--ink-3)">Tất cả dữ liệu</span>');
+    set('spTotRows', data.length+' dòng'+(nDays?' · '+nDays+' ngày':''));
+    /* tách C3 / C4 theo End (số hay dùng nhất) */
+    set('spTotSplit', data.length
+      ? 'C3 '+totFmt(M.C3.end)+' <i>·</i> C4 '+totFmt(M.C4.end)+' <i>· End</i>'
+      : '');
+    bar.classList.toggle('filtered', !!(dateFilter||slocFilter||batchFilter||bcodeFilter||q.trim()));
+  }
+
+  /* Danh sách MÃ BATCH khả dụng theo date+sloc+batch đang chọn. */
+  function bcodeChoices(){
+    const s={};
+    Object.values(ROWS).forEach(r=>{
+      if(!r||!r.bcode) return;
+      if(dateFilter  && isoToDisplay(r.date)!==dateFilter) return;
+      if(slocFilter  && String(r.sloc||'')!==slocFilter) return;
+      if(batchFilter && String(r.batch||'').toUpperCase()!==batchFilter) return;
+      s[String(r.bcode).trim().toUpperCase()]=1;
+    });
+    return Object.keys(s).sort();
+  }
+  function refreshBcodeOptions(){
+    const sel=document.getElementById('spBcodeFilter'); if(!sel) return;
+    const list=bcodeChoices();
+    /* giữ lại mã đang lọc dù nó rơi ra ngoài phạm vi ⇒ không im lặng đổi filter */
+    const opts=(bcodeFilter && list.indexOf(bcodeFilter)<0)?[bcodeFilter].concat(list):list;
+    let html='<option value="">Batch code · All ('+list.length+')</option>';
+    opts.forEach(b=>{html+='<option value="'+escapeHtml(b)+'">'+escapeHtml(b)+'</option>';});
+    sel.innerHTML=html; sel.value=bcodeFilter;
+    sel.classList.toggle('active',!!bcodeFilter);
   }
   function refreshBadge(){const el=document.getElementById('spBadgeCount');if(el)el.textContent=Object.keys(ROWS).length;}
 
@@ -309,27 +456,52 @@ const SP = (function(){
     _pendingDiff={adds,changes,legacy,stats:parsed};
     showDiff(adds,changes,parsed,legacy);
   }
-  /* Dòng 1100 kiểu CŨ (gộp cả ngày về 1 ký tự batch, không có bcode) mà bản dán
-     mới đã phủ đúng date+mat+batch đó → đề nghị xoá, nếu không sẽ đếm 2 lần. */
+  /* ── DỌN DÒNG 1100 GỘP CŨ ────────────────────────────────────
+     Dòng 1100 kiểu CŨ = không có bcode (dán trước v4.89, gộp cả ngày về 1 ký
+     tự P/X/D/E). Còn nằm đó là ĐẾM HAI LẦN với dòng đã tách.
+     v4.98 — nới điều kiện: chỉ cần bản dán mới có batch tách cho ĐÚNG
+     ngày + mat đó là dòng gộp cũ bị loại, không cần trùng cả ký tự batch.
+     Lý do: bản kết xuất ZMMFR022 cho 1 ngày là ẢNH CHỤP ĐẦY ĐỦ của SLoc
+     1100 ngày đó — ký tự nào không xuất hiện nghĩa là SAP không còn tồn,
+     giữ dòng gộp cũ lại là giữ một con số đã chết. Danh sách bị xoá được
+     liệt kê rõ trong bảng xác nhận trước khi bấm Confirm. */
   function findLegacy1100(newRows){
     const covered={};
-    newRows.forEach(r=>{ if(r.bcode) covered[r.date+'|'+r.mat+'|'+r.batch]=1; });
+    (newRows||[]).forEach(r=>{ if(r.bcode){
+      covered[r.date+'|'+r.mat+'|'+r.batch]=1;
+      covered[r.date+'|'+r.mat]=1;
+    } });
     return Object.values(ROWS).filter(r=>
-      String(r.sloc||'')==='1100' && !r.bcode && covered[(r.date||'')+'|'+(r.mat||'')+'|'+(r.batch||'')]);
+      String(r.sloc||'')==='1100' && !r.bcode &&
+      (covered[(r.date||'')+'|'+(r.mat||'')+'|'+(r.batch||'')] ||
+       covered[(r.date||'')+'|'+(r.mat||'')]));
+  }
+  /* mọi dòng 1100 còn gộp cũ, bất kể đã có bản tách hay chưa */
+  function allLegacy1100(){
+    return Object.values(ROWS).filter(r=> String(r.sloc||'')==='1100' && !r.bcode);
   }
   function showDiff(adds,changes,stats,legacy){
     legacy=legacy||[];
     document.getElementById('spDiffTitle').textContent='Confirm: Import SAP ZMMFR022';
-    document.getElementById('spDiffSubtitle').textContent=stats.rawCount+' raw → '+stats.rows.length+' aggregated. '+(stats.skippedSloc?stats.skippedSloc+' filtered. ':'')+'Matched on Date+SLoc+Mat+Batch+BatchCode (SLoc 1100 tách theo mã batch).';
+    const bad=(stats.bad1100)||[];
+    document.getElementById('spDiffSubtitle').textContent=stats.rawCount+' raw → '+stats.rows.length+' aggregated ('+(stats.n1100||0)+' at SLoc 1100, one row per batch code). '+(stats.skippedSloc?stats.skippedSloc+' filtered. ':'')+'Matched on Date+SLoc+Mat+Batch+BatchCode.';
     let html='<div class="tp-diff-stats">';
     html+=`<div class="tp-diff-stat add"><div class="v">${adds.length}</div><div class="l">Added</div></div>`;
     html+=`<div class="tp-diff-stat chg"><div class="v">${changes.length}</div><div class="l">Changed</div></div>`;
-    if(legacy.length) html+=`<div class="tp-diff-stat rem"><div class="v">${legacy.length}</div><div class="l">Legacy 1100 removed</div></div>`;
+    html+=`<div class="tp-diff-stat"><div class="v">${stats.n1100||0}</div><div class="l">SLoc 1100 batch codes</div></div>`;
+    if(legacy.length) html+=`<div class="tp-diff-stat rem"><div class="v">${legacy.length}</div><div class="l">Merged 1100 removed</div></div>`;
     html+='</div>';
-    if(legacy.length){
-      html+=`<div class="tp-diff-warn">⚠ ${legacy.length} dòng SLoc 1100 kiểu cũ (gộp chung batch) sẽ bị XOÁ vì bản dán này đã tách theo mã batch đầy đủ — giữ lại sẽ đếm trùng.</div>`;
+    if(bad.length){
+      html+=`<div class="tp-diff-warn">⚠ ${bad.length} SLoc 1100 row(s) have a batch code that does not match the bonded-warehouse pattern <code>YYMMDD+P/X/D/E+nnn</code>. They are <b>kept</b> (quantities still count towards SLoc 1100 totals) and are still stored on their own code, never merged — but the KNQ tab will not be able to match them. Check them in SAP:<br>`+
+        bad.slice(0,12).map(b=>`<code>${escapeHtml(b.date)} · ${escapeHtml(b.mat)} · "${escapeHtml(b.raw)}" → ${escapeHtml(b.batch||'?')}</code>`).join(' · ')+
+        (bad.length>12?(' …and '+(bad.length-12)+' more'):'')+`</div>`;
     }
-    if(adds.length){html+=`<div class="tp-diff-section add"><h4><span class="badge">+ NEW</span> ${adds.length} row(s)</h4><div class="tp-diff-list">`;adds.slice(0,40).forEach(a=>{const r=a.fields;html+=`<div class="tp-diff-item"><span class="who">${escapeHtml(r.date)}</span> · ${escapeHtml(r.sloc)} · ${escapeHtml(r.mat)} · ${escapeHtml(r.batch)} · End ${(r.end||0).toLocaleString('en-US')}kg</div>`;});if(adds.length>40)html+='<div class="tp-diff-item" style="font-style:italic;color:var(--ink-3)">…and '+(adds.length-40)+' more</div>';html+='</div></div>';}
+    if(legacy.length){
+      html+=`<div class="tp-diff-warn">⚠ ${legacy.length} merged SLoc 1100 row(s) (pre-split, one letter per day) will be DELETED — this paste covers the same dates split per batch code, so keeping them double-counts:<br>`+
+        legacy.slice(0,12).map(r=>`<code>${escapeHtml(isoToDisplay(r.date))} · ${escapeHtml(r.mat)} · ${escapeHtml(r.batch)} · End ${(r.end||0).toLocaleString('en-US')}</code>`).join(' · ')+
+        (legacy.length>12?(' …and '+(legacy.length-12)+' more'):'')+`</div>`;
+    }
+    if(adds.length){html+=`<div class="tp-diff-section add"><h4><span class="badge">+ NEW</span> ${adds.length} row(s)</h4><div class="tp-diff-list">`;adds.slice(0,40).forEach(a=>{const r=a.fields;html+=`<div class="tp-diff-item"><span class="who">${escapeHtml(r.date)}</span> · ${escapeHtml(r.sloc)} · ${escapeHtml(r.mat)} · ${r.bcode?('<b>'+escapeHtml(r.bcode)+'</b>'):escapeHtml(r.batch)} · End ${(r.end||0).toLocaleString('en-US')}kg</div>`;});if(adds.length>40)html+='<div class="tp-diff-item" style="font-style:italic;color:var(--ink-3)">…and '+(adds.length-40)+' more</div>';html+='</div></div>';}
     if(changes.length){html+=`<div class="tp-diff-section chg"><h4><span class="badge">~ CHANGED</span> ${changes.length} row(s)</h4><div class="tp-diff-list">`;changes.slice(0,40).forEach(c=>{let line=`<div class="tp-diff-item"><span class="who">${escapeHtml(c.key)}</span> `;c.diffs.forEach(d=>{line+=`<span class="field">${escapeHtml(d.field)}</span><span class="ov">${escapeHtml(d.old||'—')}</span><span class="arr">→</span><span class="nv">${escapeHtml(d.new||'—')}</span> `;});html+=line+'</div>';});if(changes.length>40)html+='<div class="tp-diff-item" style="font-style:italic;color:var(--ink-3)">…and '+(changes.length-40)+' more</div>';html+='</div></div>';}
     if(!adds.length&&!changes.length) html+='<div class="tp-diff-warn" style="background:var(--green-soft);border-color:#bfe3cc;color:#157a40">✓ No changes — paste identical.</div>';
     document.getElementById('spDiffBody').innerHTML=html;
@@ -384,34 +556,74 @@ const SP = (function(){
     setTimeout(()=>document.getElementById('delConfirmInput').focus(),80);
   }
   function openPicker(){const dp=document.getElementById('spDatePick');dp.style.pointerEvents='auto';if(dp.showPicker)try{dp.showPicker();}catch(_){dp.click();}else dp.click();}
-  function pickerChange(){const dp=document.getElementById('spDatePick');if(dp.value){dateFilter=normalizeDate(dp.value);document.getElementById('spDateFilter').value=dateFilter;document.getElementById('spDateFilter').classList.add('active');document.getElementById('spDateClear').classList.add('on');rebuildTableData();}}
-  function clearDate(){dateFilter='';document.getElementById('spDateFilter').value='';document.getElementById('spDateFilter').classList.remove('active');document.getElementById('spDatePick').value='';document.getElementById('spDateClear').classList.remove('on');rebuildTableData();}
+  function pickerChange(){
+    const dp=document.getElementById('spDatePick');
+    if(dp.value){ _dfInit=true; setDateFilter(normalizeDate(dp.value)); dropStaleBcode(); rebuildTableData(); }
+  }
+  function clearDate(){ _dfInit=true; setDateFilter(''); dropStaleBcode(); rebuildTableData(); }
+  /* Đổi date/sloc/batch mà mã batch đang lọc không còn dòng nào ⇒ bỏ mã đó,
+     nếu không bảng sẽ trống trơn mà người dùng không hiểu vì sao. */
+  function dropStaleBcode(){
+    if(bcodeFilter && bcodeChoices().indexOf(bcodeFilter)<0) bcodeFilter='';
+  }
+  function setSloc(v){
+    slocFilter=String(v||'').trim().toUpperCase();
+    const el=document.getElementById('spSlocFilter');
+    if(el){ el.value=slocFilter; el.classList.toggle('active',!!slocFilter); }
+    dropStaleBcode(); rebuildTableData();
+  }
+  function setBatch(v){
+    batchFilter=String(v||'').trim().toUpperCase();
+    const el=document.getElementById('spBatchFilter');
+    if(el){ el.value=batchFilter; el.classList.toggle('active',!!batchFilter); }
+    dropStaleBcode(); rebuildTableData();
+  }
+  function setBcode(v){
+    bcodeFilter=String(v||'').trim().toUpperCase();
+    const el=document.getElementById('spBcodeFilter');
+    if(el){ el.value=bcodeFilter; el.classList.toggle('active',!!bcodeFilter); }
+    rebuildTableData();
+  }
+  /* ✕ Reset: về đúng trạng thái mặc định của tab = lọc NGÀY HÔM QUA. */
+  function resetFilters(){
+    slocFilter=''; batchFilter=''; bcodeFilter='';
+    const s=document.getElementById('spSearch'); if(s) s.value='';
+    ['spSlocFilter','spBatchFilter','spBcodeFilter'].forEach(id=>{
+      const el=document.getElementById(id); if(el){ el.value=''; el.classList.remove('active'); }
+    });
+    setDateFilter(yesterdayDMY()); rebuildTableData();
+  }
   function exportCsv(){if(table)table.download('csv','sap_'+Date.now()+'.csv');}
 
   return{
     init(){const c=loadCache();if(c){Object.assign(ROWS,c.data||{});_versions=c.versions||_versions;}refreshBadge();attachFirebase();},
     buildTable,rebuildTableData,openPaste,closePaste,submitPaste,closeDiff,confirmDiff,rangeDelete,exportCsv,
     openPicker,pickerChange,clearDate,refreshBadge,renderAnalysis,toggleAnalysis,
+    setSloc,setBatch,setBcode,resetFilters,renderTotals,refreshBcodeOptions,
+    /* hook test: đọc/ghi trạng thái filter mà không cần DOM */
+    _filters(){return{date:dateFilter,sloc:slocFilter,batch:batchFilter,bcode:bcodeFilter};},
+    _yesterdayDMY:yesterdayDMY, _rows:spRows,
     /* ── API cho tab KNQ (kho ngoại quan) ──────────────────────────
        Trả dòng SLoc 1100 ĐÃ TÁCH theo mã batch trong khoảng ngày.
        legacy = số dòng 1100 còn ở dạng gộp cũ (chưa có bcode) → KNQ cảnh báo
        người dùng dán lại SAP để tách batch. */
     batch1100(fromDate,toDate){
-      const rows=[]; let legacy=0; const dates={};
+      const rows=[], legacyRows=[]; let legacy=0; const dates={};
       Object.values(ROWS).forEach(r=>{
         if(!r || String(r.sloc||'')!=='1100') return;
         const d=String(r.date||''); if(!d) return;
         if(fromDate && d<fromDate) return;
         if(toDate   && d>toDate  ) return;
-        if(!r.bcode){ legacy++; return; }
+        if(!r.bcode){ legacy++; legacyRows.push(r); return; }
         dates[d]=1;
         rows.push({ mat:String(r.mat||''), batch:String(r.bcode||'').toUpperCase(), date:d,
           init:+r.init||0, gr:+r.gr||0, gi:+r.gi||0, trs:+r.trs||0, end:+r.end||0 });
       });
-      return { rows, legacy, dates:Object.keys(dates).sort() };
+      return { rows, legacy, legacyRows, dates:Object.keys(dates).sort() };
     },
     /* hook cho test (tests/sp-bcode.test.js) — không dùng trong app */
     _parseSap:parseSapSheet, _compKey:compKey, _findLegacy1100:findLegacy1100,
+    _isBcode:isBcode, _allLegacy1100:allLegacy1100,
     /* mọi ngày đang có dữ liệu SLoc 1100 (để KNQ dựng bộ chọn ngày) */
     dates1100(){
       const s={};
@@ -434,6 +646,11 @@ document.getElementById('spDateFilter').addEventListener('change',()=>{
   if(!raw){SP.clearDate();return;} SP.pickerChange();
 });
 document.getElementById('spDatePick').addEventListener('change',()=>{SP.pickerChange();});
+/* v4.100 — filter SLoc / Batch / Batch code */
+function spResetFilters(){SP.resetFilters();}
+document.getElementById('spSlocFilter').addEventListener('change',e=>{SP.setSloc(e.target.value);});
+document.getElementById('spBatchFilter').addEventListener('change',e=>{SP.setBatch(e.target.value);});
+document.getElementById('spBcodeFilter').addEventListener('change',e=>{SP.setBcode(e.target.value);});
 
 /* ============================================================
    CUSTOMER MODULE  (build p3.0-cust)

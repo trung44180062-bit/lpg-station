@@ -1,5 +1,5 @@
 /* ============================================================
- * knq.test.js — module KNQ v4.93a (get in / get out, 2 bảng C3 + C4, 20 cột)
+ * knq.test.js — module KNQ v4.96 (get in / get out, 2 bảng C3 + C4, 16 cột)
  * ------------------------------------------------------------
  *   node tests/knq.test.js        (chạy từ thư mục gốc repo)
  *
@@ -14,6 +14,8 @@
  *   7b bảng KHÔNG lọc theo tháng · 7c kỳ trừ lùi + 📌 Chốt kỳ
  *   8  TỔNG P+X gõ tay · P = TỔNG − X · ngày trống tạm tính 2.000 T
  *   8b dán cả cột từ Excel (Ctrl+V) · 9 import file C3 usage: actual → plan
+ *   10 v4.96 — NGÀY DÙNG BATCH LẤY TỪ MÃ BATCH (260714X001 ⇒ 14/07/2026),
+ *      cột HQ Approved Qty chỉ tham chiếu, VASSCM + ✔ Done ép Actual Left = 0
  * Số liệu SAP lấy từ ZMMFR022 SLoc 1100 tải 17/08/2026 (fixtures).
  * ============================================================ */
 const fs=require('fs'), path=require('path');
@@ -90,11 +92,14 @@ KNQ.delGo(dupId);
 chk('xoá dòng get out', !S.GO[dupId]);
 
 /* ---------- 2. số dư còn lại của chuyến ---------- */
-console.log('\n[2] CÒN LẠI CỦA CHUYẾN — trừ dần theo thứ tự ngày xuất kho');
+console.log('\n[2] CÒN LẠI CỦA CHUYẾN — trừ dần theo NGÀY NẰM TRONG MÃ BATCH');
 KNQ.recalc();
 const ch=KNQ.childrenOf(MAPLE);
-chk('get out sắp theo ngày xuất kho', ch.map(r=>r.date).join(',')==='2026-08-04,2026-08-04,2026-08-06,2026-08-10',
-    ch.map(r=>r.date).join(','));
+/* v4.96: ngày hiệu lực đọc từ mã batch, KHÔNG còn đọc ô "ngày nhập/xuất".
+   260731P001 (31/07) đứng trước 260804* (04/08) rồi 260806* (06/08). */
+chk('get out sắp theo ngày trong mã batch',
+    ch.map(r=>S.batchDate(r.batch)).join(',')==='2026-07-31,2026-08-04,2026-08-04,2026-08-06',
+    ch.map(r=>S.batchDate(r.batch)).join(','));
 chk('số dư dòng cuối = 45 826 000 − (2 000 000+5 000 000+2 500 000+14 200 000) = 22 126 000 kg',
     K(ch[3].balKg)===22126000, String(K(ch[3].balKg)));
 chk('số dư của chuyến khớp dòng get out cuối', K(S.GI[MAPLE].balKg)===K(ch[3].balKg));
@@ -152,12 +157,19 @@ chk('OL1 ngày 15/07 KHÔNG lấn vào kỳ tháng 8', K(S.GO[X2].remainKg)===40
 KNQ.delUseRow('2026-07-15'); KNQ.recalc();
 chk('xoá ngày đó đi số vẫn nguyên', K(S.GO[X2].remainKg)===4097505);
 
-/* batch P ra kho 10/08 → chỉ nhận trừ từ 10/08 trở đi */
+/* v4.96 — batch P4 = 260731P001 ⇒ được dùng từ 31/07, nên nó nhận trừ NGAY
+   TỪ 01/08 (đầu kỳ) chứ không chờ tới 10/08 như ô "ngày nhập/xuất" cũ.
+   P mỗi ngày = TỔNG − X; ngày chỉ có X thì TỔNG tạm tính 2.000 T.
+     01/08 2 000 000−537 413 = 1 462 587      04/08 2 000 000−697 652 = 1 302 348
+     02/08 2 000 000−      0 = 2 000 000      05/08 2 000 000−475 260 = 1 524 740
+     03/08 2 000 000−364 499 = 1 635 501
+     11/08 1 202 287 · 12/08 532 801  (schema cũ {p} → TỔNG = p)
+   Cộng lại 9 660 264 ⇒ còn 14 200 000 − 9 660 264 = 4 539 736 kg */
 KNQ.setUse('2026-08-11','p','1202.287');
 KNQ.setUse('2026-08-12','p','532.801');
 KNQ.recalc();
-chk('P trừ độc lập với X — batch P còn 14 200 000 − 1 735 088 = 12 464 912 kg',
-    K(S.GO[P4].remainKg)===12464912, String(K(S.GO[P4].remainKg)));
+chk('P trừ độc lập với X — batch P (260731P001) còn 4 539 736 kg',
+    K(S.GO[P4].remainKg)===4539736, String(K(S.GO[P4].remainKg)));
 
 /* ---------- 5. dự báo bằng PLAN X ---------- */
 console.log('\n[5] DỰ BÁO HẾT BATCH BẰNG PLAN X ĐÃ IMPORT');
@@ -166,8 +178,10 @@ const _d=new Date();
 const TODAY=_d.getFullYear()+'-'+String(_d.getMonth()+1).padStart(2,'0')+'-'+String(_d.getDate()).padStart(2,'0');
 const plus=(iso,k)=>{ const t=Date.parse(iso+'T00:00:00Z')+k*86400000, x=new Date(t);
   return x.getUTCFullYear()+'-'+String(x.getUTCMonth()+1).padStart(2,'0')+'-'+String(x.getUTCDate()).padStart(2,'0'); };
+/* v4.99 — lượt chiếu bắt đầu ngay TỪ HÔM NAY (mốc số thật là HÔM QUA), nên
+   batch cạn sớm hơn bản cũ đúng 1 ngày: 10 → 9. */
 chk('chưa import plan X → vẫn chiếu tạm bằng bình quân 7 ngày gần nhất',
-    !!S.GO[X2].eta && S.GO[X2].etaDays===10, S.GO[X2].eta+' ('+S.GO[X2].etaDays+' ngày)');
+    !!S.GO[X2].eta && S.GO[X2].etaDays===9, S.GO[X2].eta+' ('+S.GO[X2].etaDays+' ngày)');
 const etaAvg=S.GO[X2].eta;
 for(let k=1;k<=40;k++){
   const d=plus(TODAY,k);
@@ -178,6 +192,8 @@ chk('import plan X → ngày dự kiến hết đổi theo plan, không còn the
     !!S.GO[X2].eta && S.GO[X2].eta!==etaAvg, S.GO[X2].eta+' (trước: '+etaAvg+')');
 chk('số ngày còn lại là số dương', S.GO[X2].etaDays>0, String(S.GO[X2].etaDays));
 chk('ngày dự kiến nằm trong tương lai, không phải quá khứ', S.GO[X2].eta>TODAY, S.GO[X2].eta);
+/* plan chỉ được nạp cho ngày MAI trở đi (k=1..40); hôm nay không có plan nên
+   vẫn chiếu bằng bình quân → tổng cộng vẫn 3 ngày. */
 chk('4 097 505 kg / 1 400 000 kg mỗi ngày → hết sau 3 ngày', S.GO[X2].etaDays===3, String(S.GO[X2].etaDays));
 chk('batch D/E không có lượng dùng hằng ngày → không chiếu bừa', !S.GO[D1].eta);
 chk('"Thực còn" KHÔNG bị phần chiếu tương lai ăn mất',
@@ -412,6 +428,119 @@ chk('… và 02/08 ghi đúng số 0 của cột actual',
 KNQ.recalc();
 chk('sau import, trừ lùi FIFO vẫn chạy — batch X có số dùng trong kỳ',
     S.GO[X2].usedKg>0, String(K(S.GO[X2].usedKg)));
+
+
+/* ---------- 10. v4.96 — MÃ BATCH LÀ NGÀY · HQ QTY · VASSCM · DONE ---------- */
+console.log('\n[10] v4.96 — NGÀY TỪ MÃ BATCH · HQ APPROVED QTY · VASSCM · ✔ DONE');
+chk('mã batch → ngày: 260714X001 ⇒ 2026-07-14', S.batchDate('260714X001')==='2026-07-14',
+    S.batchDate('260714X001'));
+chk('mã batch → ngày: 260806D001 ⇒ 2026-08-06', S.batchDate('260806D001')==='2026-08-06');
+chk('mã batch sai định dạng → rỗng, không đoán bừa',
+    S.batchDate('ABC')==='' && S.batchDate('261399P001')==='' && S.batchDate('')==='' ,
+    '"'+S.batchDate('261399P001')+'"');
+chk('ngày trong mã batch THẮNG ô date cũ (P4: date 10/08, batch 31/07)',
+    S.GO[P4].date==='2026-08-10' && S.outDate(S.GO[P4])==='2026-07-31', S.outDate(S.GO[P4]));
+chk('dòng chưa có mã batch → lui về ô date cũ',
+    S.outDate({batch:'',date:'2026-05-05'})==='2026-05-05');
+
+/* HQ Approved Qty — gõ tay, CHỈ THAM CHIẾU, không đụng vào tính toán */
+const beforeHq=K(S.GO[X2].remainKg);
+KNQ.setGo(X2,'hqQty','9999999');
+KNQ.recalc();
+chk('HQ Approved Qty lưu được', K(S.GO[X2].hqQty)===9999999, String(S.GO[X2].hqQty));
+chk('HQ Approved Qty KHÔNG ảnh hưởng trừ lùi', K(S.GO[X2].remainKg)===beforeHq,
+    K(S.GO[X2].remainKg)+' vs '+beforeHq);
+KNQ.setGo(X2,'hqQty','abc');
+chk('HQ Approved Qty gõ chữ → RỖNG chứ không thành 0', S.GO[X2].hqQty==='');
+
+/* VASSCM — tick tự điền ngày, bỏ tick thì xoá ngày */
+const VT=go(BERGE,{ decl:'777', batch:'260714X009', sapKg:'1000' });
+KNQ.toggleVas(VT,{checked:true});
+chk('tick VASSCM tự điền ngày hôm nay', S.GO[VT].vas===true && !!S.GO[VT].vasDate,
+    String(S.GO[VT].vasDate));
+KNQ.toggleVas(VT,{checked:false});
+chk('bỏ tick VASSCM → xoá ngày', S.GO[VT].vas===false && S.GO[VT].vasDate==='');
+
+/* trạng thái: bơm hết mà CHƯA khai VASSCM = 'zero'; khai rồi = 'ready' */
+const VZ=go(BERGE,{ decl:'778', batch:'260714X008', sapKg:'0' });
+KNQ.recalc();
+chk('bơm hết + chưa khai VASSCM → trạng thái "VASSCM pending"', S.GO[VZ].st==='zero', S.GO[VZ].st);
+KNQ.toggleVas(VZ,{checked:true}); KNQ.recalc();
+chk('bơm hết + đã khai VASSCM → trạng thái "ready to close"', S.GO[VZ].st==='ready', S.GO[VZ].st);
+
+/* ✔ DONE ép Actual Left về 0 dù FIFO còn dư.
+   Dùng 1 batch D (không bị FIFO của OL1 đụng tới) để số còn lại ổn định. */
+const VD=go(BERGE,{ decl:'779', batch:'260714D007', sapKg:'3000000' });
+KNQ.recalc();
+const stillLeft=K(S.GO[VD].remainKg);
+chk('trước khi tick Done batch vẫn còn hàng', stillLeft===3000000, String(stillLeft));
+KNQ.toggleVas(VD,{checked:true});
+KNQ.toggleDone('go',VD,{checked:true});
+KNQ.recalc();
+chk('✔ Done (đã bơm xong + đã khai VASSCM) ⇒ Actual Left = 0',
+    K(S.GO[VD].remainKg)===0 && S.GO[VD].st==='done', String(K(S.GO[VD].remainKg)));
+chk('✔ Done ⇒ đã dùng = trọn tồn đầu kỳ, % = 100',
+    K(S.GO[VD].usedKg)===K(S.GO[VD].baseKg) && S.GO[VD].pct===1, String(S.GO[VD].pct));
+KNQ.toggleDone('go',VD,{checked:false});
+KNQ.recalc();
+chk('bỏ tick Done ⇒ Actual Left quay lại số cũ', K(S.GO[VD].remainKg)===stillLeft,
+    String(K(S.GO[VD].remainKg)));
+
+
+/* ---------- 11. v4.99 — KNQ CHỐT SỐ THEO NGÀY HÔM QUA (D-1) ---------- */
+console.log('\n[11] v4.99 — NGÀY DỮ LIỆU = HÔM QUA · ĐỐI CHIẾU SAP');
+const _dd=new Date();
+const TD=_dd.getFullYear()+'-'+String(_dd.getMonth()+1).padStart(2,'0')+'-'+String(_dd.getDate()).padStart(2,'0');
+const YD=(function(){ const t=Date.parse(TD+'T00:00:00Z')-86400000, x=new Date(t);
+  return x.getUTCFullYear()+'-'+String(x.getUTCMonth()+1).padStart(2,'0')+'-'+String(x.getUTCDate()).padStart(2,'0'); })();
+chk('_asOf() = hôm qua, KHÔNG phải hôm nay', S.asOf()===YD && S.asOf()!==TD, S.asOf());
+
+/* Dựng kỳ riêng của THÁNG HIỆN TẠI để kiểm mốc D-1 mà không đụng dữ liệu trên */
+(function(){
+  const M=TD.slice(0,7);
+  /* dùng Mat C4: hàng đợi (C4 × P) không có batch nào khác nên batch này
+     nhận trọn lượng P hằng ngày, thay đổi phản ánh 1-1 vào "đã bơm" */
+  const V=gi('C4',{ no:'D1', vessel:'D-1 CHECK', decl:'d1c' });
+  /* mã batch dùng được từ mùng 1 tháng này · tồn CỰC LỚN để không bao giờ cạn */
+  const code=M.slice(2,4)+M.slice(5,7)+'01P900';
+  const B=go(V,{ decl:'d1x', batch:code, sapKg:'999999999' });
+  KNQ._state.setMonth(M);
+  KNQ.setUse(YD,'t','1000'); KNQ.setUse(YD,'x','0');   /* hôm qua: P = 1 000 T */
+  KNQ.setUse(TD,'t','1000'); KNQ.setUse(TD,'x','0');   /* hôm nay: P = 1 000 T */
+  KNQ.recalc();
+  const u0=K(S.GO[B].usedKg);
+  chk('batch nhận trừ lùi và chưa cạn', u0>0 && K(S.GO[B].remainKg)>0, u0+' kg');
+
+  /* HÔM NAY: đổi số thế nào cũng KHÔNG được đụng vào "đã bơm" */
+  KNQ.setUse(TD,'t','9999');
+  KNQ.recalc();
+  chk('tăng vọt TỔNG P+X của HÔM NAY ⇒ "đã bơm" KHÔNG đổi (hôm nay đang bơm dở)',
+      K(S.GO[B].usedKg)===u0, u0+' → '+K(S.GO[B].usedKg));
+  KNQ.delUseRow(TD); KNQ.recalc();
+  chk('xoá hẳn dòng OL1 của HÔM NAY ⇒ vẫn KHÔNG đổi',
+      K(S.GO[B].usedKg)===u0, u0+' → '+K(S.GO[B].usedKg));
+
+  /* HÔM QUA: đổi 1 000 → 2 000 T thì "đã bơm" phải tăng đúng 1 000 000 kg */
+  KNQ.setUse(YD,'t','2000'); KNQ.recalc();
+  chk('đổi TỔNG P+X của HÔM QUA +1 000 T ⇒ "đã bơm" tăng đúng 1 000 000 kg',
+      K(S.GO[B].usedKg)===u0+1000000, u0+' → '+K(S.GO[B].usedKg));
+  KNQ.setUse(YD,'t','1000'); KNQ.recalc();
+
+  /* ĐỐI CHIẾU SAP */
+  S.GO[B].sapEnd=K(S.GO[B].remainKg);
+  KNQ.recalc();
+  chk('sapEnd trùng Actual left ⇒ sapOk = true (ký hiệu ✓ SAP)',
+      S.GO[B].sapOk===true && S.GO[B].sapDiff===0, JSON.stringify([S.GO[B].sapOk,S.GO[B].sapDiff]));
+  S.GO[B].sapEnd=K(S.GO[B].remainKg)-250000;
+  KNQ.recalc();
+  chk('sapEnd lệch ⇒ sapOk = false và sapDiff = +250 000 (ký hiệu Δ)',
+      S.GO[B].sapOk===false && S.GO[B].sapDiff===250000, String(S.GO[B].sapDiff));
+  chk('batch đã tick ✔ Done thì KHÔNG đối chiếu SAP nữa',
+      (KNQ.toggleVas(B,{checked:true}), KNQ.toggleDone('go',B,{checked:true}), KNQ.recalc(),
+       S.GO[B].sapOk===null));
+  KNQ.toggleDone('go',B,{checked:false});
+  KNQ.delGi(V); KNQ._state.setMonth('2026-08');
+})();
 
 console.log('\n'+(fail?('❌ '+fail+' KIỂM TRA THẤT BẠI'):'✅ TẤT CẢ KIỂM TRA ĐỀU ĐẠT'));
 process.exit(fail?1:0);

@@ -50,6 +50,57 @@
  *
  * Bảng FEED OL1 KHÔNG hiện ngoài trang — bấm nút "⛽ FEED OL1" để mở modal.
  * ⚠ Cần deploy rules có ".indexOn": ["st"] cho knq_bonded/gi và knq_bonded/go.
+ * ------------------------------------------------------------
+ * v4.96 — GIAO DIỆN CHUYỂN SANG TIẾNG ANH + đổi cách theo dõi:
+ *   • BỎ cột "Ngày tờ khai" và "Ngày nhập/xuất" (cả GET IN lẫn GET OUT).
+ *     NGÀY ĐƯỢC PHÉP DÙNG BATCH NẰM NGAY TRONG MÃ BATCH: 260714X001 ⇒
+ *     14/07/2026, batch chỉ nhận trừ lùi từ ngày đó trở về sau. Xem
+ *     _batchDate(). Field date/regDate vẫn còn trong Firebase + Excel export
+ *     cho dữ liệu cũ, chỉ không hiện / không sửa được trên bảng nữa.
+ *   • THÊM cột "HQ Approved Qty" — khối lượng Hải quan đồng ý cho get out.
+ *     GÕ TAY, CHỈ ĐỂ THAM CHIẾU, KHÔNG tham gia tính toán.
+ *   • "Tồn đầu kỳ" đổi tên thành "SAP Qty" — bản chất là khối lượng GR nhập
+ *     vào SAP; batch dùng không hết khi 📌 Close Period thì thực còn cuối kỳ
+ *     thành SAP Qty (tồn đầu) của kỳ sau. Cách tính KHÔNG đổi.
+ *   • THÊM cột "VASSCM ✔" + "VASSCM Date". ✔ DONE = ĐÃ BƠM XONG **VÀ** ĐÃ
+ *     KHAI VASSCM ⇒ hàng đã ra khỏi kho ngoại quan, Actual Left ép về 0.
+ *   • Trạng thái mới 'ready' = bơm hết + đã khai VASSCM, chờ tick ✔ Done.
+ * ------------------------------------------------------------
+ * v4.97 — QUẢN LÝ THEO BATCH, DỄ NHÌN:
+ *   • MÀU THEO LOẠI LÔ: mỗi dòng get out có thanh màu + ô batch tô theo chữ
+ *     cái P/X/D/E (P chàm · X tím · D xanh mòng két · E hổ phách).
+ *   • ▶ PUMPING NOW: đánh dấu ĐÚNG MỘT batch mỗi (Mat × loại lô) — batch đầu
+ *     hàng FIFO còn hàng và đã tới ngày dùng. Đó là batch thực tế đang bơm ra.
+ *     Xem cờ r.head, đặt trong lượt 1 của vòng FIFO.
+ *   • THANH LỌC: tìm theo mã batch / số tờ khai / tên tàu · lọc theo tình
+ *     trạng · lọc theo loại lô. Đang lọc thì mọi nhóm tự mở, kèm chip đếm.
+ *   • DÒNG GET IN: hiện chuỗi chip đếm tình trạng các dòng get out của chuyến,
+ *     bấm vào để gập/mở. Chuyến nào đã bơm ra hết thì TỰ GẬP lúc mở tab
+ *     (_autoCollapse) để bảng chỉ còn batch đang sống.
+ * ------------------------------------------------------------
+ * v4.98 — ĐỐI CHIẾU VỚI SAP (đi kèm sp.js v4.98):
+ *   • ⬇ Update D/E from SAP nay đối chiếu CẢ P/X (không đè số, chỉ so):
+ *     lệch giữa "SAP qty" gõ tay và End Stock của SAP → hiện Δ màu cam.
+ *   • Báo luôn số mã batch có trong SAP SLoc 1100 mà CHƯA khai ở bảng KNQ.
+ *   • Chưa bấm nút thì gợi ý "SAP: not pulled yet", không còn báo nhầm
+ *     "code not found" như trước.
+ * ------------------------------------------------------------
+ * v4.99 — ⭐ MỌI SỐ CỦA KNQ LÀ SỐ CỦA **NGÀY HÔM QUA** (D-1) ⭐
+ *   SAP luôn chậm hơn thực tế 1 ngày: hôm nay 19/08 thì SAP mới chốt xong
+ *   18/08, vì 19/08 đang bơm dở, chưa có số cuối cùng. Cho nên:
+ *     • _asOf() = hôm qua. Đây là NGÀY DỮ LIỆU của cả tab.
+ *     • Trừ lùi THỰC (Used / Actual left) chỉ chạy tới _asOf(), KHÔNG tính
+ *       ngày hôm nay. Trước v4.99 chạy tới hôm nay ⇒ ăn gian một ngày.
+ *     • FEED OL1 từ HÔM NAY tới cuối tháng chỉ dùng để DỰ BÁO ngày bơm xong.
+ *     • D/E lấy End Stock của SAP ĐÚNG NGÀY _asOf() (hoặc ngày gần nhất
+ *       trước đó). SAP không có số ngày hôm qua ⇒ CẢNH BÁO.
+ *     • P/X: hôm qua chưa gõ TỔNG P+X (đang chạy mức tạm tính 2.000 T)
+ *       ⇒ CẢNH BÁO, vì số "đã bơm" lúc đó là số đoán chứ không phải số thật.
+ *   Cảnh báo gom vào một dải #knq-alerts ngay dưới thanh lọc.
+ *   ⬇ Sync from SAP nay chạy CHO CẢ 4 loại lô: D/E ghi thẳng vào Actual left
+ *   (sapT), P/X chỉ ghi sapEnd để ĐỐI CHIẾU (P/X vẫn trừ lùi theo FEED OL1).
+ *   Thêm nút ⇐ SAP qty đổ End Stock của SAP vào cột SAP qty cho MỌI loại lô.
+ *   Cột Actual left có ký hiệu ✓ SAP / Δ để biết đang khớp hay lệch với SAP.
  * ============================================================ */
 "use strict";
 
@@ -64,8 +115,9 @@ const KNQ = (function(){
   const WARN_DAYS = 7;             /* còn ≤ 7 ngày → tô cam                 */
   const AVG_DAYS  = 7;             /* bình quân mấy ngày để suy plan P      */
   const HORIZON   = 240;           /* chiếu tối đa bao nhiêu ngày về tương lai */
-  const COLS      = 15;            /* số cột của bảng chính (dùng cho colspan) */
+  const COLS      = 16;            /* số cột của bảng chính (dùng cho colspan) */
   const DEF_TOT_KG= 2000000;       /* ngày chưa gõ TỔNG P+X → TẠM TÍNH 2.000 tấn */
+  const SAP_TOL   = 1;             /* kg — lệch trong ngưỡng này coi là khớp SAP */
 
   /* ── RAM ─────────────────────────────────────────────────── */
   const GI  = {};                  /* id → dòng GET IN  (1 chuyến tàu)      */
@@ -81,13 +133,22 @@ const KNQ = (function(){
 
   let _loaded=false, _allLoaded=false, _initDone=false;
   let _dirty={}, _fb=null, _seq=0;
-  let _month='', _useMonth='', _sapAsOf='';
+  let _month='', _useMonth='', _sapAsOf='', _sapWant='';
   let _olUnit='T';                 /* đơn vị gõ ở modal OL1: 'T' hay 'kg'   */
   let _imp=null;                   /* bảng thô vừa đọc từ file Excel        */
   let _wb=null;                    /* workbook đang mở (để đổi sheet)       */
   let _paste=false;                /* đang mở ô dán từ Excel                */
   let _avg={P:0,X:0};              /* bình quân 7 ngày, tính 1 lần mỗi recalc */
   const _open={};                  /* giId → false nếu đang gập             */
+  /* ── v4.97 THANH LỌC ──────────────────────────────────────
+     _fq  = chuỗi tìm (mã batch / số tờ khai / tên tàu / ghi chú)
+     _fSt = '' hoặc 1 trong using|wait|zero|ready|done
+     _fLot= '' hoặc P|X|D|E
+     Đang lọc thì bỏ qua _open để kết quả không bị giấu trong nhóm đã gập. */
+  let _fq='', _fSt='', _fLot='';
+  let _autoDone=false;             /* đã tự gập chuyến xong hàng 1 lần chưa  */
+  const ST_NAME={ using:'Pumping', wait:'Not started', zero:'VASSCM pending',
+                  ready:'Ready to close', done:'Done' };
 
   /* ============================================================
      HELPERS
@@ -110,6 +171,11 @@ const KNQ = (function(){
   function _today(){ const d=new Date();
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
   function _ym(d){ return String(d||'').slice(0,7); }
+  /* ⭐ NGÀY DỮ LIỆU CỦA TAB KNQ = HÔM QUA.
+     SAP chốt sau 1 ngày và hôm nay còn đang bơm ⇒ số cuối cùng gần nhất là
+     của hôm qua. Mọi phép trừ lùi THỰC dừng ở đây; từ hôm nay trở đi là
+     DỰ BÁO. Đừng thay bằng _today() ở bất kỳ đâu trong phần tính toán. */
+  function _asOf(){ return _addDays(_today(),-1); }
   function _addDays(iso,k){
     const t=Date.parse(iso+'T00:00:00Z'); if(isNaN(t)) return '';
     const d=new Date(t+k*86400000);
@@ -140,8 +206,19 @@ const KNQ = (function(){
     if(!y||!m) return '';
     return ym+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0');
   }
-  /* ngày có hiệu lực của 1 dòng get-out (ưu tiên ngày xuất kho thật) */
-  function _outDate(r){ return r.date||r.regDate||''; }
+  /* ── NGÀY CÓ HIỆU LỰC CỦA 1 DÒNG GET-OUT ─────────────────────
+     v4.96: LẤY TỪ MÃ BATCH, không còn ô ngày trên bảng.
+     260714X001 → 2026-07-14 ⇒ batch chỉ được dùng (nhận trừ lùi) từ
+     14/07/2026 trở về sau. r.date / r.regDate chỉ còn là đường lui cho dòng
+     cũ chưa gõ mã batch. */
+  function _batchDate(code){
+    const m=String(code||'').trim().toUpperCase().match(/^(\d{2})(\d{2})(\d{2})[DEPX]/);
+    if(!m) return '';
+    const mm=+m[2], dd=+m[3];
+    if(mm<1||mm>12||dd<1||dd>31) return '';
+    return '20'+m[1]+'-'+m[2]+'-'+m[3];
+  }
+  function _outDate(r){ return _batchDate(r.batch)||r.date||r.regDate||''; }
   function _sortKey(r){ return (_outDate(r)||'9999-12-31')+'|'+String(r.decl||'')+'|'+String(r._id||''); }
   function _nextYm(ym){
     let y=+String(ym).slice(0,4), m=+String(ym).slice(5,7);
@@ -174,7 +251,7 @@ const KNQ = (function(){
     r._opFrom='khai';
     return _num(r.sapKg);
   }
-  /* ô "Tồn đầu kỳ" gõ tay.
+  /* ô "SAP Qty" (tồn đầu kỳ) gõ tay.
      • Kỳ này ĐÃ có tồn đầu kỳ do 📌 Chốt kỳ ghi ⇒ sửa đúng op[kỳ] đó.
      • Chưa có ⇒ ghi vào sapKg — số khai gốc. Làm vậy để lần đầu khai một
        batch cũ (vào kho từ tháng trước) số không "biến mất" khi người dùng
@@ -236,7 +313,7 @@ const KNQ = (function(){
   }
   /* bình quân AVG_DAYS ngày gần nhất CÓ SỐ (kg/ngày) */
   function _avgRate(L){
-    const t=_today(), v=[];
+    const t=_asOf(), v=[];      /* v4.99 — bình quân KHÔNG lấy ngày hôm nay */
     Object.keys(USE).filter(d=>d<=t).sort().forEach(d=>{
       const u=USE[d]||{};
       if(L==='X'){ const x=_num(u.x); if(x!=null) v.push(x); }
@@ -248,7 +325,7 @@ const KNQ = (function(){
 
   function recalc(){
     const gis=Object.values(GI), gos=Object.values(GO);
-    const T=_today();
+    const T=_today(), A=_asOf();      /* A = ngày dữ liệu (hôm qua) */
     const M=_month||_ym(T);                 /* KỲ TRỪ LÙI đang xem */
     const M0=M+'-01', M9=_lastDay(M);
 
@@ -264,11 +341,18 @@ const KNQ = (function(){
       r.baseKg = _openingOf(r,M);               /* TỒN ĐẦU KỲ của kỳ đang xem */
       r.declKg = _num(r.sapKg);                 /* số khai ban đầu (tham chiếu)*/
       r.qtyN   = _num(r.qtyKg);                 /* Trọng lượng tờ khai        */
+      r.hqQtyN = _num(r.hqQty);                 /* HQ đồng ý get out — tham chiếu */
       r.amount = (_num(r.price)!=null && r.qtyN!=null) ? _num(r.price)*r.qtyN/1000 : null;
+      /* ⚠ ƯU TIÊN số SAP TRA SỐNG theo mã batch (_sapOf), chỉ lui về field đã
+         lưu khi chưa sync. Nếu chỉ đọc r.sapEnd thì batch mới khai sau lần
+         sync gần nhất sẽ báo "no SAP row" trong khi gợi ý ngay bên cạnh lại
+         hiện số SAP — hai chỗ đá nhau, người dùng mất tin. */
       r.sapNow = _sapOf(r);                     /* số SAP cùng mã (đối chiếu) */
+      r.sapEndN = (r.sapNow!=null) ? r.sapNow : _num(r.sapEnd);
       r.mat    = r.mat || (GI[r.giId]?GI[r.giId].mat:'C3');
       r.warn=''; r.eta=''; r.etaDays=null; r.zeroDate=''; r.projected=false;
-      r.remainKg=null; r.usedKg=null; r.balKg=null;
+      r.remainKg=null; r.usedKg=null; r.balKg=null; r.head=false;
+      r.sapDiff=null; r.sapOk=null;
     });
 
     /* ── số dư còn lại của TỪNG CHUYẾN (cột "Còn lại của chuyến") ── */
@@ -280,7 +364,7 @@ const KNQ = (function(){
       });
       g.outKg=(g.qtyN!=null?g.qtyN:0)-bal;
       g.balKg=bal;
-      if(bal<-0.5) g.warn='Xuất vượt lượng nhập '+_K(-bal)+' kg';
+      if(bal<-0.5) g.warn='Get-out exceeds the received quantity by '+_K(-bal)+' kg';
     });
 
     /* ── D / E : lấy thẳng tồn SAP theo mã batch ── */
@@ -288,7 +372,7 @@ const KNQ = (function(){
       if(r.letter==='P'||r.letter==='X') return;
       const s=_num(r.sapT);
       r.remainKg = (s!=null) ? s : (r.baseKg!=null?r.baseKg:null);
-      if(s==null && r.batch) r.warn='Chưa cập nhật từ SAP';
+      if(s==null && r.batch) r.warn='Not updated from SAP yet — click ⬇ Sync from SAP';
     });
 
     /* ── P / X : FIFO trong KỲ đang xem, theo bảng FEED OL1 ──────────
@@ -308,7 +392,9 @@ const KNQ = (function(){
 
         /* ---- lượt 1: THỰC CÒN ---- */
         const p1=rows.map(r=>({ r, left:r.baseKg }));
-        const end1=(M9<T?M9:T);
+        /* ⭐ v4.99 — trừ lùi THỰC dừng ở HÔM QUA, không đụng ngày hôm nay:
+           hôm nay đang bơm dở, chưa có số cuối cùng. */
+        const end1=(M9<A?M9:A);
         for(let d=M0; d && d<=end1; d=_addDays(d,1)){
           let need=_useOf(d,L,'act');
           if(!(need>0)) continue;
@@ -321,16 +407,26 @@ const KNQ = (function(){
           }
           if(need>0.5){
             const last=p1[p1.length-1];
-            if(last && !last.r.warn) last.r.warn='Ngày '+_dmy(d)+' dùng vượt tồn '+_K(need)+' kg';
+            if(last && !last.r.warn) last.r.warn=_dmy(d)+': usage exceeds stock by '+_K(need)+' kg';
           }
         }
         p1.forEach(it=>{ it.r.remainKg=Math.max(0,it.left); });
+        /* v4.97 — ▶ PUMPING NOW: batch ĐANG thực sự bị rút ra hôm nay =
+           phần tử đầu hàng FIFO còn hàng và đã tới ngày dùng (ngày trong mã
+           batch ≤ hôm nay). Mỗi (Mat × loại lô) chỉ có ĐÚNG MỘT. */
+        const hd=p1.find(it=>it.left>0.5 && !it.r.hqDone && eligible(it.r,T));
+        /* eligible xét tới HÔM NAY (batch đã tới ngày dùng thì hôm nay đang
+           được bơm), còn số liệu thì vẫn là số chốt của hôm qua. */
+        if(hd) hd.r.head=true;
 
         /* ---- lượt 2: CHIẾU TỚI TƯƠNG LAI (không ghi vào Thực còn) ---- */
         const p2=rows.map(r=>({ r, left:r.baseKg }));
         const stop=_addDays(T,HORIZON);
         for(let d=M0; d && d<=stop; d=_addDays(d,1)){
-          const future=(d>T);
+          /* tới hôm qua = số thật · TỪ HÔM NAY trở đi = dự báo bằng plan X /
+             bình quân. Đúng ý "feed OL1 từ hôm nay tới cuối tháng dùng để dự
+             đoán ngày bơm xong". */
+          const future=(d>A);
           let need=_useOf(d,L,'proj',future?avg:0);
           if(!(need>0)) continue;
           for(let i=0;i<p2.length && need>1e-6;i++){
@@ -345,7 +441,7 @@ const KNQ = (function(){
         p2.forEach(it=>{
           const r=it.r;
           if(r.zeroDate) return;                 /* đã hết thật trong kỳ */
-          if(r._z2 && r._z2>T){ r.zeroDate=r._z2; r.projected=true; }
+          if(r._z2 && r._z2>A){ r.zeroDate=r._z2; r.projected=true; }
         });
         rows.forEach(r=>{ delete r._z2; });
       });
@@ -354,14 +450,27 @@ const KNQ = (function(){
     /* ── đã dùng · % · trạng thái · dự kiến hết ── */
     gos.forEach(r=>{
       if(r.remainKg==null) r.remainKg=r.baseKg;
+      /* v4.96 — ✔ DONE nghĩa là ĐÃ BƠM XONG **VÀ** ĐÃ KHAI VASSCM: hàng đã ra
+         khỏi kho ngoại quan nên khối lượng thực còn KNQ bắt buộc = 0, dù số
+         trừ lùi FIFO còn dư (thực tế bơm nhanh/chậm hơn dự kiến). */
+      if(r.hqDone) r.remainKg=0;
       r.usedKg=(r.baseKg==null||r.remainKg==null)?null:Math.max(0,r.baseKg-r.remainKg);
       r.pct=(r.baseKg>0&&r.usedKg!=null)?Math.min(1,r.usedKg/r.baseKg):0;
       if(r.hqDone)                    r.st='done';
-      else if(!(r.remainKg>0.5))      r.st='zero';
+      else if(!(r.remainKg>0.5))      r.st=(r.vas?'ready':'zero');
+      else if(r.head)                 r.st='using';   /* đang bơm ra ngay lúc này */
       else if(!(r.usedKg>0.5))        r.st='wait';
       else                            r.st='using';
-      if(r.st!=='done' && r.st!=='zero' && r.zeroDate && r.projected){
+      if(r.st!=='done' && r.st!=='zero' && r.st!=='ready' && r.zeroDate && r.projected){
         r.eta=r.zeroDate; r.etaDays=_dayDiff(r.zeroDate,T);
+      }
+      /* ── ĐỐI CHIẾU VỚI SAP ────────────────────────────────────
+         So Actual left (KNQ tin là còn trong kho ngoại quan) với End Stock
+         của SAP ngày _asOf(). D/E khớp hiển nhiên vì lấy thẳng từ SAP; P/X
+         mới là chỗ đáng soi — lệch nghĩa là FEED OL1 gõ sai hoặc thiếu. */
+      if(r.sapEndN!=null && r.remainKg!=null && !r.hqDone){
+        r.sapDiff=Math.round(r.remainKg-r.sapEndN);
+        r.sapOk=Math.abs(r.sapDiff)<=SAP_TOL;
       }
     });
 
@@ -370,8 +479,17 @@ const KNQ = (function(){
       const ch=childrenOf(g._id);
       g.remainKg=ch.reduce((a,r)=>a+(r.remainKg||0),0);
       g.baseKg  =ch.reduce((a,r)=>a+(r.baseKg||0),0);
+      g.usedSum =ch.reduce((a,r)=>a+(r.usedKg||0),0);
+      g.hqSum   =ch.reduce((a,r)=>a+(r.hqQtyN||0),0);
+      /* v4.97 — bảng đếm tình trạng get out, hiện ngay trên dòng GET IN để
+         chuyến gập lại vẫn đọc được tình hình. */
+      g.cnt={using:0,wait:0,zero:0,ready:0,done:0};
+      ch.forEach(r=>{ if(g.cnt[r.st]!==undefined) g.cnt[r.st]++; });
+      g.nCh=ch.length;
+      g.allOut=!!ch.length && ch.every(r=>r.st==='zero'||r.st==='ready'||r.st==='done');
+      g.head=ch.some(r=>r.head);
       if(g.hqDone) g.st='done';
-      else if(ch.length && ch.every(r=>r.st==='zero'||r.st==='done')) g.st='zero';
+      else if(ch.length && ch.every(r=>r.st==='zero'||r.st==='ready'||r.st==='done')) g.st='zero';
       else if(ch.some(r=>r.st==='using')) g.st='using';
       else g.st='wait';
     });
@@ -391,6 +509,64 @@ const KNQ = (function(){
      (lần mở tab sau không tải về nữa). Tháng chỉ là KỲ TRỪ LÙI. */
   function visibleGi(mat){
     return Object.values(GI).filter(g=>g.mat===mat).sort(_cmpGi);
+  }
+
+  /* ── v4.97 THANH LỌC ────────────────────────────────────────
+     Lọc ở mức DÒNG GET OUT (đơn vị quản lý là batch). Chuyến chỉ hiện khi
+     còn ít nhất 1 batch lọt lưới — nếu không thì cả chuyến ẩn đi. */
+  function filterOn(){ return !!(_fq||_fSt||_fLot); }
+  function matchGo(r,g){
+    if(_fLot && r.letter!==_fLot) return false;
+    if(_fSt  && r.st!==_fSt)      return false;
+    if(_fq){
+      const q=_fq.toLowerCase();
+      const hay=[r.batch,r.decl,r.note,g&&g.vessel,g&&g.decl,LETTER_NAME[r.letter]]
+        .join(' ').toLowerCase();
+      if(hay.indexOf(q)<0) return false;
+    }
+    return true;
+  }
+  /* con của chuyến SAU khi lọc */
+  function shownChildren(giId){
+    const g=GI[giId], ch=childrenOf(giId);
+    return filterOn() ? ch.filter(r=>matchGo(r,g)) : ch;
+  }
+  function onFilter(){
+    const q =document.getElementById('knq-f-q');
+    const st=document.getElementById('knq-f-st');
+    const lt=document.getElementById('knq-f-lot');
+    _fq  =(q &&q.value ||'').trim();
+    _fSt =(st&&st.value||'');
+    _fLot=(lt&&lt.value||'');
+    render();
+  }
+  function clearFilter(){
+    _fq=''; _fSt=''; _fLot='';
+    const q =document.getElementById('knq-f-q');  if(q)  q.value='';
+    const st=document.getElementById('knq-f-st'); if(st) st.value='';
+    const lt=document.getElementById('knq-f-lot');if(lt) lt.value='';
+    render();
+  }
+  /* ⊟ / ⊞ hàng loạt. mode: 'all' gập hết · 'none' mở hết · 'out' chỉ gập
+     những chuyến đã bơm ra hết (đúng ý "lô nào xong thì thu lại cho đỡ nhiễu") */
+  function collapseAll(mode){
+    const S=recalc();
+    S.gis.forEach(g=>{
+      if(mode==='none')      _open[g._id]=true;
+      else if(mode==='all')  _open[g._id]=false;
+      else if(mode==='out')  _open[g._id]=!g.allOut;
+    });
+    render();
+    if(mode==='out'){
+      const n=S.gis.filter(g=>g.allOut).length;
+      _say(n?('⊟ Collapsed '+n+' fully pumped-out voyage(s)'):'No voyage is fully pumped out yet','');
+    }
+  }
+  /* tự gập 1 lần lúc mở tab — chuyến nào batch đã ra hết thì thu lại */
+  function _autoCollapse(){
+    if(_autoDone) return; _autoDone=true;
+    const S=recalc();
+    S.gis.forEach(g=>{ if(g.allOut) _open[g._id]=false; });
   }
   function _cmpGi(a,b){
     const ka=(a.date||a.regDate||'9999')+String(a.decl||'');
@@ -426,15 +602,15 @@ const KNQ = (function(){
   }
   function _btn(){
     const b=document.getElementById('knq-save');
-    if(b){ const n=Object.keys(_dirty).length; b.textContent=n?('💾 Lưu ('+n+')'):'💾 Lưu'; b.classList.toggle('hot',!!n); }
+    if(b){ const n=Object.keys(_dirty).length; b.textContent=n?('💾 Save ('+n+')'):'💾 Save'; b.classList.toggle('hot',!!n); }
   }
   /* v4.93a — bỏ giờ khai báo / giờ HQ phản hồi / số PXK-PNK / ngày nộp /
      ngày nhận / PXKT-PNKT: quản lý bên Excel, bỏ đi để bảng gọn trong 1 màn hình */
   const GI_FIELDS=['mat','no','owner','vendor','vessel','regDate','decl','date',
                    'price','qtyKg','note','hqDone','hqDate','st'];
   const GO_FIELDS=['giId','mat','no','time','regDate','decl','date','batch','letter',
-                   'sapKg','op','sapT','sapDate','price','qtyKg',
-                   'note','hqDone','hqDate','st'];
+                   'hqQty','sapKg','op','sapT','sapEnd','sapDate','price','qtyKg',
+                   'note','vas','vasDate','hqDone','hqDate','st'];
   function _strip(r,F){ const o={}; F.forEach(k=>{ if(r[k]!==undefined) o[k]=r[k]; }); return o; }
 
   function _load(){
@@ -451,8 +627,8 @@ const KNQ = (function(){
     return Promise.all(jobs);
   }
   function loadOld(){
-    if(_allLoaded){ _say('Đã tải đầy đủ rồi',''); return; }
-    _say('📂 Đang tải dữ liệu đã đóng hồ sơ…','');
+    if(_allLoaded){ _say('Everything is already loaded',''); return; }
+    _say('📂 Loading archived rows…','');
     Promise.all([
       _ref().child('gi').once('value')
         .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ if(!GI[k]) GI[k]=Object.assign({_id:k},v[k]); }); }),
@@ -460,11 +636,11 @@ const KNQ = (function(){
         .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ if(!GO[k]) GO[k]=Object.assign({_id:k},v[k]); }); }),
       _ref().child('use').once('value')
         .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ USE[k]=v[k]; }); })
-    ]).then(()=>{ _allLoaded=true; render(); _say('📂 Đã tải toàn bộ lịch sử','ok'); })
-      .catch(e=>{ console.warn('[KNQ] loadOld',e); _say('❌ Lỗi tải dữ liệu cũ','er'); });
+    ]).then(()=>{ _allLoaded=true; render(); _say('📂 Full history loaded','ok'); })
+      .catch(e=>{ console.warn('[KNQ] loadOld',e); _say('❌ Could not load archived data','er'); });
   }
   function save(){
-    if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
     recalc();
     [[GI,'gi'],[GO,'go']].forEach(([BAG,key])=>{
       Object.values(BAG).forEach(r=>{
@@ -475,14 +651,14 @@ const KNQ = (function(){
       });
     });
     const map=_dirty; _dirty={};
-    if(!Object.keys(map).length){ _say('Không có gì để lưu',''); return; }
+    if(!Object.keys(map).length){ _say('Nothing to save',''); return; }
     _ref().update(map)
-      .then(()=>{ _say('✅ Đã lưu '+Object.keys(map).length+' trường','ok'); _btn(); render(); })
+      .then(()=>{ _say('✅ Saved '+Object.keys(map).length+' field(s)','ok'); _btn(); render(); })
       .catch(e=>{
         console.warn('[KNQ] save',e);
         [GI,GO].forEach(BAG=>Object.values(BAG).forEach(r=>{
           if(r._prevSt!==undefined){ r._svSt=r._prevSt; delete r._prevSt; } }));
-        Object.assign(_dirty,map); _btn(); _say('❌ Lưu lỗi: '+e.message,'er');
+        Object.assign(_dirty,map); _btn(); _say('❌ Save failed: '+e.message,'er');
       });
   }
 
@@ -490,43 +666,110 @@ const KNQ = (function(){
      ⬇ CẬP NHẬT D/E TỪ SAP  —  khớp theo MÃ BATCH người dùng gõ
   ============================================================ */
   function pullSap(){
-    if(typeof SP==='undefined' || !SP.batch1100){ _say('❌ Tab SAP chưa sẵn sàng','er'); return; }
+    if(typeof SP==='undefined' || !SP.batch1100){ _say('❌ The SAP tab is not ready yet','er'); return; }
     const res=SP.batch1100();
     if(!res.rows.length){
-      _say('❌ Tab SAP chưa có dòng SLoc 1100 nào đã tách mã batch'+
-           (res.legacy?(' ('+res.legacy+' dòng còn ở dạng gộp cũ — dán lại SAP)'):''),'er');
+      _say('❌ The SAP tab has no SLoc 1100 row with a split batch code'+
+           (res.legacy?(' ('+res.legacy+' row(s) still in the old merged form — paste SAP again)'):''),'er');
       return;
     }
+    /* ⭐ CHỈ LẤY SỐ TỚI NGÀY _asOf() (hôm qua). Dòng SAP của ngày hôm nay —
+       nếu có — là số dở dang, cố tình BỎ QUA. */
     MATS.forEach(m=>{ Object.keys(SAPB[m]).forEach(k=>delete SAPB[m][k]); });
-    _sapAsOf='';
+    _sapAsOf=''; _sapWant=_asOf();
     res.rows.forEach(r=>{
+      if(r.date>_sapWant) return;                    /* hôm nay / tương lai */
       const B=SAPB[r.mat]; if(!B) return;
       const cur=B[r.batch];
       if(!cur || r.date>=cur.date) B[r.batch]={ date:r.date, endKg:Math.round(r.end) };
       if(r.date>_sapAsOf) _sapAsOf=r.date;
     });
+    if(!_sapAsOf){
+      _say('❌ The SAP tab has no SLoc 1100 data on or before '+_dmy(_sapWant)+
+           ' — paste the ZMMFR022 export for '+_dmy(_sapWant),'er');
+      render(); return;
+    }
 
     let hit=0, miss=0, px=0;
+    const declared={ C3:{}, C4:{} };
     Object.values(GO).forEach(r=>{
       if(!r.batch) return;
-      const b=SAPB[r.mat]?SAPB[r.mat][String(r.batch).trim().toUpperCase()]:null;
+      const code=String(r.batch).trim().toUpperCase();
+      if(declared[r.mat]) declared[r.mat][code]=1;
+      const b=SAPB[r.mat]?SAPB[r.mat][code]:null;
       if(!b){ miss++; return; }
-      if(r.letter==='P'||r.letter==='X'){ px++; return; }  /* P/X trừ theo OL1, không đè */
-      r.sapT=b.endKg; r.sapDate=b.date;
-      _markField('go/'+r._id,'sapT',b.endKg);
+      /* MỌI loại lô đều ghi sapEnd + sapDate để đối chiếu ✓ / Δ */
+      r.sapEnd=b.endKg; r.sapDate=b.date;
+      _markField('go/'+r._id,'sapEnd',b.endKg);
       _markField('go/'+r._id,'sapDate',b.date);
+      /* P/X trừ lùi theo FEED OL1 nên KHÔNG đè Actual left — chỉ đối chiếu */
+      if(r.letter==='P'||r.letter==='X'){ px++; return; }
+      r.sapT=b.endKg;
+      _markField('go/'+r._id,'sapT',b.endKg);
       hit++;
     });
+    /* mã batch CÓ trong SAP SLoc 1100 mà bảng KNQ chưa khai — dấu hiệu bỏ sót
+       một tờ khai get out. Chỉ đếm batch còn tồn (end > 0). */
+    let undecl=0; const undeclList=[];
+    MATS.forEach(m=>{
+      Object.keys(SAPB[m]||{}).forEach(code=>{
+        if(declared[m][code]) return;
+        if(!(SAPB[m][code].endKg>0)) return;
+        undecl++; if(undeclList.length<6) undeclList.push(m+' '+code);
+      });
+    });
     render();
-    _say('⬇ Cập nhật '+hit+' batch D/E từ SAP (đến '+_dmy(_sapAsOf)+')'+
-         (px?(' · '+px+' batch P/X giữ nguyên, trừ theo FEED OL1'):'')+
-         (miss?(' · '+miss+' mã không thấy trong SAP'):'')+' — nhớ 💾 Lưu','ok');
+    _say('⬇ SAP as of '+_dmy(_sapAsOf)+' · '+hit+' D/E batch(es) written to Actual left'+
+         (px?(' · '+px+' P/X batch(es) compared only — they run down on FEED OL1'):'')+
+         (miss?(' · '+miss+' code(s) not found in SAP'):'')+
+         (undecl?(' · ⚠ '+undecl+' SAP batch code(s) not declared here: '+undeclList.join(', ')+
+                  (undecl>undeclList.length?'…':'')):'')+
+         ' — remember to 💾 Save','ok');
+    if(_sapAsOf<_sapWant)
+      _say('⚠ SAP is behind: the latest SLoc 1100 data is '+_dmy(_sapAsOf)+
+           ', but KNQ works on '+_dmy(_sapWant)+' (yesterday). Paste a fresh ZMMFR022.','warn');
+    if(res.legacy) _say('⚠ '+res.legacy+' SLoc 1100 row(s) in the SAP tab are still in the old merged form — '+
+         'paste a fresh ZMMFR022 export so every batch code is split','warn');
   }
-  /* chép số SAP sang cột "Tồn kho theo SAP" của 1 dòng get-out */
+  /* ── ⇐ SAP QTY FROM SAP — đổ End Stock của SAP vào cột SAP qty ─────
+     Dùng khi khai batch mới: SAP qty của một batch chính là lượng GR vào SAP.
+     Mặc định CHỈ điền ô đang TRỐNG; ô đã có số mà lệch thì hỏi riêng, vì ghi
+     đè sẽ đổi luôn điểm xuất phát trừ lùi FIFO của cả kỳ. */
+  function fillSapQty(){
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
+    if(!_sapAsOf){ _say('⚠ Click ⬇ Sync from SAP first','warn'); return; }
+    recalc();
+    const empty=[], diff=[];
+    Object.values(GO).forEach(r=>{
+      if(r.hqDone || !r.batch) return;
+      const v=_sapOf(r); if(v==null) return;
+      const cur=_num(r.sapKg);
+      const op=(r.op && r.op[_month||_ym(_today())]);
+      if(cur==null && op==null) empty.push({r,v});
+      else if(Math.abs((r.baseKg||0)-v)>SAP_TOL) diff.push({r,v});
+    });
+    if(!empty.length && !diff.length){ _say('✓ Every SAP qty already matches SAP as of '+_dmy(_sapAsOf),'ok'); return; }
+    let ow=false;
+    if(diff.length){
+      ow=confirm('⇐ SAP QTY FROM SAP  (SAP as of '+_dmy(_sapAsOf)+')\n\n'+
+        empty.length+' empty cell(s) will be filled.\n\n'+
+        diff.length+' cell(s) already hold a different figure. Overwrite those too?\n'+
+        '⚠ Overwriting changes the FIFO starting point for the whole period — '+
+        'say No if the current figures came from 📌 Close period.\n\n'+
+        'OK = overwrite all · Cancel = fill the empty ones only');
+    }
+    let n=0;
+    empty.concat(ow?diff:[]).forEach(o=>{ setOp(o.r._id,String(o.v)); n++; });
+    render();
+    _say('⇐ Filled '+n+' SAP qty cell(s) from SAP as of '+_dmy(_sapAsOf)+
+         ((!ow&&diff.length)?(' · '+diff.length+' differing cell(s) left untouched'):'')+
+         ' — remember to 💾 Save','ok');
+  }
+  /* chép số SAP sang cột "SAP qty" của 1 dòng get-out */
   function copySap(id){
     const r=GO[id]; if(!r) return;
     const v=_sapOf(r);
-    if(v==null){ _say('⚠ Không thấy mã batch này trong dữ liệu SAP đã lấy về','warn'); return; }
+    if(v==null){ _say('⚠ This batch code is not in the SAP data pulled in','warn'); return; }
     setOp(id,String(v));
   }
 
@@ -546,13 +789,13 @@ const KNQ = (function(){
   }
   /* 1 chuyến → nhiều get-out, mỗi dòng 1 mã batch DUY NHẤT */
   function addGo(giId){
-    const g=GI[giId]; if(!g){ _say('⚠ Chưa có dòng Get In','warn'); return; }
+    const g=GI[giId]; if(!g){ _say('⚠ There is no Get In row yet','warn'); return; }
     const ch=childrenOf(giId), last=ch[ch.length-1];
     const id=_newId('O');
     GO[id]={ _id:id, giId:giId, mat:g.mat, time:(last?last.time:'1st time'),
       regDate:(last?last.regDate:''), decl:'', date:(last?last.date:''),
-      batch:'', letter:'', sapKg:'', price:(last?last.price:g.price)||'', qtyKg:'',
-      note:'', st:'open' };
+      batch:'', letter:'', hqQty:'', sapKg:'', price:(last?last.price:g.price)||'', qtyKg:'',
+      note:'', vas:false, vasDate:'', st:'open' };
     _mark('go/'+id,_strip(GO[id],GO_FIELDS));
     _open[giId]=true;
     render();
@@ -562,8 +805,8 @@ const KNQ = (function(){
     const s=GO[id]; if(!s) return;
     const nid=_newId('O');
     GO[nid]={ _id:nid, giId:s.giId, mat:s.mat, time:s.time, regDate:s.regDate, decl:'',
-      date:s.date, batch:'', letter:'', sapKg:'',
-      price:s.price, qtyKg:'', note:'', st:'open' };
+      date:s.date, batch:'', letter:'', hqQty:'', sapKg:'',
+      price:s.price, qtyKg:'', note:'', vas:false, vasDate:'', st:'open' };
     _mark('go/'+nid,_strip(GO[nid],GO_FIELDS));
     render();
     setTimeout(()=>{ const el=document.querySelector('[data-f="'+nid+'|decl"]'); if(el) el.focus(); },40);
@@ -578,12 +821,13 @@ const KNQ = (function(){
   }
   function setGo(id,field,val){
     const r=GO[id]; if(!r) return;
-    if(field==='qtyKg'||field==='price'||field==='sapKg'||field==='sapT'){ const v=_num(val); r[field]=(v==null?'':v); }
+    if(field==='qtyKg'||field==='price'||field==='sapKg'||field==='sapT'||field==='hqQty'){
+      const v=_num(val); r[field]=(v==null?'':v); }
     else if(field==='batch'){
       const code=String(val||'').trim().toUpperCase();
       if(code){
         const dup=Object.values(GO).find(o=>o._id!==id && o.mat===r.mat && String(o.batch||'').toUpperCase()===code);
-        if(dup){ _say('⚠ Mã batch '+code+' đã có ở dòng khác — mỗi get out chỉ 1 mã batch duy nhất','warn'); }
+        if(dup){ _say('⚠ Batch code '+code+' is already used on another row — one get-out line = one unique batch','warn'); }
       }
       r.batch=code;
       const L=_letterOf(code);
@@ -596,8 +840,8 @@ const KNQ = (function(){
   function delGi(id){
     const g=GI[id]; if(!g) return;
     const ch=childrenOf(id);
-    if(!confirm('Xoá chuyến "'+(g.vessel||g.decl||'chưa đặt tên')+'"'+
-                (ch.length?(' và '+ch.length+' dòng get out của nó'):'')+'?')) return;
+    if(!confirm('Delete voyage "'+(g.vessel||g.decl||'untitled')+'"'+
+                (ch.length?(' and its '+ch.length+' get-out line(s)'):'')+'?')) return;
     ch.forEach(r=>{ delete GO[r._id]; delete _dirty['go/'+r._id];
       _ref().child('go/'+r._id).remove().catch(e=>console.warn('[KNQ] del go',e)); });
     delete GI[id]; delete _dirty['gi/'+id]; delete _open[id];
@@ -606,18 +850,25 @@ const KNQ = (function(){
   }
   function delGo(id){
     const r=GO[id]; if(!r) return;
-    if(!confirm('Xoá dòng get out "'+(r.batch||r.decl||'chưa đặt tên')+'"?')) return;
+    if(!confirm('Delete get-out line "'+(r.batch||r.decl||'untitled')+'"?')) return;
     delete GO[id]; delete _dirty['go/'+id];
     _ref().child('go/'+id).remove().catch(e=>console.warn('[KNQ] del go',e));
     render();
   }
+  /* ✔ DONE = ĐÃ BƠM XONG **VÀ** ĐÃ KHAI VASSCM. Cảnh báo cả hai vế. */
   function toggleDone(kind,id,el){
     const BAG=(kind==='gi')?GI:GO, r=BAG[id]; if(!r) return;
     const on=!!(el&&el.checked);
-    if(on && kind==='go' && r.remainKg>0.5 &&
-       !confirm('Batch '+(r.batch||r.decl)+' còn '+_K(r.remainKg)+' kg mà vẫn xác nhận ĐÃ XONG?\n\n'+
-                'Sau khi Lưu, dòng này sẽ không được tải về lúc mở tab nữa.')){
-      el.checked=false; return;
+    if(on && kind==='go'){
+      if(r.remainKg>0.5 &&
+         !confirm('Batch '+(r.batch||r.decl||'')+' still has '+_K(r.remainKg)+
+                  ' kg left. Mark it DONE anyway?\n\n'+
+                  'DONE means the batch has been fully pumped out AND declared in VASSCM.\n'+
+                  'Actual Left will be forced to 0 and the row will no longer be loaded '+
+                  'when you open the tab after saving.')){ el.checked=false; return; }
+      if(!r.vas &&
+         !confirm('Batch '+(r.batch||r.decl||'')+' is NOT ticked as VASSCM declared yet.\n\n'+
+                  'Mark it DONE anyway?')){ el.checked=false; return; }
     }
     r.hqDone=on; r.hqDate=on?(r.hqDate||_today()):'';
     _markField(kind+'/'+id,'hqDone',r.hqDone);
@@ -626,6 +877,17 @@ const KNQ = (function(){
       childrenOf(id).forEach(c=>{ if(!c.hqDone){ c.hqDone=true; c.hqDate=c.hqDate||_today();
         _markField('go/'+c._id,'hqDone',true); _markField('go/'+c._id,'hqDate',c.hqDate); } });
     }
+    render();
+  }
+  /* ── VASSCM ─────────────────────────────────────────────────
+     Tick = đã khai VASSCM cho phần hàng đã bơm ra. Tick lần đầu tự điền
+     ngày hôm nay (sửa lại được ở ô bên cạnh). Bỏ tick thì xoá ngày. */
+  function toggleVas(id,el){
+    const r=GO[id]; if(!r) return;
+    const on=!!(el&&el.checked);
+    r.vas=on; r.vasDate=on?(r.vasDate||_today()):'';
+    _markField('go/'+id,'vas',r.vas);
+    _markField('go/'+id,'vasDate',r.vasDate);
     render();
   }
   function toggleGroup(id){ _open[id]=(_open[id]===false); render(); }
@@ -645,17 +907,17 @@ const KNQ = (function(){
   function closeMonth(){
     if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
     const M=_month||_ym(_today()), N=_nextYm(M);
-    if(!N){ _say('❌ Chưa chọn kỳ','er'); return; }
+    if(!N){ _say('❌ No period selected','er'); return; }
     const S=recalc();
     const carry=S.gos.filter(r=>!r.hqDone && _ym(_outDate(r))<=M);
     const zero =carry.filter(r=>!(r.remainKg>0.5));
     const done =S.gos.filter(r=>r.hqDone).length;
-    if(!confirm('📌 CHỐT KỲ '+M+'  →  MỞ KỲ '+N+'\n\n'+
-      '• '+carry.length+' batch chuyển sang kỳ mới, tồn đầu kỳ = thực còn cuối kỳ '+M+'\n'+
-      '• '+done+' batch đã tick ✔ Xong — KHÔNG chuyển sang nữa\n'+
-      (zero.length?('\n⚠ '+zero.length+' batch đã về 0 mà CHƯA tick ✔ Xong.\n'+
-        '   Nên tick trước khi chốt, nếu không nó vẫn nằm trong bộ trừ lùi kỳ sau.\n'):'')+
-      '\nTiếp tục?')) return;
+    if(!confirm('📌 CLOSE PERIOD '+M+'  →  OPEN PERIOD '+N+'\n\n'+
+      '• '+carry.length+' batch(es) carried over — SAP Qty of '+N+' = actual left at end of '+M+'\n'+
+      '• '+done+' batch(es) ticked ✔ Done — NOT carried over\n'+
+      (zero.length?('\n⚠ '+zero.length+' batch(es) are at 0 but NOT ticked ✔ Done yet.\n'+
+        '   Tick them first, otherwise they stay in next period\'s run-down.\n'):'')+
+      '\nContinue?')) return;
     carry.forEach(r=>{
       const v=Math.max(0,r.remainKg||0);
       r.op=r.op||{}; r.op[N]=v; _markOp(r._id,N,v);
@@ -664,8 +926,8 @@ const KNQ = (function(){
     const e=document.getElementById('knq-month'); if(e) e.value=N;
     const u=document.getElementById('knq-use-month'); if(u) u.value=N;
     render();
-    _say('📌 Đã chốt kỳ '+M+' · '+carry.length+' batch mở kỳ '+N+
-         (zero.length?(' · '+zero.length+' batch về 0 chưa tick ✔'):'')+' — nhớ 💾 Lưu','ok');
+    _say('📌 Period '+M+' closed · '+carry.length+' batch(es) opened in '+N+
+         (zero.length?(' · '+zero.length+' at 0 but not ticked ✔'):'')+' — remember to 💾 Save','ok');
   }
 
   /* ============================================================
@@ -727,8 +989,8 @@ const KNQ = (function(){
     });
     _useMonth=_ym(date);
     _renderUse(); render();
-    _say('📋 Đã dán '+n+' ngày từ '+_dmy(date)+
-         (out?(' · bỏ '+out+' dòng tràn sang tháng khác'):'')+' — nhớ 💾 Lưu','ok');
+    _say('📋 Pasted '+n+' day(s) from '+_dmy(date)+
+         (out?(' · dropped '+out+' row(s) spilling into another month'):'')+' — remember to 💾 Save','ok');
   }
   function setUseNote(date,val){ const u=USE[date]||{}; u.note=val; USE[date]=u; _mark('use/'+date,u); }
   function useKey(ev,date,field){
@@ -742,7 +1004,7 @@ const KNQ = (function(){
   function addUseRow(){
     const inp=document.getElementById('knq-use-new');
     const d=(inp&&inp.value)||_today();
-    if(USE[d]){ _say('Ngày '+_dmy(d)+' đã có','warn'); return; }
+    if(USE[d]){ _say(_dmy(d)+' already exists','warn'); return; }
     USE[d]={ t:'', x:'', xp:'', note:'' }; _mark('use/'+d,USE[d]);
     _useMonth=_ym(d); const m=document.getElementById('knq-use-month'); if(m) m.value=_useMonth;
     _renderUse();
@@ -755,10 +1017,10 @@ const KNQ = (function(){
       const k=_useMonth+'-'+String(d).padStart(2,'0');
       if(!USE[k]){ USE[k]={t:'',x:'',xp:'',note:''}; _mark('use/'+k,USE[k]); n++; }
     }
-    _renderUse(); _say('📅 Thêm '+n+' ngày trống cho tháng '+_useMonth,'ok');
+    _renderUse(); _say('📅 Added '+n+' empty day(s) to '+_useMonth,'ok');
   }
   function delUseRow(date){
-    if(!confirm('Xoá dòng ngày '+_dmy(date)+'?')) return;
+    if(!confirm('Delete the row for '+_dmy(date)+'?')) return;
     delete USE[date]; delete _dirty['use/'+date];
     _ref().child('use/'+date).remove().catch(e=>console.warn('[KNQ] del use',e));
     _renderUse();
@@ -781,7 +1043,7 @@ const KNQ = (function(){
   function pickFile(){ const f=document.getElementById('knq-file'); if(f){ f.value=''; f.click(); } }
   function fileChosen(input){
     const f=input&&input.files&&input.files[0]; if(!f) return;
-    if(typeof XLSX==='undefined'){ _say('❌ Thư viện XLSX chưa nạp','er'); return; }
+    if(typeof XLSX==='undefined'){ _say('❌ The XLSX library is not loaded','er'); return; }
     const rd=new FileReader();
     rd.onload=e=>{
       try{
@@ -791,8 +1053,8 @@ const KNQ = (function(){
         _paste=false;
         _imp=_prepImp(_aoaOf(sh),f.name,sh,names);
         _renderImp();
-        _say('📥 Đã đọc '+f.name+' — kiểm tra cột rồi bấm ÁP DỤNG','ok');
-      }catch(err){ console.warn('[KNQ] import',err); _say('❌ Không đọc được file: '+err.message,'er'); }
+        _say('📥 Read '+f.name+' — check the columns then click APPLY','ok');
+      }catch(err){ console.warn('[KNQ] import',err); _say('❌ Could not read the file: '+err.message,'er'); }
     };
     rd.readAsArrayBuffer(f);
   }
@@ -822,15 +1084,15 @@ const KNQ = (function(){
   function pasteRead(){
     const t=document.getElementById('knq-paste-txt');
     const txt=(t&&t.value)||'';
-    if(!txt.trim()){ _say('⚠ Chưa dán gì cả','warn'); return; }
+    if(!txt.trim()){ _say('⚠ Nothing pasted yet','warn'); return; }
     const aoa=txt.replace(/\r/g,'').split('\n').filter(l=>l.trim()!=='')
                  .map(l=>l.split('\t').map(c=>{ const n=_num(c); return (n!=null&&String(c).trim()!=='')?n:c; }));
     try{
       _paste=false;
-      _imp=_prepImp(aoa,'(dán từ Excel)','',[]);
+      _imp=_prepImp(aoa,'(pasted from Excel)','',[]);
       _renderImp();
-      _say('📋 Đã đọc '+_imp.body.length+' dòng — kiểm tra cột rồi bấm ÁP DỤNG','ok');
-    }catch(err){ _say('❌ Không đọc được: '+err.message,'er'); }
+      _say('📋 Read '+_imp.body.length+' row(s) — check the columns then click APPLY','ok');
+    }catch(err){ _say('❌ Could not read it: '+err.message,'er'); }
   }
 
   /* chấm điểm 1 tiêu đề cột cho vai trò 'act' (thực tế) hoặc 'plan' */
@@ -852,17 +1114,17 @@ const KNQ = (function(){
   /* chuẩn hoá bảng thô: tìm dòng tiêu đề, đoán cột ngày + cột actual/plan */
   function _prepImp(aoa,fname,sheet,sheets){
     const rows=(aoa||[]).filter(r=>r&&r.some(c=>c!=null&&String(c).trim()!==''));
-    if(!rows.length) throw new Error('không có dòng nào');
+    if(!rows.length) throw new Error('no rows found');
     let hdr=0, best=-1;
     rows.slice(0,12).forEach((r,i)=>{
       const s=r.filter(c=>typeof c==='string'&&String(c).trim()).length;
       if(s>best){ best=s; hdr=i; }
     });
     const head=(rows[hdr]||[]).map((c,i)=>
-      (String(c==null?'':c).replace(/\s+/g,' ').trim())||('Cột '+(i+1)));
+      (String(c==null?'':c).replace(/\s+/g,' ').trim())||('Col '+(i+1)));
     const body=rows.slice(hdr+1);
     const nc=Math.max(head.length,...body.map(r=>r.length));
-    while(head.length<nc) head.push('Cột '+(head.length+1));
+    while(head.length<nc) head.push('Col '+(head.length+1));
 
     /* cột NGÀY ĐẦY ĐỦ = cột parse được nhiều ngày nhất */
     let dCol=-1, dBest=0;
@@ -879,7 +1141,7 @@ const KNQ = (function(){
       if(k>dayBest){ dayBest=k; dayCol=c; }
     }
     if(dayBest<15) dayCol=-1;
-    if(dCol<0 && dayCol<0) throw new Error('không thấy cột ngày');
+    if(dCol<0 && dayCol<0) throw new Error('no date column found');
 
     /* cột số: chấm điểm riêng cho ACTUAL và PLAN */
     let aCol=-1,aBest=0, pCol=-1,pBest=0;
@@ -924,7 +1186,7 @@ const KNQ = (function(){
     if(field==='sheet'){
       try{ const keep=_imp.name;
         _imp=_prepImp(_aoaOf(val),keep,val,_imp.sheets);
-      }catch(err){ _say('❌ Sheet này không đọc được: '+err.message,'er'); }
+      }catch(err){ _say('❌ This sheet cannot be read: '+err.message,'er'); }
     }
     else if(field==='unit'||field==='month') _imp[field]=val;
     else if(field==='ow') _imp.ow=!!val;
@@ -960,8 +1222,8 @@ const KNQ = (function(){
   function impApply(){
     if(!_imp) return;
     const { dCol, dayCol, aCol, pCol, unit, ow }=_imp;
-    if(dCol<0&&dayCol<0){ _say('⚠ Chưa nhận ra cột Ngày','warn'); return; }
-    if(aCol<0&&pCol<0){ _say('⚠ Chọn ít nhất một cột số (Actual hoặc Plan)','warn'); return; }
+    if(dCol<0&&dayCol<0){ _say('⚠ No Date column detected','warn'); return; }
+    if(aCol<0&&pCol<0){ _say('⚠ Pick at least one number column (Actual or Plan)','warn'); return; }
     const f=(unit==='kg')?1:1000;
     const R=_impRows();
     let na=0, np=0, skip=0, keep=0;
@@ -979,10 +1241,10 @@ const KNQ = (function(){
     const firstPlan=(R.filter(o=>o.src==='p')[0]||{}).d;
     if(R.length) _useMonth=_ym(R[0].d);
     _imp=null; _paste=false; _renderImp(); _renderUse(); render();
-    _say('📥 Nạp X: '+na+' ngày ACTUAL'+(np?(' · '+np+' ngày PLAN'):'')+
-         (firstPlan?(' (plan từ '+_dmy(firstPlan)+')'):'')+
-         (keep?(' · giữ '+keep+' ngày đã gõ tay'):'')+
-         (skip?(' · '+skip+' ngày không có số'):'')+' — nhớ 💾 Lưu','ok');
+    _say('📥 X loaded: '+na+' ACTUAL day(s)'+(np?(' · '+np+' PLAN day(s)'):'')+
+         (firstPlan?(' (plan from '+_dmy(firstPlan)+')'):'')+
+         (keep?(' · kept '+keep+' hand-keyed day(s)'):'')+
+         (skip?(' · '+skip+' day(s) with no figure'):'')+' — remember to 💾 Save','ok');
   }
 
   /* ============================================================
@@ -1003,10 +1265,22 @@ const KNQ = (function(){
     return h;
   }
   function _stTxt(r){
-    if(r.st==='done') return '<span class="knq-b done">✅ Đã xong</span>';
-    if(r.st==='zero') return '<span class="knq-b zero">🔴 HẾT — khai HQ</span>';
-    if(r.st==='wait') return '<span class="knq-b wait">⏳ Chưa bơm</span>';
-    return '<span class="knq-b using">🟢 Đang bơm</span>';
+    if(r.st==='done')  return '<span class="knq-b done" title="Pumped out and declared in VASSCM">✅ Done</span>';
+    if(r.st==='ready') return '<span class="knq-b ready" title="Pumped out and VASSCM declared — tick ✔ Done to close it">🔵 Ready to close</span>';
+    if(r.st==='zero')  return '<span class="knq-b zero" title="Fully pumped out — VASSCM declaration still pending">🔴 VASSCM pending</span>';
+    if(r.st==='wait')  return '<span class="knq-b wait">⏳ Not started</span>';
+    /* ĐÚNG MỘT batch mỗi (Mat × loại lô) mang cờ head — batch thật sự đang ra */
+    if(r.head) return '<span class="knq-b live" title="This is the batch physically coming out right now — the FIFO head for '+
+      (LETTER_NAME[r.letter]||r.letter)+'">▶ PUMPING NOW</span>';
+    return '<span class="knq-b using">🟢 Pumping</span>';
+  }
+  /* chuỗi chip đếm tình trạng get out của 1 chuyến (hiện cả khi đã gập) */
+  function _sumChips(g){
+    const O=[['using','p','Pumping'],['wait','w','Not started'],
+             ['zero','z','VASSCM pending'],['ready','r','Ready to close'],['done','d','Done']];
+    const on=O.filter(o=>g.cnt&&g.cnt[o[0]]);
+    if(!on.length) return '<span class="knq-dot none">no get out</span>';
+    return on.map(o=>'<span class="knq-dot '+o[1]+'" title="'+o[2]+'">'+g.cnt[o[0]]+'</span>').join('');
   }
 
   /* render() thay nguyên innerHTML của tbody ⇒ ô đang gõ mất focus.
@@ -1023,140 +1297,285 @@ const KNQ = (function(){
     if(!k) return;
     try{ const el=document.querySelector('['+k+']'); if(el&&el.focus) el.focus(); }catch(_){}
   }
+  let _nShown=0;
   function render(){
     if(!document.getElementById('rpt-pg-knq')) return;
     const k=_focusKey();
     const S=recalc();
+    _nShown=0;
     MATS.forEach(m=>_renderMat(m));
     _renderBar(S);
+    _renderAlerts(S);
     _btn();
     _refocus(k);
   }
 
+  /* ── DẢI CẢNH BÁO CHẤT LƯỢNG DỮ LIỆU ────────────────────────
+     Ba thứ có thể làm số của tab sai mà nhìn bảng không thấy:
+       1. SAP chưa có số của ngày hôm qua  → D/E đang xài số cũ
+       2. Hôm qua chưa gõ TỔNG P+X         → "đã bơm" của P/X là số ĐOÁN
+       3. Batch lệch với End Stock của SAP → FEED OL1 sai hoặc khai thiếu
+     Gom hết vào đây, đừng bắt người dùng tự suy ra. */
+  function _renderAlerts(S){
+    const box=document.getElementById('knq-alerts'); if(!box) return;
+    const A=_asOf(), out=[];
+
+    if(!_sapAsOf){
+      out.push(['info','SAP not pulled yet — click <b>⬇ Sync from SAP</b> to load the End Stock of '+
+        _dmy(A)+' (yesterday) for every batch code.']);
+    }else if(_sapAsOf<A){
+      out.push(['warn','<b>SAP is behind.</b> KNQ works on <b>'+_dmy(A)+'</b> (yesterday, the last day with '+
+        'final figures), but the newest SLoc 1100 data in the SAP tab is <b>'+_dmy(_sapAsOf)+'</b>. '+
+        'Paste a fresh ZMMFR022 in LPG Sales ▸ SAP, then sync again.']);
+    }
+
+    /* hôm qua có gõ TỔNG P+X chưa? chưa gõ = đang chạy mức tạm tính */
+    const uA=USE[A];
+    const hasPX=S.gos.some(r=>!r.hqDone && (r.letter==='P'||r.letter==='X') && r.baseKg!=null);
+    if(hasPX && _ym(A)===(_month||_ym(_today()))){
+      if(!uA){
+        out.push(['warn','<b>'+_dmy(A)+' (yesterday) has no FEED OL1 row at all.</b> The P/X run-down '+
+          'therefore drew nothing for that day. Open <b>⛽ FEED OL1</b> and enter the day.']);
+      }else if(_totOf(uA)==null){
+        out.push(['warn','<b>'+_dmy(A)+' (yesterday) has no TOTAL P+X entered</b> — the P/X run-down is '+
+          'using the assumed '+_K(DEF_TOT_KG)+' kg/day, so “Used in period” is an estimate, not the real '+
+          'figure. Open <b>⛽ FEED OL1</b> and key in the real total.']);
+      }
+    }
+    /* các ngày khác trong kỳ còn thiếu TỔNG — gộp thành 1 dòng */
+    const M=_month||_ym(_today());
+    const miss=Object.keys(USE).filter(d=>_ym(d)===M && d<=A && d!==A && _totOf(USE[d])==null);
+    if(miss.length) out.push(['warn',miss.length+' earlier day(s) in '+M+' still run on the assumed '+
+      _K(DEF_TOT_KG)+' kg/day TOTAL P+X: '+miss.slice(0,6).map(_dmy).join(', ')+
+      (miss.length>6?(' …+'+(miss.length-6)):'')+'.']);
+
+    const bad=S.gos.filter(r=>r.sapOk===false);
+    if(bad.length) out.push(['warn','<b>'+bad.length+' batch(es) do not match SAP</b> as of '+_dmy(_sapAsOf)+
+      ': '+bad.slice(0,5).map(r=>_esc(r.batch||'?')+' (Δ '+(r.sapDiff>0?'+':'')+_K(r.sapDiff)+')').join(' · ')+
+      (bad.length>5?(' …+'+(bad.length-5)):'')+'. Check the FEED OL1 figures or the declared SAP qty.']);
+
+    box.innerHTML=out.length
+      ? out.map(o=>'<div class="knq-al '+o[0]+'">'+(o[0]==='warn'?'⚠':'ℹ')+' '+o[1]+'</div>').join('')
+      : '<div class="knq-al ok">✓ Data as of <b>'+_dmy(A)+'</b> (yesterday) — SAP in sync, every batch matches, '+
+        'no missing FEED OL1 total. Today onward is forecast only.</div>';
+    box.style.display='';
+  }
+
   function _renderBar(S){
-    const c={using:0,wait:0,zero:0,done:0,soon:0};
-    let left=0, base=0;
+    const c={using:0,wait:0,zero:0,ready:0,done:0,soon:0};
+    let left=0, base=0, mism=0;
     S.gos.forEach(r=>{
       if(c[r.st]!==undefined) c[r.st]++;
       if(r.st!=='done'){ left+=r.remainKg||0; base+=r.baseKg||0; }
       if(r.st==='using'&&r.etaDays!=null&&r.etaDays<=WARN_DAYS) c.soon++;
+      if(r.sapOk===false) mism++;
     });
     const el=document.getElementById('knq-stats');
     if(el) el.innerHTML=
-      '<span class="knq-chip using"><b>'+c.using+'</b> đang bơm</span>'+
-      '<span class="knq-chip wait"><b>'+c.wait+'</b> chưa bơm</span>'+
-      (c.soon?'<span class="knq-chip soon"><b>'+c.soon+'</b> sắp hết</span>':'')+
-      '<span class="knq-chip zero"><b>'+c.zero+'</b> hết · khai HQ</span>'+
-      (c.done?'<span class="knq-chip done"><b>'+c.done+'</b> đã xong</span>':'')+
-      '<span class="knq-chip tot">Thực còn <b>'+_K(left)+'</b> / '+_K(base)+' kg</span>'+
-      (_sapAsOf?('<span class="knq-chip sap">SAP đến <b>'+_dmy(_sapAsOf)+'</b></span>'):'');
+      '<span class="knq-chip using"><b>'+c.using+'</b> pumping</span>'+
+      '<span class="knq-chip wait"><b>'+c.wait+'</b> not started</span>'+
+      (c.soon?'<span class="knq-chip soon"><b>'+c.soon+'</b> ending soon</span>':'')+
+      '<span class="knq-chip zero"><b>'+c.zero+'</b> VASSCM pending</span>'+
+      (c.ready?'<span class="knq-chip ready"><b>'+c.ready+'</b> ready to close</span>':'')+
+      (c.done?'<span class="knq-chip done"><b>'+c.done+'</b> done</span>':'')+
+      (mism?('<span class="knq-chip zero" title="Actual left differs from the SAP End Stock of '+
+        _dmy(_sapAsOf)+'"><b>'+mism+'</b> ≠ SAP</span>'):'')+
+      '<span class="knq-chip tot">Actual left <b>'+_K(left)+'</b> / '+_K(base)+' kg</span>'+
+      '<span class="knq-chip asof" title="SAP closes one day late and today is still being pumped, so the last '+
+        'final figures are yesterday\'s. Everything from today on is forecast.">data as of <b>'+_dmy(_asOf())+'</b></span>'+
+      (_sapAsOf?('<span class="knq-chip '+(_sapAsOf<_asOf()?'soon':'sap')+'">SAP '+
+        (_sapAsOf<_asOf()?'behind — ':'')+'<b>'+_dmy(_sapAsOf)+'</b></span>'):
+        '<span class="knq-chip soon">SAP not pulled</span>')+
+      (filterOn()?('<span class="knq-chip filt">filtered <b>'+_nShown+'</b> / '+S.gos.length+
+        ' batches <button class="knq-x" title="Clear the filter" onclick="KNQ.clearFilter()">✕</button></span>'):'');
     const b=document.getElementById('knq-close');
-    if(b) b.title='Kết thúc kỳ '+(_month||'—')+': thực còn cuối kỳ trở thành tồn đầu kỳ của kỳ sau. '+
-      'Batch đã tick ✔ Xong không chuyển sang.';
+    if(b) b.title='Close period '+(_month||'—')+': the actual left at period end becomes the '+
+      'SAP Qty (opening balance) of the next period. Batches ticked ✔ Done are not carried over.';
   }
 
   function _renderMat(mat){
     const tb=document.getElementById('knq-body-'+mat.toLowerCase()); if(!tb) return;
-    const gis=visibleGi(mat);
-    if(!gis.length){
-      tb.innerHTML='<tr><td colspan="'+COLS+'" class="knq-empty">Chưa có chuyến '+mat+
-        ' nào — bấm <b>➕ Get In '+mat+'</b> để khai chuyến tàu. '+
-        'Hàng vào kho từ tháng trước cũng khai ở đây, app không lọc theo tháng.</td></tr>';
+    let gis=visibleGi(mat);
+    if(filterOn()) gis=gis.filter(g=>shownChildren(g._id).length>0);
+    if(filterOn() && !gis.length){
+      tb.innerHTML='<tr><td colspan="'+COLS+'" class="knq-empty">No '+mat+
+        ' batch matches the current filter. '+
+        '<button class="knq-btn" onclick="KNQ.clearFilter()">✕ Clear filter</button></td></tr>';
       return;
     }
-    let h='', tQty=0,tBase=0,tUsed=0,tLeft=0,nGo=0;
+    if(!gis.length){
+      tb.innerHTML='<tr><td colspan="'+COLS+'" class="knq-empty">No '+mat+
+        ' voyage yet — click <b>➕ Get In '+mat+'</b> to declare one. '+
+        'Cargo received in earlier months belongs here too; this table is never filtered by month.</td></tr>';
+      return;
+    }
+    let h='', tHq=0,tBase=0,tUsed=0,tLeft=0,nGo=0;
+    const F=filterOn();
     gis.forEach(g=>{
-      const open=(_open[g._id]!==false);
-      const ch=childrenOf(g._id);
-      tQty+=g.qtyN||0;
-      h+=_giRow(g,ch.length,open);
-      if(open) ch.forEach((r,i)=>{
-        nGo++; tBase+=r.baseKg||0; tUsed+=r.usedKg||0; tLeft+=r.remainKg||0;
-        h+=_goRow(r,i+1);
-      });
+      /* đang lọc thì luôn mở nhóm, nếu không kết quả nằm trong nhóm đã gập
+         sẽ "mất tích" — lỗi kinh điển của bảng gập + lọc. */
+      const open=F || (_open[g._id]!==false);
+      const ch=shownChildren(g._id);
+      h+=_giRow(g,ch.length,open,F);
+      /* tổng cộng ĐẾM THEO DÒNG ĐANG HIỆN, kể cả nhóm đang gập, để con số
+         dưới chân bảng không nhảy loạn mỗi lần gập/mở. */
+      ch.forEach(r=>{ nGo++; tHq+=r.hqQtyN||0; tBase+=r.baseKg||0;
+        tUsed+=r.usedKg||0; tLeft+=r.remainKg||0; });
+      if(open) ch.forEach((r,i)=>{ h+=_goRow(r,i+1); });
     });
-    h+='<tr class="knq-tot"><td colspan="9">TỔNG '+mat+' — '+gis.length+' chuyến · '+nGo+
-       ' get out đang trừ lùi · kỳ '+(_month||'—')+
-       (tQty?(' · nhập '+_K(tQty)+' kg'):'')+'</td>'+
+    _nShown+=nGo;
+    /* 16 cột: 1-7 nhãn · 8 HQ · 9 SAP · 10 Used · 11 Left · 12 % · 13-16 trống */
+    h+='<tr class="knq-tot"><td colspan="7">TOTAL '+mat+' — '+gis.length+' voyage(s) · '+nGo+
+       ' get-out line(s)'+(F?' matching the filter':' in run-down')+' · period '+(_month||'—')+'</td>'+
+       '<td class="n">'+(tHq?_K(tHq):'')+'</td>'+
        '<td class="n">'+_K(tBase)+'</td><td class="n">'+_K(tUsed)+'</td>'+
        '<td class="n">'+_K(tLeft)+'</td>'+
        '<td class="n">'+(tBase>0?((tUsed/tBase*100).toFixed(1)+'%'):'')+'</td>'+
-       '<td colspan="2"></td></tr>';
+       '<td colspan="4"></td></tr>';
     tb.innerHTML=h;
   }
 
-  /* ── DÒNG GET IN — 1 chuyến tàu ── */
-  function _giRow(g,nCh,open){
+  /* ── DÒNG GET IN — 1 chuyến tàu ───────────────────────────
+     16 cột: ✔ · No. · Row/Status · Vessel · Decl. No. · Batch · Lot type ·
+     HQ Approved · SAP Qty · Used · Actual Left · % · Est. empty ·
+     VASSCM ✔ · VASSCM Date · Note                                        */
+  function _giRow(g,nCh,open,F){
     const id=g._id;
-    return '<tr class="knq-gi knq-'+(g.st||'wait')+'">'+
+    /* cột 3 = nút gập/mở + chuỗi chip tình trạng các dòng get out. Chuyến đã
+       bơm ra hết thì gắn nhãn ALL OUT để user biết gập lại được. */
+    const sum='<div class="knq-gsum"'+(F?'':' onclick="KNQ.toggleGroup(\''+id+'\')"')+
+      ' title="'+(F?'Filter is on — groups stay open':'Click to collapse / expand this voyage\'s get-out lines')+'">'+
+      _sumChips(g)+
+      '<span class="knq-gn">'+nCh+(F?' shown':' get out')+'</span>'+
+      (g.allOut?'<span class="knq-allout" title="Every batch of this voyage has been pumped out of the bonded warehouse">ALL OUT</span>':'')+
+      '</div>';
+    return '<tr class="knq-gi knq-'+(g.st||'wait')+(g.head?' knq-live':'')+(open?'':' knq-folded')+'">'+
       '<td class="c"><input type="checkbox" class="knq-ck"'+(g.hqDone?' checked':'')+
-        ' title="Đóng hồ sơ cả chuyến (tick luôn mọi get out)"'+
+        ' title="Close the whole voyage (ticks every get-out line)"'+
         ' onchange="KNQ.toggleDone(\'gi\',\''+id+'\',this)"></td>'+
       '<td class="c">'+_inp('gi',id,'no',g.no,'','mono c','VVIII',44)+'</td>'+
-      '<td class="c"><span class="knq-b gin" onclick="KNQ.toggleGroup(\''+id+'\')" '+
-        'title="Gập/mở các dòng get out">'+(open?'▼':'▶')+' GET IN</span>'+
-        '<div class="sm">'+nCh+' get out</div></td>'+
-      '<td>'+_inp('gi',id,'vessel',g.vessel,'','b','tên tàu / chuyến',130)+'</td>'+
-      '<td>'+_inp('gi',id,'regDate',g.regDate,'date')+'</td>'+
-      '<td>'+_inp('gi',id,'decl',g.decl,'','mono','tờ khai nhập',110)+'</td>'+
-      '<td>'+_inp('gi',id,'date',g.date,'date')+'</td>'+
-      '<td class="c"><select class="knq-sel nar" onchange="KNQ.setGi(\''+id+'\',\'mat\',this.value)">'+
-        _op(MATS,g.mat)+'</select></td>'+
+      '<td class="knq-gcell"><span class="knq-b gin" onclick="KNQ.toggleGroup(\''+id+'\')" '+
+        'title="Collapse / expand the get-out lines">'+(open?'▼':'▶')+' GET IN</span>'+sum+'</td>'+
+      '<td>'+_inp('gi',id,'vessel',g.vessel,'','b','vessel / voyage',150)+'</td>'+
+      '<td>'+_inp('gi',id,'decl',g.decl,'','mono','import decl. no.',120)+'</td>'+
+      '<td class="c"><select class="knq-sel nar" title="Material of this voyage"'+
+        ' onchange="KNQ.setGi(\''+id+'\',\'mat\',this.value)">'+_op(MATS,g.mat)+'</select></td>'+
       '<td class="c knq-dim">—</td>'+
+      '<td class="n'+(g.hqSum?'':' knq-dim')+'">'+(g.hqSum?_K(g.hqSum):'—')+'</td>'+
+      '<td class="n'+(g.baseKg?'':' knq-dim')+'">'+(g.baseKg?_K(g.baseKg):'—')+'</td>'+
+      '<td class="n'+(g.usedSum?'':' knq-dim')+'">'+(g.usedSum?_K(g.usedSum):'—')+'</td>'+
+      '<td class="n b">'+_K(g.remainKg||0)+'<div class="sm">total left</div></td>'+
       '<td class="n knq-dim">—</td><td class="n knq-dim">—</td>'+
-      '<td class="n b">'+_K(g.remainKg||0)+'<div class="sm">tổng batch còn</div></td>'+
-      '<td class="n knq-dim">—</td><td class="n knq-dim">—</td>'+
-      '<td>'+_inp('gi',id,'note',g.note,'','','ghi chú',110)+
+      '<td class="c knq-dim">—</td><td class="c knq-dim">—</td>'+
+      '<td>'+_inp('gi',id,'note',g.note,'','','note',110)+
         (g.warn?('<div class="knq-warn">⚠ '+_esc(g.warn)+'</div>'):'')+
         '<div class="knq-acts">'+
-        '<button class="knq-mini go" title="Thêm 1 dòng GET OUT (1 mã batch) cho chuyến này"'+
+        '<button class="knq-mini go" title="Add one GET OUT line (one batch code) to this voyage"'+
           ' onclick="KNQ.addGo(\''+id+'\')">➕ Get Out</button>'+
-        '<button class="knq-x" title="Xoá cả chuyến" onclick="KNQ.delGi(\''+id+'\')">✕</button></div></td>'+
+        '<button class="knq-x" title="Delete the whole voyage" onclick="KNQ.delGi(\''+id+'\')">✕</button></div></td>'+
     '</tr>';
   }
 
-  /* ── DÒNG GET OUT — 1 mã batch duy nhất ── */
+  /* ── KÝ HIỆU KHỚP / LỆCH SAP dưới ô Actual left ─────────────
+     ✓ SAP   = đúng bằng End Stock của SAP ngày _asOf()
+     Δ ±n    = lệch, kèm số chênh (D/E gần như không bao giờ lệch vì lấy
+               thẳng từ SAP; P/X lệch = FEED OL1 sai hoặc SAP qty khai sai)
+     Không có mã / chưa sync → chữ mờ, KHÔNG dùng dấu ⚠ cho khỏi loạn. */
+  function _sapBadge(r){
+    if(r.hqDone) return '';
+    if(!r.batch) return '';
+    if(!_sapAsOf) return '<div class="knq-sapb dim" title="Click ⬇ Sync from SAP">SAP —</div>';
+    if(r.sapEndN==null)
+      return '<div class="knq-sapb bad" title="This batch code is not in the SAP SLoc 1100 data of '+
+             _dmy(_sapAsOf)+'">no SAP row</div>';
+    if(r.sapOk)
+      return '<div class="knq-sapb ok" title="Matches the SAP End Stock of '+_dmy(_sapAsOf)+'">✓ SAP</div>';
+    return '<div class="knq-sapb bad" title="SAP End Stock of '+_dmy(_sapAsOf)+' is '+_K(r.sapEndN)+
+           ' kg — KNQ is off by '+_K(r.sapDiff)+' kg">Δ '+(r.sapDiff>0?'+':'')+_K(r.sapDiff)+'</div>';
+  }
+
+  /* ── DÒNG GET OUT — 1 mã batch duy nhất ─────────────────────
+     Ngày được phép dùng batch nằm trong chính mã batch (260714X001 →
+     14/07/2026) — hiện ngay dưới ô batch để người dùng đối chiếu. */
   function _goRow(r,i){
     const id=r._id;
     const soon=(r.st==='using'&&r.etaDays!=null&&r.etaDays<=WARN_DAYS);
-    const sapHint=(r.sapNow!=null)
-      ? ('<div class="knq-hintline" title="Tồn của mã batch này trong dữ liệu SAP đã lấy về">SAP '+_K(r.sapNow)+
-         ' <button class="knq-mini" title="Chép số SAP sang ô bên" onclick="KNQ.copySap(\''+id+'\')">⇐</button></div>')
-      : (r.batch?'<div class="knq-hintline dim">SAP: không thấy mã</div>':'');
-    /* nguồn của tồn đầu kỳ: chốt kỳ trước, hay số khai ban đầu */
+    const bDate=_batchDate(r.batch);
+    const bHint=bDate
+      ? '<div class="knq-hintline dim" title="Taken from the batch code — this batch is only drawn down from this date onward">from '+_dmy(bDate)+'</div>'
+      : (r.batch?'<div class="knq-hintline warnline" title="The batch code must start with YYMMDD + P/X/D/E">no date in code</div>':'');
+    /* ── ĐỐI CHIẾU SAP ──────────────────────────────────────────
+       3 trạng thái rạch ròi, đừng gộp: CHƯA bấm nút · bấm rồi mà không thấy
+       mã · thấy mã (kèm Δ nếu lệch với SAP qty đang gõ). Trước v4.98 cả ba
+       đều hiện "code not found" nên nhìn tưởng SAP thiếu dữ liệu. */
+    let sapHint='';
+    if(r.sapNow!=null){
+      const d=(r.baseKg==null)?null:Math.round(r.sapNow-r.baseKg);
+      /* ⚠ Ô NÀY so SAP qty (điểm xuất phát) với End Stock của SAP.
+         Ký hiệu ✓/Δ dưới cột Actual left là phép so KHÁC — Actual left với
+         SAP. Đừng để cả hai cùng hiện dấu ✓ xanh, nhìn sẽ tưởng trùng nhau:
+         ở đây chỉ LÊN TIẾNG KHI LỆCH, khớp thì im lặng. */
+      sapHint='<div class="knq-hintline'+(d?' warnline':'')+
+        '" title="End Stock of this batch code in the SAP data as of '+_dmy(_sapAsOf)+
+        (d?(' — the SAP qty you keyed in differs by '+_K(d)+' kg'):' — same as the SAP qty you keyed in')+'">'+
+        'SAP '+_K(r.sapNow)+(d?(' <b>Δ qty '+(d>0?'+':'')+_K(d)+'</b>'):'')+
+        ' <button class="knq-mini" title="Copy the SAP figure into the cell" onclick="KNQ.copySap(\''+id+'\')">⇐</button></div>';
+    } else if(r.batch){
+      sapHint=_sapAsOf
+        ? '<div class="knq-hintline warnline" title="This batch code is not in the SAP SLoc 1100 data pulled in">SAP: code not found</div>'
+        : '<div class="knq-hintline dim" title="Click ⬇ Update D/E from SAP to compare against SAP">SAP: not pulled yet</div>';
+    }
+    /* nguồn của SAP Qty: chốt kỳ trước, hay số khai ban đầu */
     const opHint=(r._opFrom==='khai')
-      ? '<div class="knq-hintline dim" title="Chưa chốt kỳ nào — đang lấy đúng số bạn khai ban đầu">= số khai</div>'
-      : (r._opFrom?('<div class="knq-hintline dim" title="Tồn đầu kỳ mang sang từ lần chốt kỳ '+r._opFrom+'">đk '+r._opFrom+'</div>')
-        :(_ym(_outDate(r))===_month?'<div class="knq-hintline dim">ra kho trong kỳ</div>':''));
+      ? '<div class="knq-hintline dim" title="No period closed yet — using the figure you keyed in">= as keyed</div>'
+      : (r._opFrom?('<div class="knq-hintline dim" title="Opening balance carried over from the '+r._opFrom+' period close">c/f '+r._opFrom+'</div>')
+        :(_ym(_outDate(r))===_month?'<div class="knq-hintline dim">out this period</div>':''));
     const px=(r.letter==='P'||r.letter==='X');
-    return '<tr class="knq-go knq-'+r.st+(soon?' knq-soon':'')+'">'+
+    /* v4.97 — lớp màu theo loại lô: P chàm · X tím · D mòng két · E hổ phách.
+       Đặt trên <tr> để tô thanh rail bên trái, và trên ô batch để tô nền. */
+    const lot=r.letter?(' knq-lot-'+r.letter.toLowerCase()):' knq-lot-none';
+    return '<tr class="knq-go knq-'+r.st+lot+(soon?' knq-soon':'')+(r.head?' knq-live':'')+'">'+
       '<td class="c"><input type="checkbox" class="knq-ck"'+(r.hqDone?' checked':'')+
-        ' title="Đã khai Hải quan hoàn thành xuất kho — sau khi Lưu sẽ không tải về nữa"'+
+        ' title="DONE = fully pumped out AND declared in VASSCM. Actual Left is forced to 0 and '+
+        'the row is no longer loaded after saving."'+
         ' onchange="KNQ.toggleDone(\'go\',\''+id+'\',this)"></td>'+
       '<td class="c sm">'+i+'</td>'+
       '<td>'+_stTxt(r)+'</td>'+
       '<td class="knq-dim sm">↳ get out</td>'+
-      '<td>'+_inp('go',id,'regDate',r.regDate,'date')+'</td>'+
-      '<td>'+_inp('go',id,'decl',r.decl,'','mono','tờ khai xuất',110)+'</td>'+
-      '<td>'+_inp('go',id,'date',r.date,'date')+'</td>'+
-      '<td>'+_inp('go',id,'batch',r.batch,'','mono','260804X001',96)+'</td>'+
+      '<td>'+_inp('go',id,'decl',r.decl,'','mono','export decl. no.',120)+'</td>'+
+      '<td class="knq-bcell'+lot+'">'+
+        '<span class="knq-lotdot" title="'+(LETTER_NAME[r.letter]||'lot type not set')+'">'+
+        (r.letter||'?')+'</span>'+
+        _inp('go',id,'batch',r.batch,'','mono b','260804X001',92)+bHint+'</td>'+
       '<td class="c"><select class="knq-sel" onchange="KNQ.setGo(\''+id+'\',\'letter\',this.value)">'+
         _op(TYPES.map(t=>({v:t,l:t+' '+LETTER_NAME[t]})),r.letter,'—')+'</select></td>'+
+      '<td class="n"><input class="knq-in n" inputmode="decimal" placeholder="kg"'+
+        ' style="min-width:88px" value="'+_esc(r.hqQty==null?'':r.hqQty)+'"'+
+        ' data-f="'+id+'|hqQty"'+
+        ' title="Quantity Customs approved for get out — reference only, not used in any calculation"'+
+        ' onchange="KNQ.setGo(\''+id+'\',\'hqQty\',this.value)"></td>'+
       '<td class="n"><input class="knq-in n" data-o="'+id+'" inputmode="decimal" placeholder="kg"'+
         ' style="min-width:88px" value="'+_esc(r.baseKg==null?'':r.baseKg)+'"'+
-        ' title="Tồn đầu kỳ '+(_month||'')+' — gõ tay lượng tồn đang có của batch này"'+
+        ' title="SAP Qty — GR quantity booked into SAP, i.e. the opening balance of period '+(_month||'')+
+        '. A batch not used up at period close carries its remainder here for the next period."'+
         ' onchange="KNQ.setOp(\''+id+'\',this.value)">'+opHint+sapHint+'</td>'+
-      '<td class="n">'+_K(r.usedKg)+(px?'<div class="sm">theo OL1 kỳ '+(_month||'')+'</div>':'')+'</td>'+
+      '<td class="n">'+_K(r.usedKg)+(px?'<div class="sm">per OL1 '+(_month||'')+'</div>':'')+'</td>'+
       '<td class="n b">'+_K(r.remainKg)+
-        (r.zeroDate&&!r.projected?('<div class="sm">hết '+_dmy(r.zeroDate)+'</div>'):'')+'</td>'+
+        (r.hqDone?'<div class="sm">out of KNQ</div>'
+                 :(r.zeroDate&&!r.projected?('<div class="sm">empty '+_dmy(r.zeroDate)+'</div>'):''))+
+        _sapBadge(r)+'</td>'+
       '<td class="n">'+(r.baseKg>0?((r.pct*100).toFixed(1)+'%'):'')+
         '<div class="knq-pbar"><i style="width:'+((r.pct||0)*100).toFixed(1)+'%"></i></div></td>'+
-      '<td class="n'+(soon?' knq-hot':'')+'">'+(r.eta?(_dmy(r.eta)+'<div class="sm">'+r.etaDays+' ngày</div>'):'')+'</td>'+
-      '<td>'+_inp('go',id,'note',r.note,'','','ghi chú',110)+
+      '<td class="n'+(soon?' knq-hot':'')+'">'+(r.eta?(_dmy(r.eta)+'<div class="sm">'+r.etaDays+' d</div>'):'')+'</td>'+
+      '<td class="c"><input type="checkbox" class="knq-ck"'+(r.vas?' checked':'')+
+        ' title="Tick once the VASSCM declaration for this batch has been filed"'+
+        ' onchange="KNQ.toggleVas(\''+id+'\',this)"></td>'+
+      '<td>'+_inp('go',id,'vasDate',r.vasDate,'date','','',null)+'</td>'+
+      '<td>'+_inp('go',id,'note',r.note,'','','note',110)+
         (r.warn?('<div class="knq-warn">⚠ '+_esc(r.warn)+'</div>'):'')+
         '<div class="knq-acts">'+
-        '<button class="knq-mini" title="Nhân bản dòng get out" onclick="KNQ.cloneGo(\''+id+'\')">⧉</button>'+
-        '<button class="knq-x" title="Xoá dòng get out" onclick="KNQ.delGo(\''+id+'\')">✕</button></div></td>'+
+        '<button class="knq-mini" title="Duplicate this get-out line" onclick="KNQ.cloneGo(\''+id+'\')">⧉</button>'+
+        '<button class="knq-x" title="Delete this get-out line" onclick="KNQ.delGo(\''+id+'\')">✕</button></div></td>'+
     '</tr>';
   }
 
@@ -1167,13 +1586,13 @@ const KNQ = (function(){
     const tb=document.getElementById('knq-use-body'); if(!tb) return;
     const _fk=_focusKey();
     if(!_useMonth){ _useMonth=_ym(_today()); const m=document.getElementById('knq-use-month'); if(m) m.value=_useMonth; }
-    const T=_today();
+    const T=_today(), A=_asOf();
     const days=Object.keys(USE).filter(d=>_ym(d)===_useMonth).sort();
     const uh=document.getElementById('knq-use-unit-h');
-    if(uh) uh.textContent=(_olUnit==='kg'?'kg':'Tấn');
+    if(uh) uh.textContent=(_olUnit==='kg'?'kg':'MT');
     if(!days.length){
-      tb.innerHTML='<tr><td colspan="7" class="knq-empty">Tháng '+_useMonth+
-        ' chưa có ngày nào — bấm <b>📅 Tạo cả tháng</b>, <b>📥 Import Excel</b> hoặc <b>📋 Dán Excel</b>.</td></tr>';
+      tb.innerHTML='<tr><td colspan="7" class="knq-empty">No day in '+_useMonth+
+        ' yet — click <b>📅 Fill month</b>, <b>📥 Import Excel</b> or <b>📋 Paste Excel</b>.</td></tr>';
       _renderImp(); return;
     }
     let sT=0,sP=0,sX=0,nDef=0;
@@ -1186,22 +1605,26 @@ const KNQ = (function(){
       if(def) nDef++;
       sT+=tot; sP+=p; if(xe!=null) sX+=xe;
       const src=(x!=null)
-        ? (u.xs==='p' ? '<span class="knq-b wait" title="Số PLAN nạp từ file">Plan</span>'
-                      : '<span class="knq-b using" title="Số thực tế">Actual</span>')
-        : (xp!=null ? '<span class="knq-b wait" title="Chỉ có plan X, chưa có số thực">Plan</span>'
-                    : '<span class="knq-b" title="Chưa có số X">—</span>');
-      return '<tr'+(d===T?' class="knq-todayrow"':'')+'>'+
-        '<td class="c">'+_dmy(d)+'</td>'+
+        ? (u.xs==='p' ? '<span class="knq-b wait" title="PLAN figure loaded from the file">Plan</span>'
+                      : '<span class="knq-b using" title="Actual figure">Actual</span>')
+        : (xp!=null ? '<span class="knq-b wait" title="Only a plan X exists, no actual yet">Plan</span>'
+                    : '<span class="knq-b" title="No X figure yet">—</span>');
+      /* ⭐ hôm qua = ngày CHỐT SỐ của KNQ. Chưa gõ TỔNG ngày đó thì cả cột
+         "đã bơm" của P/X là số đoán ⇒ tô đỏ cho thấy ngay. */
+      const isA=(d===A);
+      return '<tr class="'+(d===T?'knq-todayrow':'')+(isA?' knq-asofrow':'')+(isA&&def?' knq-asofbad':'')+'">'+
+        '<td class="c">'+_dmy(d)+(isA?'<div class="sm b">← data as of</div>':
+          (d===T?'<div class="sm">today · forecast</div>':''))+'</td>'+
         '<td><input class="knq-in n b" data-u="'+d+'|t" inputmode="decimal"'+
           ' value="'+(def?'':_disp(tot))+'" placeholder="'+_disp(DEF_TOT_KG)+'"'+
-          ' title="TỔNG feed OL1 cả ngày — gõ tay. Bỏ trống = tạm tính '+_disp(DEF_TOT_KG)+
-          '. Dán nhiều dòng từ Excel được (Ctrl+V)."'+
+          ' title="TOTAL OL1 feed for the day — keyed in by hand. Leave blank to assume '+_disp(DEF_TOT_KG)+
+          '. You can paste a whole column from Excel (Ctrl+V)."'+
           ' onpaste="KNQ.usePaste(event,\''+d+'\',\'t\')"'+
           ' onkeydown="KNQ.useKey(event,\''+d+'\',\'t\')" onchange="KNQ.setUse(\''+d+'\',\'t\',this.value)"></td>'+
-        '<td class="n b knq-calc'+(def?' knq-dim':'')+'" title="P = TỔNG − X, tự tính">'+
-          _disp(p)+(def?'<div class="sm">tạm tính TỔNG '+_disp(DEF_TOT_KG)+'</div>':'')+'</td>'+
+        '<td class="n b knq-calc'+(def?' knq-dim':'')+'" title="P = TOTAL − X, calculated">'+
+          _disp(p)+(def?'<div class="sm">TOTAL assumed '+_disp(DEF_TOT_KG)+'</div>':'')+'</td>'+
         '<td><input class="knq-in n" data-u="'+d+'|x" inputmode="decimal" value="'+_disp(x)+'"'+
-          ' title="X — Export Petchem. Gõ tay, import file hoặc dán nhiều dòng (Ctrl+V)."'+
+          ' title="X — Export Petchem. Key in, import a file, or paste several rows (Ctrl+V)."'+
           ' onpaste="KNQ.usePaste(event,\''+d+'\',\'x\')"'+
           ' onkeydown="KNQ.useKey(event,\''+d+'\',\'x\')" onchange="KNQ.setUse(\''+d+'\',\'x\',this.value)"'+
           (xp!=null&&x==null?(' placeholder="'+_disp(xp)+'"'):'')+'></td>'+
@@ -1210,12 +1633,12 @@ const KNQ = (function(){
         '<td><input class="knq-in" value="'+_esc(u.note||'')+'" onchange="KNQ.setUseNote(\''+d+'\',this.value)">'+
           '<button class="knq-x" onclick="KNQ.delUseRow(\''+d+'\')">✕</button></td></tr>';
     }).join('')+
-      '<tr class="knq-tot"><td class="c">TỔNG '+_useMonth+'</td>'+
+      '<tr class="knq-tot"><td class="c">TOTAL '+_useMonth+'</td>'+
       '<td class="n">'+_disp(sT)+'</td><td class="n">'+_disp(sP)+'</td>'+
       '<td class="n">'+_disp(sX)+'</td>'+
       '<td colspan="3">'+(nDef?('<span class="knq-warn">⚠ '+nDef+
-        ' ngày chưa gõ TỔNG P+X — đang tạm tính '+_disp(DEF_TOT_KG)+
-        ' mỗi ngày</span>'):'')+'</td></tr>';
+        ' day(s) with no TOTAL P+X keyed in — assuming '+_disp(DEF_TOT_KG)+
+        ' per day</span>'):'')+'</td></tr>';
     _renderImp();
     _refocus(_fk);
   }
@@ -1226,20 +1649,20 @@ const KNQ = (function(){
     if(_paste){
       box.style.display='';
       box.innerHTML=
-        '<div class="knq-hint"><b>📋 Dán từ Excel</b> — bôi đen vùng dữ liệu trong Excel '+
-        '(kèm dòng tiêu đề càng tốt), Ctrl+C rồi Ctrl+V vào ô dưới đây, bấm <b>ĐỌC</b>.</div>'+
+        '<div class="knq-hint"><b>📋 Paste from Excel</b> — select the data range in Excel '+
+        '(include the header row if you can), Ctrl+C, then Ctrl+V into the box below and click <b>READ</b>.</div>'+
         '<textarea id="knq-paste-txt" class="knq-paste" rows="6" '+
-        'placeholder="Dán vào đây… (mỗi dòng 1 ngày, các cột cách nhau bằng Tab)"></textarea>'+
+        'placeholder="Paste here… (one row per day, columns separated by Tab)"></textarea>'+
         '<div class="knq-frow">'+
-          '<button class="knq-btn primary" onclick="KNQ.pasteRead()">✔ ĐỌC</button>'+
-          '<button class="knq-btn" onclick="KNQ.pasteCancel()">Huỷ</button>'+
+          '<button class="knq-btn primary" onclick="KNQ.pasteRead()">✔ READ</button>'+
+          '<button class="knq-btn" onclick="KNQ.pasteCancel()">Cancel</button>'+
         '</div>';
       return;
     }
     if(!_imp){ box.innerHTML=''; box.style.display='none'; return; }
     box.style.display='';
     const opts=_imp.head.map((h,i)=>({v:i,l:(i+1)+'. '+(h.length>46?(h.slice(0,46)+'…'):h)}));
-    const none=[{v:-1,l:'— không có —'}];
+    const none=[{v:-1,l:'— none —'}];
     const R=_impRows();
     const nA=R.filter(o=>o.src==='a'&&o.v!=null).length;
     const nP=R.filter(o=>o.src==='p'&&o.v!=null).length;
@@ -1247,38 +1670,38 @@ const KNQ = (function(){
     const la=(R.filter(o=>o.src==='a'&&o.v!=null).slice(-1)[0]||{}).d;
     box.innerHTML=
       '<div class="knq-hint"><b>📥 '+_esc(_imp.name)+'</b>'+
-      (_imp.sheet?(' · sheet <b>'+_esc(_imp.sheet)+'</b>'):'')+' — '+_imp.body.length+' dòng. '+
-      'App lấy <b>ACTUAL</b> tới ngày đầu tiên thiếu số, từ đó trở đi lấy <b>PLAN</b>. '+
-      'Kết quả ghi vào ô <b>X</b>; cột Plan X vẫn giữ số plan gốc.</div>'+
+      (_imp.sheet?(' · sheet <b>'+_esc(_imp.sheet)+'</b>'):'')+' — '+_imp.body.length+' row(s). '+
+      'The app takes <b>ACTUAL</b> up to the first day with no figure, and <b>PLAN</b> from there on. '+
+      'The result goes into the <b>X</b> cell; the Plan X column keeps the original plan.</div>'+
       '<div class="knq-frow">'+
         (_imp.sheets&&_imp.sheets.length>1
           ? ('<label>Sheet</label><select onchange="KNQ.impSet(\'sheet\',this.value)">'+
              _op(_imp.sheets.map(n=>({v:n,l:n})),_imp.sheet)+'</select>')
           : '')+
         (_imp.dCol>=0
-          ? ('<label>Cột ngày</label><select onchange="KNQ.impSet(\'dCol\',this.value)">'+
+          ? ('<label>Date column</label><select onchange="KNQ.impSet(\'dCol\',this.value)">'+
              _op(none.concat(opts),_imp.dCol)+'</select>')
-          : ('<label>Cột ngày (1–31)</label><select onchange="KNQ.impSet(\'dayCol\',this.value)">'+
+          : ('<label>Day column (1–31)</label><select onchange="KNQ.impSet(\'dayCol\',this.value)">'+
              _op(none.concat(opts),_imp.dayCol)+'</select>'+
-             '<label>Tháng</label><input type="month" value="'+_esc(_imp.month)+'"'+
+             '<label>Month</label><input type="month" value="'+_esc(_imp.month)+'"'+
              ' onchange="KNQ.impSet(\'month\',this.value)">'))+
-        '<label>Cột ACTUAL</label><select onchange="KNQ.impSet(\'aCol\',this.value)">'+
+        '<label>ACTUAL column</label><select onchange="KNQ.impSet(\'aCol\',this.value)">'+
           _op(none.concat(opts),_imp.aCol)+'</select>'+
-        '<label>Cột PLAN</label><select onchange="KNQ.impSet(\'pCol\',this.value)">'+
+        '<label>PLAN column</label><select onchange="KNQ.impSet(\'pCol\',this.value)">'+
           _op(none.concat(opts),_imp.pCol)+'</select>'+
-        '<label>Đơn vị</label><select onchange="KNQ.impSet(\'unit\',this.value)">'+
-          _op([{v:'T',l:'Tấn'},{v:'kg',l:'kg'}],_imp.unit)+'</select>'+
-        '<label title="Ngày đã gõ tay mặc định KHÔNG bị file đè">'+
+        '<label>Unit</label><select onchange="KNQ.impSet(\'unit\',this.value)">'+
+          _op([{v:'T',l:'MT'},{v:'kg',l:'kg'}],_imp.unit)+'</select>'+
+        '<label title="By default a hand-keyed day is NOT overwritten by the file">'+
           '<input type="checkbox"'+(_imp.ow?' checked':'')+
-          ' onchange="KNQ.impSet(\'ow\',this.checked)"> đè cả số đã gõ tay</label>'+
-        '<button class="knq-btn primary" onclick="KNQ.impApply()">✔ ÁP DỤNG</button>'+
-        '<button class="knq-btn" onclick="KNQ.impCancel()">Huỷ</button>'+
+          ' onchange="KNQ.impSet(\'ow\',this.checked)"> overwrite hand-keyed figures</label>'+
+        '<button class="knq-btn primary" onclick="KNQ.impApply()">✔ APPLY</button>'+
+        '<button class="knq-btn" onclick="KNQ.impCancel()">Cancel</button>'+
       '</div>'+
       '<div class="knq-hint '+(R.length?'':'knq-warn')+'">'+
         (R.length
-          ? ('Sẽ nạp <b>'+R.filter(o=>o.v!=null).length+'</b> ngày: <b>'+nA+'</b> actual'+
-             (la?(' (tới '+_dmy(la)+')'):'')+' · <b>'+nP+'</b> plan'+(fp?(' (từ '+_dmy(fp)+')'):'')+'.')
-          : 'Chưa nhận ra ngày nào — chọn lại cột ngày.')+'</div>';
+          ? ('Will load <b>'+R.filter(o=>o.v!=null).length+'</b> day(s): <b>'+nA+'</b> actual'+
+             (la?(' (up to '+_dmy(la)+')'):'')+' · <b>'+nP+'</b> plan'+(fp?(' (from '+_dmy(fp)+')'):'')+'.')
+          : 'No date recognised — pick the date column again.')+'</div>';
   }
 
   /* ============================================================
@@ -1287,24 +1710,31 @@ const KNQ = (function(){
   function exportXlsx(){
     if(typeof XLSX==='undefined'){ _say('❌ Thư viện XLSX chưa nạp','er'); return; }
     recalc();
-    const ST={using:'Đang bơm',wait:'Chưa bơm',zero:'Hết — cần khai HQ',done:'Đã xong'};
-    const H=['STT','Loại dòng','Nhà cung cấp / Lần xuất','Tên tàu','Ngày tờ khai','Số tờ khai',
-             'Ngày nhập/xuất','SAP - Lô','Loại lô',
-             'Tồn đầu kỳ (kg)','Đã dùng trong kỳ (kg)','Thực còn trong KNQ (kg)','% đã bơm','Dự kiến hết',
-             'Đơn giá','Trọng lượng (kg)','Thành tiền','Còn lại của chuyến (kg)',
-             'Trạng thái','Đã xong','Ghi chú'];
+    const ST={using:'Pumping',wait:'Not started',zero:'VASSCM pending',
+              ready:'Ready to close',done:'Done'};
+    /* Ngày tờ khai / ngày nhập-xuất đã bỏ khỏi bảng nhưng VẪN xuất ra Excel
+       để không mất dữ liệu cũ (cột "Legacy …"). */
+    const H=['No.','Row type','Supplier / Shipment','Vessel','Decl. no.',
+             'Batch (SAP lot)','Batch date','Lot type',
+             'HQ approved get-out qty (kg)','SAP qty / opening (kg)','Used in period (kg)',
+             'Actual left in KNQ (kg)','% pumped','Est. empty date',
+             'VASSCM declared','VASSCM date','Status','Done','Done date','Note',
+             'Legacy decl. date','Legacy in/out date','Unit price','Decl. weight (kg)',
+             'Amount','Voyage balance (kg)'];
     const wb=XLSX.utils.book_new();
     MATS.forEach(mat=>{
       const rows=[];
       visibleGi(mat).forEach(g=>{
-        rows.push([g.no||'','GET IN',g.vendor||'',g.vessel||'',_dmy(g.regDate),g.decl||'',
-          _dmy(g.date),'','','','',g.remainKg||0,'','',
-          _num(g.price),g.qtyN,g.amount,g.balKg,ST[g.st]||'',g.hqDone?'x':'',g.note||'']);
+        rows.push([g.no||'','GET IN',g.vendor||'',g.vessel||'',g.decl||'',
+          '','','',g.hqSum||'',g.baseKg||'',g.usedSum||'',g.remainKg||0,'','',
+          '','',ST[g.st]||'',g.hqDone?'x':'',_dmy(g.hqDate),g.note||'',
+          _dmy(g.regDate),_dmy(g.date),_num(g.price),g.qtyN,g.amount,g.balKg]);
         childrenOf(g._id).forEach((r,i)=>{
-          rows.push([i+1,'GET OUT',r.time||'',g.vessel||'',_dmy(r.regDate),r.decl||'',
-            _dmy(r.date),r.batch||'',LETTER_NAME[r.letter]||r.letter||'',
-            r.baseKg,r.usedKg,r.remainKg,r.pct||0,_dmy(r.eta),
-            _num(r.price),r.qtyN,r.amount,r.balKg,ST[r.st]||'',r.hqDone?'x':'',r.note||'']);
+          rows.push([i+1,'GET OUT',r.time||'',g.vessel||'',r.decl||'',
+            r.batch||'',_dmy(_batchDate(r.batch)),LETTER_NAME[r.letter]||r.letter||'',
+            r.hqQtyN,r.baseKg,r.usedKg,r.remainKg,r.pct||0,_dmy(r.eta),
+            r.vas?'x':'',_dmy(r.vasDate),ST[r.st]||'',r.hqDone?'x':'',_dmy(r.hqDate),r.note||'',
+            _dmy(r.regDate),_dmy(r.date),_num(r.price),r.qtyN,r.amount,r.balKg]);
         });
       });
       XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([H].concat(rows)),mat+' '+MAT_NAME[mat]);
@@ -1315,13 +1745,13 @@ const KNQ = (function(){
       const p=Math.max(0,tot-(x!=null?x:0));
       return [d,tot/1000,p/1000,(x==null?null:x/1000),(xp==null?null:xp/1000),
               (x==null?(xp==null?'':'Plan'):(u.xs==='p'?'Plan':'Actual')),
-              (tRaw==null?'tạm tính':''),u.note||''];
+              (tRaw==null?'assumed':''),u.note||''];
     });
     XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(
-      [['Date','Total P+X (T)','P = Total − X (T)','X (T)','Plan X (T)','Nguồn X','TỔNG','Ghi chú']]
+      [['Date','Total P+X (T)','P = Total − X (T)','X (T)','Plan X (T)','X source','Total','Note']]
       .concat(use)),'Feed OL1');
-    XLSX.writeFile(wb,'XNK_KhoNgoaiQuan_'+(_month||_ym(_today()))+'.xlsx');
-    _say('📤 Đã xuất Excel','ok');
+    XLSX.writeFile(wb,'Bonded_Warehouse_KNQ_'+(_month||_ym(_today()))+'.xlsx');
+    _say('📤 Excel exported','ok');
   }
 
   /* ============================================================
@@ -1338,25 +1768,31 @@ const KNQ = (function(){
     if(_loaded){ render(); return; }
     _loaded=true;
     MATS.forEach(mt=>{ const tb=document.getElementById('knq-body-'+mt.toLowerCase());
-      if(tb) tb.innerHTML='<tr><td colspan="'+COLS+'" class="knq-empty">Đang tải…</td></tr>'; });
+      if(tb) tb.innerHTML='<tr><td colspan="'+COLS+'" class="knq-empty">Loading…</td></tr>'; });
     _load().then(()=>{
       Object.values(GI).forEach(r=>{ r._svSt=r.st||'open'; });
       Object.values(GO).forEach(r=>{ r._svSt=r.st||'open'; });
+      _autoCollapse();      /* chuyến đã bơm ra hết → gập sẵn cho đỡ nhiễu */
       render();
-    }).catch(e=>{ console.warn('[KNQ] load',e); render(); _say('❌ Lỗi tải dữ liệu KNQ','er'); });
+    }).catch(e=>{ console.warn('[KNQ] load',e); render(); _say('❌ Could not load KNQ data','er'); });
   }
 
   return {
     init, onTabEnter, render, recalc, save, loadOld, exportXlsx,
-    pullSap, copySap,
-    addGi, addGo, cloneGo, setGi, setGo, delGi, delGo, toggleDone, toggleGroup,
+    pullSap, copySap, fillSapQty,
+    addGi, addGo, cloneGo, setGi, setGo, delGi, delGo, toggleDone, toggleVas, toggleGroup,
     onMonth, closeMonth, setOp, childrenOf, visibleGi,
+    onFilter, clearFilter, collapseAll, shownChildren, matchGo, filterOn,
     openOl1, closeOl1, onOl1Unit, setUse, setUseNote, useKey, usePaste,
     addUseRow, fillUseMonth, delUseRow, onUseMonth,
     pickFile, fileChosen, impSet, impApply, impCancel,
     pasteOpen, pasteRead, pasteCancel,
     _state:{ GI, GO, USE, SAPB, sapAsOf:()=>_sapAsOf, imp:()=>_imp, impRows:()=>_impRows(),
-             totOf:_totOf, useOf:_useOf, DEF_TOT_KG,
+             totOf:_totOf, useOf:_useOf, batchDate:_batchDate, outDate:_outDate, DEF_TOT_KG,
+             asOf:_asOf, sapAsOf2:()=>_sapAsOf,
+             open:_open, autoCollapse:()=>{ _autoDone=false; _autoCollapse(); },
+             filter:()=>({ q:_fq, st:_fSt, lot:_fLot }),
+             setFilter:(q,st,lot)=>{ _fq=q||''; _fSt=st||''; _fLot=lot||''; },
              month:()=>_month, setMonth:m=>{ _month=m; _useMonth=m; } }
   };
 })();

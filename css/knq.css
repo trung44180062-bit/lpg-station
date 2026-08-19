@@ -52,6 +52,11 @@
 .knq-chip.wait { background:var(--blue-soft);border-color:#cfe2f5;color:#0d4ea0; }
 .knq-chip.soon { background:var(--orange-soft);border-color:#f6d4b4;color:#a8530a; }
 .knq-chip.zero { background:#fde8e8;border-color:#f3c4c4;color:#a02020; }
+/* v4.96 — bơm hết + ĐÃ khai VASSCM, chỉ còn chờ tick ✔ Done */
+.knq-chip.ready{ background:#e8f1fd;border-color:#bcd6f4;color:#12518f; }
+/* v4.97 — chip báo đang lọc, kèm nút ✕ xoá lọc ngay trên chip */
+.knq-chip.filt { background:#fff3d6;border-color:#f0d9a0;color:#8a5a00; }
+.knq-chip.filt .knq-x{ margin-left:5px;vertical-align:middle; }
 .knq-chip.done { background:var(--panel-2);color:var(--ink-3); }
 .knq-chip.sap  { background:var(--blue-soft);border-color:#cfe2f5;color:#0d4ea0; }
 .knq-chip.tot  { background:var(--navy,#123a63);border-color:var(--navy,#123a63);color:#fff; }
@@ -106,6 +111,8 @@
 .knq-tb tr.knq-using td:first-child{ box-shadow:inset 3px 0 0 #2f9e63; }
 .knq-tb tr.knq-zero { background:#fff4f4; }
 .knq-tb tr.knq-zero td:first-child{ box-shadow:inset 3px 0 0 #d9534f; }
+.knq-tb tr.knq-ready{ background:#f2f7fe; }
+.knq-tb tr.knq-ready td:first-child{ box-shadow:inset 3px 0 0 #2f6fd0; }
 .knq-tb tr.knq-soon { background:#fffaf2; }
 .knq-tb tr.knq-done { opacity:.6; }
 .knq-tb tr.knq-wait td{ color:var(--ink-2); }
@@ -150,6 +157,7 @@
 .knq-b.soon { background:var(--orange-soft);border-color:#f6d4b4;color:#a8530a; }
 .knq-b.zero { background:#fde8e8;border-color:#f3c4c4;color:#a02020; }
 .knq-b.done { background:var(--panel-2);border-color:var(--line);color:var(--ink-3); }
+.knq-b.ready{ background:#e8f1fd;border-color:#bcd6f4;color:#12518f; }
 /* badge GET IN — bấm để gập/mở các dòng get out của chuyến */
 .knq-b.gin  { background:var(--navy,#123a63);border-color:var(--navy,#123a63);color:#fff;cursor:pointer; }
 .knq-b.gin:hover{ opacity:.85; }
@@ -194,6 +202,8 @@
   display:flex;align-items:center;gap:3px;justify-content:flex-end;white-space:nowrap;
 }
 .knq-hintline.dim{ color:var(--ink-3);font-weight:500; }
+/* mã batch không đọc ra ngày ⇒ batch không biết được phép dùng từ khi nào */
+.knq-hintline.warnline{ color:#a8530a;font-weight:700; }
 .knq-tb .sm.hot{ color:#a8530a;font-weight:700; }
 
 /* ─────────── Modal ─────────── */
@@ -227,3 +237,124 @@
   font-family:inherit;font-size:12px;color:var(--ink);background:var(--panel);
 }
 .knq-modal-f{ padding:11px 18px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end; }
+
+
+/* ══════════════════════════════════════════════════════════════
+   v4.97 — QUẢN LÝ THEO BATCH: màu theo loại lô, batch đang bơm,
+   tóm tắt tình trạng trên dòng GET IN, thanh lọc.
+   ⚠ Mọi selector vẫn prefix .knq-* — không đụng module khác.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── thanh lọc ─────────────────────────────────────────────── */
+.knq-filters label{ font-size:11px;font-weight:700;color:var(--ink-2);white-space:nowrap; }
+.knq-filters .knq-in,.knq-filters select{
+  padding:5px 8px;border:1.5px solid var(--line);border-radius:7px;background:var(--panel);
+  font-family:inherit;font-size:11.5px;color:var(--ink);
+}
+.knq-filters .knq-in:focus,.knq-filters select:focus{ outline:none;border-color:var(--blue); }
+/* ô tìm KHÔNG được co giãn: .knq-filters là flex, để mặc định thì input
+   nuốt hết chiều ngang và đẩy Status / Lot type xuống dòng dưới. */
+#knq-f-q{ flex:0 0 258px;width:258px;min-width:0; }
+.knq-filters .on{ border-color:var(--orange);background:#fff8ec; }
+
+/* ── MÀU THEO LOẠI LÔ ──────────────────────────────────────────
+   P = chàm · X = tím · D = mòng két · E = hổ phách.
+   Thanh rail bên trái dòng + nền ô batch + chấm chữ cái.        */
+.knq-tb tr.knq-go td:first-child{ box-shadow:inset 3px 0 0 var(--line); }
+.knq-tb tr.knq-go.knq-lot-p td:first-child{ box-shadow:inset 3px 0 0 #5568d3; }
+.knq-tb tr.knq-go.knq-lot-x td:first-child{ box-shadow:inset 3px 0 0 #8b5cd6; }
+.knq-tb tr.knq-go.knq-lot-d td:first-child{ box-shadow:inset 3px 0 0 #0f8f8f; }
+.knq-tb tr.knq-go.knq-lot-e td:first-child{ box-shadow:inset 3px 0 0 #c9821a; }
+
+.knq-bcell{ border-left:2px solid transparent;white-space:nowrap; }
+.knq-bcell.knq-lot-p{ background:#f2f4ff;border-left-color:#5568d3; }
+.knq-bcell.knq-lot-x{ background:#f8f3ff;border-left-color:#8b5cd6; }
+.knq-bcell.knq-lot-d{ background:#eefaf9;border-left-color:#0f8f8f; }
+.knq-bcell.knq-lot-e{ background:#fff7ea;border-left-color:#c9821a; }
+.knq-bcell.knq-lot-none{ background:#fbfbfc; }
+/* chấm chữ cái loại lô đứng ngay trước mã batch */
+.knq-lotdot{
+  display:inline-block;width:16px;height:16px;line-height:16px;border-radius:5px;
+  font-size:9.5px;font-weight:800;text-align:center;color:#fff;margin-right:4px;
+  vertical-align:middle;background:var(--ink-3);
+}
+.knq-lot-p .knq-lotdot{ background:#5568d3; }
+.knq-lot-x .knq-lotdot{ background:#8b5cd6; }
+.knq-lot-d .knq-lotdot{ background:#0f8f8f; }
+.knq-lot-e .knq-lotdot{ background:#c9821a; }
+.knq-bcell .knq-in{ width:92px; }
+/* vạch ngăn rõ giữa hai batch liền nhau — quản lý theo batch nên phải tách bạch */
+.knq-tb tr.knq-go+tr.knq-go td{ border-top:1px solid #e7ecf2; }
+
+/* ── ▶ PUMPING NOW — batch đầu hàng FIFO, đang thực sự ra ───── */
+.knq-b.live{
+  background:#e6f7ec;border-color:#8fd6ab;color:#0f6b37;
+  animation:knqLive 1.8s ease-in-out infinite;
+}
+@keyframes knqLive{ 0%,100%{ opacity:1 } 50%{ opacity:.6 } }
+.knq-tb tr.knq-go.knq-live{ background:#f2fcf6; }
+.knq-tb tr.knq-go.knq-live td:first-child{ box-shadow:inset 4px 0 0 #2f9e63; }
+.knq-tb tr.knq-gi.knq-live td:first-child{ box-shadow:inset 4px 0 0 #2f9e63; }
+
+/* ── TÓM TẮT TÌNH TRẠNG TRÊN DÒNG GET IN ───────────────────── */
+.knq-gcell{ white-space:nowrap; }
+.knq-gsum{ display:flex;flex-wrap:wrap;gap:3px;align-items:center;margin-top:4px;cursor:pointer; }
+.knq-gsum:hover .knq-dot{ filter:brightness(.94); }
+.knq-dot{
+  display:inline-block;min-width:17px;padding:1px 4px;border-radius:5px;
+  font-size:9.5px;font-weight:800;text-align:center;color:#fff;
+}
+.knq-dot.p{ background:#2f9e63; }   /* pumping        */
+.knq-dot.w{ background:#5a8dc9; }   /* not started    */
+.knq-dot.z{ background:#d9534f; }   /* VASSCM pending */
+.knq-dot.r{ background:#2f6fd0; }   /* ready to close */
+.knq-dot.d{ background:#98a4b3; }   /* done           */
+.knq-dot.none{ background:transparent;color:var(--ink-3);font-weight:600;font-size:9px; }
+.knq-gn{ font-size:9.5px;color:var(--ink-3);font-weight:600;margin-left:2px; }
+.knq-allout{
+  font-size:8.5px;font-weight:800;letter-spacing:.4px;padding:1px 5px;border-radius:4px;
+  background:var(--panel-2);border:1px solid var(--line);color:var(--ink-3);
+}
+/* chuyến đang gập — viền đậm hơn cho biết còn dòng ẩn bên dưới */
+.knq-tb tr.knq-gi.knq-folded td{ border-bottom:2px solid #c9d4e0; }
+
+/* ══════════════════════════════════════════════════════════════
+   v4.99 — KNQ CHỐT SỐ THEO NGÀY HÔM QUA (D-1)
+   Dải cảnh báo chất lượng dữ liệu · ký hiệu khớp/lệch SAP ·
+   đánh dấu dòng "as of" trong bảng FEED OL1.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── dải cảnh báo dưới thanh lọc ───────────────────────────── */
+.knq-alerts{
+  flex:0 0 auto;display:flex;flex-direction:column;gap:5px;
+  padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line);
+}
+.knq-alerts:empty{ display:none; }
+.knq-al{
+  font-size:11px;line-height:1.5;padding:6px 10px;border-radius:7px;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--ink-2);
+}
+.knq-al b{ color:var(--ink); }
+.knq-al.warn{ background:#fff6e8;border-color:#f0d9a0;color:#8a5a00; }
+.knq-al.warn b{ color:#6b4500; }
+.knq-al.info{ background:var(--blue-soft);border-color:#cfe2f5;color:#0d4ea0; }
+.knq-al.ok  { background:var(--green-soft);border-color:#bfe6cd;color:#157a40; }
+.knq-al.ok b{ color:#0f5c2e; }
+
+/* ── chip "data as of" trên thanh thống kê ─────────────────── */
+.knq-chip.asof{ background:#eef2f7;border-color:#d3dde8;color:#3b5670; }
+
+/* ── ký hiệu khớp / lệch SAP dưới ô Actual left ────────────── */
+.knq-sapb{
+  font-size:9px;font-weight:800;margin-top:2px;letter-spacing:.2px;white-space:nowrap;
+}
+.knq-sapb.ok { color:#157a40; }
+.knq-sapb.bad{ color:#a8530a; }
+.knq-sapb.dim{ color:var(--ink-3);font-weight:600; }
+
+/* ── bảng FEED OL1: dòng của NGÀY CHỐT SỐ (hôm qua) ────────── */
+.knq-tb tr.knq-asofrow{ background:#eef7ff; }
+.knq-tb tr.knq-asofrow td:first-child{ box-shadow:inset 3px 0 0 #2f6fd0; }
+/* hôm qua mà chưa gõ TỔNG P+X ⇒ số "đã bơm" là số ĐOÁN — tô đỏ */
+.knq-tb tr.knq-asofbad{ background:#fff1f1; }
+.knq-tb tr.knq-asofbad td:first-child{ box-shadow:inset 3px 0 0 #d9534f; }

@@ -35,6 +35,7 @@ const F=JSON.parse(fs.readFileSync(path.join(__dirname,'knq.fixtures.json'),'utf
 const pad=rs=>rs.map(r=>{ const a=[]; for(let i=0;i<22;i++) a.push(r[i]==null?'':String(r[i])); return a; });
 const tsv=pad(F.sapRawMulti);
 const tsv1100=pad(F.sapRaw1100);
+const tsv0819=pad(F.sapRaw1100_0819);   /* ZMMFR022 tải 19/08 10:00, chỉ SLoc 1100 */
 
 console.log('\n[1] TÁCH BATCH THEO SLoc');
 const p=SP._parseSap(tsv);
@@ -127,6 +128,95 @@ chk('giữ nguyên Trs âm của 260806D001', (()=>{
 chk('C3 19 batch · C4 7 batch',
     snap.rows.filter(r=>r.mat==='C3').length===19 && snap.rows.filter(r=>r.mat==='C4').length===7,
     snap.rows.filter(r=>r.mat==='C3').length+' / '+snap.rows.filter(r=>r.mat==='C4').length);
+
+
+/* ---------- 6. v4.98 — BẢN 19/08 + SIẾT KHUÔN MÃ BATCH 1100 ---------- */
+console.log('\n[6] v4.98 — BẢN ZMMFR022 19/08 (chỉ SLoc 1100) & SIẾT KHUÔN MÃ');
+const s19=SP._parseSap(tsv0819);
+chk('đọc đúng 31 batch của bản 19/08, KHÔNG gộp về P/X/D/E',
+    s19.rows.length===31 && s19.n1100===31, s19.rows.length+' dòng · n1100='+s19.n1100);
+chk('mọi dòng đều là SLoc 1100 và có mã batch đầy đủ',
+    s19.rows.every(r=>r.sloc==='1100'&&/^\d{6}[DEPX]\d+$/.test(r.bcode)));
+chk('mã batch KHÔNG bị trùng trong cùng (mat)', (function(){
+  const seen={}; let dup=0;
+  s19.rows.forEach(r=>{ const k=r.mat+'|'+r.bcode; if(seen[k]) dup++; seen[k]=1; });
+  return dup===0;
+})());
+chk('C3 23 batch · C4 8 batch',
+    s19.rows.filter(r=>r.mat==='C3').length===23 && s19.rows.filter(r=>r.mat==='C4').length===8,
+    s19.rows.filter(r=>r.mat==='C3').length+' / '+s19.rows.filter(r=>r.mat==='C4').length);
+chk('bỏ đúng 3 dòng tổng của SAP (batch rỗng), không cộng nhầm vào batch nào',
+    s19.rows.length===31 && (s19.bad1100||[]).length===0, JSON.stringify(s19.bad1100));
+chk('giữ nguyên Trs âm 260731E001 C3: 338 814 → 274 968', (function(){
+  const r=s19.rows.find(x=>x.bcode==='260731E001'&&x.mat==='C3');
+  return r && r.init===338814 && r.trs===-63846 && r.end===274968; })());
+chk('giữ nguyên Trs âm 260728E001 C4: 323 644 → 262 300', (function(){
+  const r=s19.rows.find(x=>x.bcode==='260728E001'&&x.mat==='C4');
+  return r && r.trs===-61344 && r.end===262300; })());
+chk('hai batch cùng ngày cùng chữ E vẫn TÁCH riêng (260818E001 / E002)', (function(){
+  const a=s19.rows.find(x=>x.bcode==='260818E001'&&x.mat==='C3');
+  const b=s19.rows.find(x=>x.bcode==='260818E002'&&x.mat==='C3');
+  return a&&b&&a.end===280000&&b.end===20000; })(), 'gộp lại sẽ ra 300 000 — sai');
+/* đối chiếu với tổng cộng tay trên chính file xlsx (bỏ 3 dòng tổng của SAP) */
+chk('tổng End khớp file: C3 59 861 363 · C4 4 420 102 · LPG 64 281 465 kg', (function(){
+  const t=m=>s19.rows.filter(r=>r.mat===m).reduce((a,r)=>a+r.end,0);
+  return t('C3')===59861363 && t('C4')===4420102 && t('C3')+t('C4')===64281465;
+})(), (function(){const t=m=>s19.rows.filter(r=>r.mat===m).reduce((a,r)=>a+r.end,0);
+  return t('C3')+' / '+t('C4');})());
+
+/* siết khuôn: mã 1100 sai định dạng bị LOẠI, không được rơi vào rổ gộp */
+chk('isBcode nhận đúng khuôn YYMMDD+P/X/D/E+nnn',
+    SP._isBcode('260714X001') && SP._isBcode('260818E002') &&
+    !SP._isBcode('P') && !SP._isBcode('260714Z001') && !SP._isBcode('26071X001') &&
+    !SP._isBcode('') && !SP._isBcode('260714X'));
+(function(){
+  const rowsBad=[
+    ['32','3262','20008511','PROPANE','1100','3000','2026-08-19','260714X001','1000','0','0','0','0','0','0','0','0','1000','0','KG','USDV',''],
+    ['32','3262','20008511','PROPANE','1100','3000','2026-08-19','P',        '9999','0','0','0','0','0','0','0','0','9999','0','KG','USDV',''],
+    ['32','3262','20008511','PROPANE','1100','3000','2026-08-19','X',        '5555','0','0','0','0','0','0','0','0','5555','0','KG','USDV',''],
+    /* mã không suy ra nổi ký tự batch → bị bỏ, y như TRƯỚC v4.98 (không phải lỗi mới) */
+    ['32','3262','20008511','PROPANE','1100','3000','2026-08-19','LUNG-TUNG','4444','0','0','0','0','0','0','0','0','4444','0','KG','USDV',''],
+    ['32','3262','20008511','PROPANE','2100','3000','2026-08-19','P',        '7777','0','0','0','0','0','0','0','0','7777','0','KG','USDV','']
+  ];
+  const bp=SP._parseSap(rowsBad);
+  const at1100=bp.rows.filter(r=>r.sloc==='1100');
+  /* ⚠ mã lạ KHÔNG bị bỏ — bỏ là hụt tổng SLoc 1100 của Daily Stock.
+     Bắt buộc: mỗi mã nằm ở bcode riêng ⇒ không bao giờ cộng chung. */
+  chk('mã 1100 lạ vẫn GIỮ DÒNG (không hụt tổng) và đếm vào bad1100',
+      at1100.length===3 && bp.bad1100.length===2,
+      at1100.length+' dòng 1100 · bad='+bp.bad1100.length);
+  chk('… mỗi mã nằm ở bcode RIÊNG: X đúng khuôn và X trần KHÔNG cộng chung',
+      at1100.filter(r=>r.batch==='X').length===2 &&
+      at1100.filter(r=>r.batch==='X').map(r=>r.bcode).sort().join(',')==='260714X001,X',
+      at1100.filter(r=>r.batch==='X').map(r=>r.bcode).sort().join(','));
+  chk('tổng End SLoc 1100 giữ nguyên 1000+9999+5555 = 16 554',
+      at1100.reduce((a,r)=>a+r.end,0)===16554, String(at1100.reduce((a,r)=>a+r.end,0)));
+  chk('mã không suy ra nổi ký tự batch vẫn bị bỏ — y như trước v4.98',
+      !at1100.some(r=>r.bcode==='LUNG-TUNG'));
+  chk('SLoc 2100 vẫn gộp về 1 ký tự như cũ, không bị siết khuôn',
+      bp.rows.some(r=>r.sloc==='2100'&&r.batch==='P'&&!r.bcode&&r.end===7777));
+  chk('bad1100 nêu rõ ngày · mat · mã lạ · ký tự suy ra, để soát bên SAP',
+      bp.bad1100.every(b=>b.date==='2026-08-19'&&b.mat==='C3') &&
+      bp.bad1100.map(b=>b.raw+':'+b.batch).join(',')==='P:P,X:X',
+      bp.bad1100.map(b=>b.raw+':'+b.batch).join(','));
+})();
+
+/* dọn dòng gộp cũ — nới theo ngày+mat */
+(function(){
+  const legacyRow={_rid:'__L1',date:'2026-08-19',sloc:'1100',mat:'C3',batch:'X',bcode:'',init:1,gr:0,gi:0,trs:0,end:1};
+  const legacyOther={_rid:'__L2',date:'2026-08-19',sloc:'1100',mat:'C3',batch:'D',bcode:'',init:2,gr:0,gi:0,trs:0,end:2};
+  const legacyOldDay={_rid:'__L3',date:'2026-01-01',sloc:'1100',mat:'C3',batch:'X',bcode:'',init:3,gr:0,gi:0,trs:0,end:3};
+  const keepOther={_rid:'__K1',date:'2026-08-19',sloc:'2100',mat:'C3',batch:'D',bcode:'',init:4,gr:0,gi:0,trs:0,end:4};
+  [legacyRow,legacyOther,legacyOldDay,keepOther].forEach(r=>{ SP.ROWS[r._rid]=r; });
+  const found=SP._findLegacy1100(s19.rows).map(r=>r._rid).sort();
+  chk('dòng gộp cũ CÙNG NGÀY+MAT bị dọn kể cả khác ký tự batch',
+      found.join(',')==='__L1,__L2', found.join(','));
+  chk('ngày chưa có bản tách thì GIỮ LẠI, không xoá bừa', found.indexOf('__L3')<0);
+  chk('SLoc khác 1100 không bao giờ bị đụng tới', found.indexOf('__K1')<0);
+  chk('_allLegacy1100() đếm mọi dòng 1100 còn gộp, kể cả ngày chưa tách',
+      SP._allLegacy1100().length===3, String(SP._allLegacy1100().length));
+  ['__L1','__L2','__L3','__K1'].forEach(k=>{ delete SP.ROWS[k]; });
+})();
 
 console.log('\n'+(fail?('❌ '+fail+' KIỂM TRA THẤT BẠI'):'✅ TẤT CẢ KIỂM TRA ĐỀU ĐẠT'));
 process.exit(fail?1:0);
