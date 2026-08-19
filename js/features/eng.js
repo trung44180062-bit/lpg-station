@@ -217,6 +217,13 @@ const ENG = (function(){
     if(isNaN(n)) return String(v||'');
     return n.toLocaleString('en-US', {minimumFractionDigits: d||0, maximumFractionDigits: d||4});
   }
+  /* v4.101 — tỷ trọng: hiện tối đa 4 số thập phân, tối thiểu 3 (0.5405 giữ
+     nguyên 4 số, 0.540 vẫn gọn 3 số thay vì "0.5400"). */
+  function _fmtDen(v){
+    const n = parseFloat(String(v||'').replace(/,/g,''));
+    if(isNaN(n)) return String(v||'');
+    return n.toLocaleString('en-US', {minimumFractionDigits: 3, maximumFractionDigits: 4});
+  }
   function _fmtPct(v){
     const n = parseFloat(String(v||'').replace(/,/g,''));
     if(isNaN(n)) return String(v||'');
@@ -353,7 +360,7 @@ const ENG = (function(){
         '<td class="td-r">'+_fmtNum(c[23],4)+'</td>' +
         '<td class="td-r">'+_fmtNum(c[31],1)+'</td>' +
         '<td class="td-r">'+_fmtNum(c[32],2)+'</td>' +
-        '<td class="td-r td-density">'+_fmtNum(c[33],3)+'</td>' +
+        '<td class="td-r td-density">'+_fmtDen(c[33])+'</td>' +
         '<td class="td-r">'+_fmtNum(c[26],2)+'</td>' +
         '<td class="td-c '+qualCls+'">'+_esc(c[27])+draftBadge+'</td>' +
         '<td>'+_esc(c[28])+'</td>' +
@@ -1076,8 +1083,15 @@ const ENG = (function(){
     if(raw === '' || raw == null) return '';
     const num = parseFloat(String(raw).replace(/,/g,''));
     if(isNaN(num)) return String(raw);
+    /* v4.101 — TỶ TRỌNG PHẢI GIỮ ĐỦ 4 SỐ THẬP PHÂN.
+       Trước đây cột 33 (Density kg/L) và 63 (ρ COQ trạng thái đầu) rơi vào
+       nhánh 3 số mặc định: 0.5405 → toFixed(3) = "0.540" → parseFloat = 0.54.
+       Mở modal sửa dòng rồi bấm 💾 SAVE là ô này bị ghi đè thành 0.54, kéo
+       theo mọi phép tính khối lượng (Qty, C3/C4 theo COQ) lệch số. */
+    if([33, A_IDEN].indexOf(col) >= 0)
+      return String(parseFloat(num.toFixed(4)));
     /* 4dp for percent / GC mole-fraction columns */
-    if([8,9,11,12,16,17,18,19,20,21,22,23,24,25,29].indexOf(col) >= 0)
+    if([8,9,11,12,16,17,18,19,20,21,22,23,24,25,29,A_IW3].indexOf(col) >= 0)
       return String(parseFloat(num.toFixed(4)));
     /* 3dp for mass / volume columns */
     if([6,7,10,13,14,15,26,30].indexOf(col) >= 0)
@@ -2669,7 +2683,7 @@ const ENG = (function(){
       + '</tr>'
       + '<tr>'
         + _cell('Áp suất|Pressure', _pv(c[32],2), 'bar')
-        + _cell('Tỷ trọng|Density', _pv(c[33],3), 'kg/l')
+        + _cell('Tỷ trọng|Density', _pv(c[33],4), 'kg/l')
         + _cell('Mùi (Odorant)', _pv(c[26],2), 'kg')
       + '</tr>'
       + '<tr>'

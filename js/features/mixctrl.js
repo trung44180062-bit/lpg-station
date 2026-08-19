@@ -37,6 +37,8 @@ const MC = (function(){
     odoPpm: 30, odoRef: 570, odoBd: 0.00003
   };
   let MC_D, MC_TV, MC_TANK_R, MC_ODO;
+  /* v4.101 — thể tích đường ống tuần hoàn về trạm (mặc định của các ô pipe) */
+  const MC_VPIPE_DEF = 74;
   /* v4.73 — ngưỡng an toàn vận hành theo quy trình (không phải max vật lý).
      v4.78 — MỨC TỐI ĐA CHO PHÉP FILL vào TK-3501 / TK-3502 = 585 m³.
        • Thể tích cuối > 585 m³ → CHẶN CỨNG: hiện confirm() ngay khi bấm
@@ -607,6 +609,24 @@ const MC = (function(){
     _set0('spp-norm', '53.5');          // tỉ lệ thường
     _set0('spp-fail', '12');            // dự phòng mix hỏng (gợi ý)
     _set0('spp-max',  String(MC_TARGET));// mức mix thường ngày (KHÔNG phải trần)
+    /* v4.101 — TUẦN HOÀN ĐƯỜNG ỐNG: mặc định CÓ. Chỉ bỏ tick sẵn khi panel
+       đang chạy một chế độ đã tắt hẳn tuần hoàn (CHỈ BƠM + bỏ tick circulate,
+       hoặc ★ MIX TỈ LỆ ĐẶC BIỆT với pipe = 0). Ô này CHỈ dùng cho planner —
+       không đụng tới cấu hình mix ở panel. */
+    const _ck = _gid('spp-circ');
+    if(_ck){
+      let on = true;
+      if(FILL[n])         on = !!FILL_CIRC[n];
+      else if(SP[n])      on = _gnum('mc-spvpipe'+n) > 0;
+      _ck.checked = on;
+    }
+    const _vpEl = _gid('spp-vpipe');
+    if(_vpEl){
+      const vpPanel = FILL[n] ? _gnum('mc-fcpipe'+n)
+                    : (SP[n] ? _gnum('mc-spvpipe'+n) : 0);
+      _vpEl.value = String(vpPanel > 0 ? vpPanel : MC_VPIPE_DEF);
+      _vpEl.classList.remove('mc-inp-bad','mc-inp-warn');
+    }
     const se = _gid('spp-special');
     const tr = _gnum('mc-tr'+n);
     if(se) se.value = tr > 0 ? tr.toFixed(2) : '';
@@ -644,13 +664,40 @@ const MC = (function(){
     const addC3 = s < t;
     const comp  = addC3 ? 'C3' : 'C4';
     const compRho = addC3 ? MC_D.c3l : MC_D.c4l;
-    const k = same ? 1 : (addC3 ? (1-s)/(1-t) : s/t);   // recovery volume factor
-    const VrMax = M/k;                                  // max recoverable leftover
+    /* ── v4.101 — TUẦN HOÀN ĐƯỜNG ỐNG (tỉ lệ cũ) ─────────────────────
+       Mặc định CÓ. Khi mẻ đặc biệt chạy tuần hoàn, sau khi mix xong thì
+       Vp m³ hàng trong đường ống CŨNG mang tỉ lệ đặc biệt s. Lúc đưa bồn
+       về tỉ lệ thường t, cả hệ (bồn + ống) phải về t, nên phải chỉnh
+       (Vr + Vp) chứ không chỉ Vr:
+           bơm thêm  A  = (Vr + Vp)·a,     a = (t−s)/(1−t)  nếu bơm C3
+                                              (s−t)/t       nếu bơm C4
+           thể tích bồn sau khi chỉnh  Vf = Vr·k + Vp·a,   k = 1 + a
+       ⇒ leftover tối đa còn cứu được:  VrMax = (M − Vp·a)/k
+       Bỏ tick tuần hoàn → Vp = 0, mọi công thức thu về đúng bản cũ. */
+    const circOn = !!(_gid('spp-circ') && _gid('spp-circ').checked);
+    const vpIn   = pf('spp-vpipe');
+    const Vp     = circOn ? (vpIn > 0 ? vpIn : MC_VPIPE_DEF) : 0;
+    const cBox   = _gid('spp-circ')?.closest?.('.spp-circ');
+    if(cBox) cBox.classList.toggle('off', !circOn);
+    const a = same ? 0 : (addC3 ? (t-s)/(1-t) : (s-t)/t);   // top-up per m³ off-ratio
+    const k = 1 + a;                                    // recovery volume factor
+    const pipeCost = Vp * a;                            // chỗ trong bồn mà ống "ăn" mất
+    const VrMax = Math.max(0, (M - pipeCost)/k);        // max recoverable leftover
     const Vfail = failT > 0 ? failT/MC_D.c3l : 0;       // worst-case correction volume (C3 density)
     const capHead = M - Vfail;                          // mix headroom limit
     const capRec  = VsMin + VrMax;                      // recovery limit
     const V0 = Math.max(0, Math.min(capHead, capRec));
-    const binding = capHead < capRec ? 'MIX-FAIL headroom (tank max − '+_fmt(Vfail,1)+' m³)' : 'recovery-to-normal limit';
+    const binding = capHead < capRec ? 'MIX-FAIL headroom (tank max − '+_fmt(Vfail,1)+' m³)'
+                  : (Vp > 0 ? 'recovery-to-normal limit (pipe '+_fmt(Vp,0)+' m³ included)'
+                            : 'recovery-to-normal limit');
+    const cNote = _gid('spp-circ-note');
+    if(cNote){
+      cNote.innerHTML = !circOn
+        ? '⚠ Tính KHÔNG tuần hoàn — chỉ chỉnh phần hàng trong bồn'
+        : (same ? 'Tỉ lệ đặc biệt = tỉ lệ thường → tuần hoàn không đổi kết quả'
+                : 'Ống giữ '+_fmt(Vp,0)+' m³ @ '+(s*100).toFixed(0)+'% cũng phải đưa về '+(t*100).toFixed(1)+'% → '
+                  + 'tốn thêm <b>'+_fmt(pipeCost,1)+'</b> m³ chỗ trong bồn');
+    }
     const _td = v => '<td>'+v+'</td>';
     const _scen = (label, sold, soldT)=>{
       const Vr = V0 - sold;
@@ -658,8 +705,8 @@ const MC = (function(){
         return '<tr class="spp-tr-er"><td>'+label+'</td>'+_td(_fmt(sold,1)+' m³ / '+_fmt(soldT,1)+' t')
              + '<td colspan="3">✗ Mix '+_fmt(V0,1)+' m³ &lt; volume to sell — NOT enough product</td></tr>';
       }
-      /* Option A — single component */
-      const addA = same ? 0 : (addC3 ? Vr*(t-s)/(1-t) : Vr*(s-t)/t);
+      /* Option A — single component (v4.101: chỉnh cả hàng trong ống) */
+      const addA = (Vr + Vp) * a;
       const VfA  = Vr + addA;
       const okA  = VfA <= M + 0.05;
       const gapA = M - VfA;
@@ -667,9 +714,10 @@ const MC = (function(){
         : '<b>'+_fmt(addA,1)+'</b> m³ '+comp+' ('+_fmt(addA*compRho,1)+' t)<br>→ '+_fmt(VfA,1)+' m³ @ '+(t*100).toFixed(1)+'% '
           +(okA ? (gapA > 5 ? '<span class="spp-gap">('+_fmt(gapA,1)+' m³ below max)</span>' : '✓')
                 : '<span class="spp-er">✗ exceeds '+_fmt(M,0)+' m³</span>');
-      /* Option B — dual top-up to EXACTLY M @ t */
-      const x = t*M - s*Vr;            // C3 volume
-      const y = (1-t)*M - (1-s)*Vr;    // C4 volume
+      /* Option B — dual top-up to EXACTLY M @ t (v4.101: cả hệ bồn + ống về t)
+         x + y = M − Vr  ·  C3 tổng: s(Vr+Vp) + x = t(M+Vp) */
+      const x = t*(M+Vp) - s*(Vr+Vp);          // C3 volume
+      const y = (1-t)*(M+Vp) - (1-s)*(Vr+Vp);  // C4 volume
       const okB = x >= -0.05 && y >= -0.05;
       const optB = okB
         ? '<b>'+_fmt(Math.max(0,x),1)+'</b> m³ C3 ('+_fmt(Math.max(0,x)*MC_D.c3l,1)+' t)<br>+ <b>'+_fmt(Math.max(0,y),1)+'</b> m³ C4 ('+_fmt(Math.max(0,y)*MC_D.c4l,1)+' t)<br>→ '+_fmt(M,0)+' m³ @ '+(t*100).toFixed(1)+'% ✓'
@@ -686,7 +734,8 @@ const MC = (function(){
     }
     h += '<div class="spp-sum">'
        + '<div class="spp-sum-main">🎯 MAX SAFE MIX <b>'+_fmt(V0,1)+'</b> m³ <span class="spp-sum-sub">≈ '+_fmt(V0*rho,1)+' t @ C3 '+(s*100).toFixed(0)+'%</span></div>'
-       + '<div class="spp-sum-note">Limited by: '+binding+'</div>'
+       + '<div class="spp-sum-note">Limited by: '+binding+' · '
+       + (circOn ? '🔁 tính CÓ tuần hoàn đường ống ('+_fmt(Vp,0)+' m³)' : '🚫 tính KHÔNG tuần hoàn')+'</div>'
        + (V0 >= Vs-0.05
            ? '<div class="spp-sum-ok">✓ Covers the full sale plan ('+_fmt(sellT,1)+' t = '+_fmt(Vs,1)+' m³)</div>'
            : '<div class="spp-sum-er">⚠ Covers only '+_fmt(V0,1)+' m³ ≈ '+_fmt(V0*rho,1)+' t — reserves are limiting the plan</div>')
@@ -695,6 +744,10 @@ const MC = (function(){
        + '<span>Special product density: <b>'+rho.toFixed(3)+'</b> t/m³</span>'
        + '<span>Recovery factor: <b>'+k.toFixed(3)+'×</b> (pump '+comp+' → '+(t*100).toFixed(1)+'%)</span>'
        + '<span>Max recoverable leftover: <b>'+_fmt(VrMax,1)+'</b> m³</span>'
+       + (circOn
+           ? '<span>🔁 Pipe circulation <b>ON</b> · '+_fmt(Vp,0)+' m³ @ '+(s*100).toFixed(0)+'% also corrected'
+             + (pipeCost > 0.05 ? ' → costs <b>'+_fmt(pipeCost,1)+'</b> m³ of tank headroom' : '')+'</span>'
+           : '<span style="color:#b45309">🚫 Pipe circulation <b>OFF</b> — in-tank product only</span>')
        + (Vfail>0 ? '<span>Mix-fail headroom: <b>'+_fmt(Vfail,1)+'</b> m³ ('+_fmt(failT,0)+' t as C3, worst case)</span>' : '')
        + '</div>';
     h += '<table class="spp-tbl"><thead><tr>'
@@ -705,7 +758,11 @@ const MC = (function(){
     h += _scen('Full plan sold', Vs, sellT);
     if(Vrsv > 0.05) h += _scen('Worst case — cancel reserve NOT sold', VsMin, VsMin*rho);
     h += '</tbody></table>';
-    h += '<div class="spp-foot-note">Volume-phase model (vapor ignored) — planning accuracy. Option B lands EXACTLY on tank max at the normal ratio; use it when reserves leave the C3-only recovery far below '+_fmt(M,0)+' m³.</div>';
+    h += '<div class="spp-foot-note">Volume-phase model (vapor ignored) — planning accuracy. Option B lands EXACTLY on tank max at the normal ratio; use it when reserves leave the C3-only recovery far below '+_fmt(M,0)+' m³.'
+       + (circOn
+           ? ' Có tuần hoàn: '+_fmt(Vp,0)+' m³ hàng trong đường ống cũng mang tỉ lệ '+(s*100).toFixed(0)+'% nên được tính vào phần phải đưa về '+(t*100).toFixed(1)+'% — vì vậy MAX SAFE MIX nhỏ hơn so với khi bỏ tick.'
+           : ' Bỏ tick tuần hoàn: chỉ chỉnh phần hàng nằm TRONG BỒN — nếu thực tế vẫn chạy tuần hoàn thì số này LẠC QUAN hơn thực tế.')
+       + '</div>';
     res.innerHTML = h;
     res.dataset.v0 = V0.toFixed(1);
   }
@@ -727,9 +784,28 @@ const MC = (function(){
     /* v4.78 — gắn TARGET VOL vừa lấy với %C3 mục tiêu hiện hành */
     _planLinkSet(n, v0);
     /* v4.79 — ghi nhật ký PLAN (không lưu lại số liệu để điền sẵn lần sau) */
+    /* v4.101 — ghi rõ mẻ này được lên plan CÓ hay KHÔNG tuần hoàn đường ống */
+    const circOn = !!(_gid('spp-circ') && _gid('spp-circ').checked);
+    const vpPlan = circOn ? (_gnum('spp-vpipe') || MC_VPIPE_DEF) : 0;
     _mlog('PLAN', n, 'V0='+v0.toFixed(1)+' m³ · C3='+_gnum('mc-tr'+n).toFixed(2)+'% · bán='+_gv('spp-sell')
-                    +'t · dp hủy='+_gv('spp-resv')+'t · dp hỏng='+_gv('spp-fail')+'t · mức nhắm='+_gv('spp-max'));
-    toast('🎯 TARGET VOL = '+v0.toFixed(1)+' m³ (max safe mix) — đã gắn với TARGET C3 '+_gnum('mc-tr'+n).toFixed(2)+'%','ok');
+                    +'t · dp hủy='+_gv('spp-resv')+'t · dp hỏng='+_gv('spp-fail')+'t · mức nhắm='+_gv('spp-max')
+                    +' · tuần hoàn='+(circOn ? 'CÓ (pipe '+_fmt(vpPlan,0)+' m³)' : 'KHÔNG'));
+    toast('🎯 TARGET VOL = '+v0.toFixed(1)+' m³ (max safe mix, '
+          +(circOn ? '🔁 có tuần hoàn '+_fmt(vpPlan,0)+' m³' : '🚫 không tuần hoàn')
+          +') — đã gắn với TARGET C3 '+_gnum('mc-tr'+n).toFixed(2)+'%','ok');
+    /* Cảnh báo khi lựa chọn trong PLAN không khớp cách panel đang tính. Planner
+       KHÔNG tự sửa panel — chỉ nhắc để kỹ sư tự chỉnh cho khớp. */
+    const panelVp = FILL[n] ? (FILL_CIRC[n] ? _gnum('mc-fcpipe'+n) : 0)
+                  : (SP[n] ? _gnum('mc-spvpipe'+n) : 0);
+    const panelCirc = panelVp > 0;
+    if(panelCirc !== circOn){
+      setTimeout(()=>toast('⚠ PLAN tính '+(circOn?'CÓ':'KHÔNG')+' tuần hoàn, nhưng panel đang '
+        +(panelCirc?'CÓ tuần hoàn (pipe '+_fmt(panelVp,0)+' m³)':'KHÔNG bật tuần hoàn')
+        +' — kiểm tra lại cho khớp','warn'), 700);
+    } else if(circOn && Math.abs(panelVp - vpPlan) > 0.05){
+      setTimeout(()=>toast('⚠ PLAN dùng pipe '+_fmt(vpPlan,0)+' m³ nhưng panel đang để '
+        +_fmt(panelVp,0)+' m³ — kiểm tra lại cho khớp','warn'), 700);
+    }
     spPlanClose();
     autoCalc(n);
   }

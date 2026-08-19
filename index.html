@@ -10,7 +10,7 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=486a">
+<link rel="stylesheet" href="css/core.css?v=4101">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
@@ -2337,6 +2337,23 @@
             <button class="spp-x" onclick="MC.spPlanClose()" title="Close">✕</button>
           </div>
           <div class="spp-body">
+            <!-- v4.101 — TUẦN HOÀN ĐƯỜNG ỐNG (tỉ lệ cũ).
+                 Mặc định BẬT: sau mẻ đặc biệt, 74 m³ trong đường ống cũng mang
+                 tỉ lệ đặc biệt, nên khi đưa bồn về tỉ lệ thường phải chỉnh CẢ
+                 phần hàng trong ống → tốn thêm chỗ trong bồn. Bỏ tick = tính
+                 như cũ (chỉ chỉnh phần hàng còn lại trong bồn). -->
+            <div class="spp-circ">
+              <label class="spp-circ-chk" title="Mẻ trộn theo plan này có chạy tuần hoàn qua đường ống hay không.&#10;CÓ (mặc định): phần hàng tỉ lệ cũ/đặc biệt trong ống cũng phải được chỉnh về tỉ lệ thường → MAX SAFE MIX nhỏ hơn (an toàn hơn).&#10;KHÔNG: chỉ chỉnh phần hàng trong bồn.">
+                <input type="checkbox" id="spp-circ" checked onchange="MC.spPlanCalc()">
+                <span>🔁 CÓ TUẦN HOÀN ĐƯỜNG ỐNG (hàng tỉ lệ cũ trong ống)</span>
+              </label>
+              <div class="spp-circ-fld">
+                <span class="spp-circ-lbl">PIPE VOL (m³)</span>
+                <input class="spp-inp spp-inp-sm" id="spp-vpipe" type="text" inputmode="decimal" value="74"
+                       oninput="MC.spPlanCalc()" data-lbl="PIPE VOL" onblur="MC.chkInp(this,'pipe')">
+              </div>
+              <span class="spp-circ-note" id="spp-circ-note"></span>
+            </div>
             <div class="spp-inputs">
               <div class="spp-fld">
                 <div class="spp-lbl" title="Pre-filled from FINAL TARGET C3 % of the panel — the special ratio being mixed (e.g. 30 for 30:70, 70 for 70:30)">SPECIAL RATIO C3 %</div>
@@ -4496,7 +4513,7 @@
 <script src="js/features/plan.js?v=484"></script>
 <script src="js/features/scale.js?v=485"></script>
 <script src="js/features/fnote.js?v=484"></script><!-- Sổ ghi chú xe/tài xế — lazy, không tự đọc Firebase -->
-<script src="js/features/eng.js?v=486"></script>
+<script src="js/features/eng.js?v=4101"></script><!-- v4.101 — Density (cột 33) & ρ COQ đầu (cột 63) giữ ĐỦ 4 số thập phân ở ô sửa dòng + bảng Tank Log + bản in -->
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>
 <script src="js/features/mthr.js"></script>
@@ -4506,7 +4523,7 @@
 <script src="js/features/vlog.js"></script>
 <script src="js/features/plog.js"></script>
 <script src="js/features/staff.js"></script>
-<script src="js/features/mixctrl.js?v=486"></script>
+<script src="js/features/mixctrl.js?v=4101"></script><!-- v4.101 — ★ MIX PLANNER: chọn CÓ/KHÔNG tuần hoàn đường ống (mặc định CÓ) + ô PIPE VOL; hàng tỉ lệ cũ trong ống được tính vào phần phải đưa về tỉ lệ thường -->
 <script src="js/features/vmix.js"></script>
 <script src="js/features/mixnotify.js"></script>
 <script src="js/features/cav.js"></script>
