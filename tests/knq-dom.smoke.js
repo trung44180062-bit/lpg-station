@@ -177,9 +177,15 @@ chk('đọc được ngày dạng serial Excel, ISO và dd/mm/yyyy', /serial Exc
 })();
 
 console.log('\n— THANH CÔNG CỤ & KỲ TRỪ LÙI —');
-chk('có bộ chọn KỲ trừ lùi', pane.indexOf('id="knq-month"')>-1 &&
-    pane.indexOf('KNQ.onMonth()')>-1 && pane.indexOf('Run-down period')>-1);
+chk('có bộ chọn KỲ trong nhóm Period', pane.indexOf('id="knq-month"')>-1 &&
+    pane.indexOf('KNQ.onMonth()')>-1 && pane.indexOf('>Period<')>-1);
+chk('thanh công cụ chia nhóm có nhãn (Period · Declare · SAP · Data)',
+    ['>Period<','>Declare<','>SAP<','>Data<'].every(x=>pane.indexOf(x)>-1) &&
+    (pane.match(/class="knq-grp"/g)||[]).length===4,
+    String((pane.match(/class="knq-grp"/g)||[]).length)+' nhóm');
 chk('có nút 📌 Close period', pane.indexOf('id="knq-close"')>-1 && pane.indexOf('KNQ.closeMonth()')>-1);
+chk('ĐÃ BỎ dải chip cũ + 3 cụm tổng rời rạc của v4.103',
+    pane.indexOf('id="knq-stats"')<0 && pane.indexOf('id="knq-ol1sum"')<0);
 chk('v4.96 — giao diện KHÔNG còn chuỗi tiếng Việt trên nhãn/nút chính',
     ['Chốt kỳ','Xem dữ liệu cũ','Cập nhật D/E','💾 Lưu','Ghi chú','Tên tàu']
       .every(t=>pane.indexOf(t)<0),
@@ -194,9 +200,10 @@ chk('chuyến tháng 7 và chuyến tháng 8 cùng nằm trong bảng C3',
     H('knq-body-c3').indexOf('BERGE NANTONG')>-1 && H('knq-body-c3').indexOf('MAPLE GAS')>-1);
 chk('có nút ➕ Get In cho cả C3 và C4',
     pane.indexOf("KNQ.addGi('C3')")>-1 && pane.indexOf("KNQ.addGi('C4')")>-1);
-chk('vẫn còn nút SAP · Save · Export · Load archived',
+chk('vẫn còn nút SAP · Save · Export · Closed rows',
     ['KNQ.pullSap()','KNQ.save()','KNQ.exportXlsx()','KNQ.loadOld()'].every(t=>pane.indexOf(t)>-1));
-chk('chip thống kê hiển thị', H('knq-stats').indexOf('knq-chip')>-1);
+chk('bốn thẻ tình hình render ra', (H('knq-cards').match(/class="knq-card /g)||[]).length===4,
+    String((H('knq-cards').match(/class="knq-card /g)||[]).length)+' thẻ');
 
 console.log('\n— v4.97 BATCH-FIRST: MÀU LOẠI LÔ · PUMPING NOW · LỌC · GẬP NHÓM —');
 chk('ô batch tô màu theo loại lô (P/X/D/E)',
@@ -260,36 +267,81 @@ chk('markup có dải cảnh báo #knq-alerts nằm TRƯỚC .knq-body',
     pane.indexOf('id="knq-alerts"')>-1 &&
     pane.indexOf('id="knq-alerts"')<pane.indexOf('class="knq-body"'));
 chk('dải cảnh báo có render nội dung', H('knq-alerts').indexOf('knq-al')>-1, H('knq-alerts').slice(0,90));
-chk('nút ⬇ Sync from SAP (D-1) + ⇐ SAP qty from SAP đều có',
+chk('nút ⬇ Sync SAP + ⇐ SAP qty đều có',
     pane.indexOf('KNQ.pullSap()')>-1 && pane.indexOf('KNQ.fillSapQty()')>-1 &&
-    pane.indexOf('Sync from SAP (D-1)')>-1);
+    pane.indexOf('⬇ Sync SAP')>-1 && pane.indexOf('⇐ SAP qty')>-1);
 chk('ĐÃ BỎ nhãn cũ "Update D/E from SAP"', pane.indexOf('Update D/E from SAP')<0);
-chk('chip "data as of" hiện ngày HÔM QUA', (function(){
+chk('thẻ OL1 chốt số tới NGÀY HÔM QUA', (function(){
   const d=new Date(Date.parse(new Date().toISOString().slice(0,10)+'T00:00:00Z')-86400000);
   const dmy=String(d.getUTCDate()).padStart(2,'0')+'/'+String(d.getUTCMonth()+1).padStart(2,'0')+
             '/'+String(d.getUTCFullYear()).slice(2);
-  return H('knq-stats').indexOf('data as of')>-1 && H('knq-stats').indexOf(dmy)>-1;
-})(), H('knq-stats').indexOf('data as of')>-1?'có chip':'THIẾU chip');
+  return H('knq-cards').indexOf('OL1 USED')>-1 && H('knq-cards').indexOf('to '+dmy)>-1;
+})(), H('knq-cards').slice(0,80));
 (function(){
   KNQ.pullSap();
   const h=H('knq-body-c3');
-  chk('sau khi sync: D/E khớp SAP → hiện ✓ SAP', h.indexOf('knq-sapb ok')>-1 && h.indexOf('✓ SAP')>-1);
-  chk('P/X trừ theo OL1 nên lệch SAP → hiện Δ, đúng chỗ cần soi',
-      h.indexOf('knq-sapb bad')>-1);
-  chk('CSS có đủ style cho ✓/Δ và dải cảnh báo',
-      ['.knq-sapb','.knq-al','.knq-chip.asof','.knq-asofrow']
+  chk('sau khi sync: D/E lấy thẳng số SAP → hiện ✓ SAP kèm ngày',
+      h.indexOf('knq-sapb ok')>-1 && h.indexOf('✓ SAP')>-1);
+  /* ⭐ v4.103 — SAP khai P/X MỖI THÁNG MỘT LẦN nên End Stock đứng yên cả kỳ,
+     còn Actual left trừ lùi hằng ngày ⇒ lệch là ĐƯƠNG NHIÊN. Bản cũ hiện Δ
+     đỏ ở đây = BÁO NHẦM, phải thay bằng chú thích nguồn số. */
+  chk('P/X KHÔNG còn hiện Δ "lệch SAP" nữa — thay bằng chú thích ↓ per OL1',
+      h.indexOf('knq-sapb ol1')>-1 && h.indexOf('per OL1')>-1);
+  chk('không dòng P/X nào mang cờ sapOk=false',
+      Object.values(S.GO).filter(r=>(r.letter==='P'||r.letter==='X')).every(r=>r.sapOk===null),
+      JSON.stringify(Object.values(S.GO).filter(r=>(r.letter==='P'||r.letter==='X')&&r.sapOk!==null)
+        .map(r=>r.batch)));
+  chk('dải cảnh báo KHÔNG còn câu "batch(es) do not match SAP" của bản cũ',
+      H('knq-alerts').indexOf('do not match SAP')<0, H('knq-alerts').slice(0,120));
+  chk('CSS có đủ style cho ✓/Δ/per-OL1 và dải cảnh báo',
+      ['.knq-sapb','.knq-sapb.ol1','.knq-al','.knq-chip.asof','.knq-asofrow']
         .every(c=>fs.readFileSync(path.join(ROOT,'css','knq.css'),'utf8').indexOf(c)>-1));
 })();
 (function(){
-  /* mã không có trong SAP → phải nói "no SAP row", KHÔNG được im lặng */
+  /* mã D/E không có trong SAP → phải nói "no SAP row", KHÔNG được im lặng.
+     (Dùng lô D chứ không phải X: P/X không đối chiếu SAP nữa.) */
   const g=KNQ.visibleGi('C3')[0];
   KNQ.addGo(g._id);
   const ids=Object.keys(S.GO), nid=ids[ids.length-1];
-  KNQ.setGo(nid,'batch','260101X777'); KNQ.setGo(nid,'sapKg','1000');
+  KNQ.setGo(nid,'batch','260101D777'); KNQ.setGo(nid,'sapKg','1000');
   KNQ.pullSap();
-  chk('mã batch không có trong SAP → ghi rõ "no SAP row"',
+  chk('mã batch D/E không có trong SAP → ghi rõ "no SAP row"',
       H('knq-body-c3').indexOf('no SAP row')>-1);
   KNQ.delGo(nid);
+})();
+/* ── v4.103 — DẤU THỜI GIAN QUÉT SAP + TỔNG FEED OL1 RA NGOÀI ───────── */
+console.log('\n— v4.103 QUÉT SAP CÓ DẤU THỜI GIAN · TỔNG OL1 NGOÀI MÀN HÌNH —');
+(function(){
+  KNQ.pullSap();
+  const st=S.sapSync();
+  chk('quét SAP ghi lại dấu thời gian (giờ + người + ngày dữ liệu)',
+      !!st.at && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(st.at) && !!st.asOf, JSON.stringify(st));
+  chk('dấu thời gian được đẩy lên Firebase ở meta/sapSync',
+      !!S.dirty()['meta/sapSync'], Object.keys(S.dirty()).filter(k=>k.indexOf('meta/')===0).join(','));
+  const os=H('knq-cards');
+  chk('thẻ SAP hiện giờ quét để biết số D/E mới tới đâu',
+      os.indexOf('knq-card sap')>-1 && os.indexOf('scanned')>-1 && os.indexOf('SAP D/E')>-1);
+  chk('markup có dải bốn thẻ', pane.indexOf('id="knq-cards"')>-1);
+  chk('thẻ ① TỒN KHO', os.indexOf('knq-card stock')>-1 && os.indexOf('IN BONDED WAREHOUSE')>-1);
+  chk('thẻ ② ĐANG BƠM RA', os.indexOf('knq-card pump')>-1 && os.indexOf('COMING OUT NOW')>-1);
+  chk('thẻ ③ OL1 đủ TOTAL P+X · P · X',
+      os.indexOf('knq-card ol1')>-1 && os.indexOf('TOTAL P+X')>-1 &&
+      os.indexOf('>P Petchem<')>-1 && os.indexOf('>X Export<')>-1);
+  chk('thẻ SAP nói rõ P/X KHÔNG chạy theo SAP', os.indexOf('P/X run on FEED OL1, not on SAP')>-1);
+  chk('KHÔNG lặp lại kỳ/ngày dữ liệu ở nhiều chỗ như bản cũ',
+      (os.match(/data as of/g)||[]).length===0);
+})();
+(function(){
+  const A=S.asOf();
+  S.setMonth(A.slice(0,7)); KNQ.setUse(A,'t','1000'); KNQ.setUse(A,'x','300');
+  KNQ.openOl1();
+  const h=H('knq-use-body');
+  const iD1=h.indexOf('knq-tot knq-tot-d1'), iRow=h.indexOf('data-u="');
+  chk('dòng TỔNG nằm TRÊN ĐẦU bảng FEED OL1, không phải cuối bảng',
+      iD1>-1 && iRow>-1 && iD1<iRow, 'tot@'+iD1+' · row@'+iRow);
+  chk('có dòng TỔNG TỚI D-1 riêng (lượng đã dùng thật)',
+      h.indexOf('USED to')>-1 && h.indexOf('the P/X run-down uses')>-1);
+  chk('vẫn còn dòng TỔNG cả tháng kèm plan', h.indexOf('incl. plan')>-1);
 })();
 (function(){
   /* bảng FEED OL1 phải chỉ rõ dòng NGÀY CHỐT SỐ (hôm qua) */
@@ -349,8 +401,8 @@ chk('đóng kỳ ghi con trỏ kỳ + snapshot lưu trữ',
       H2.indexOf('knq-al bad')>-1 && H2.indexOf('is still open')>-1 &&
       H2.indexOf('KNQ.closeMonth()')>-1,
       H2.slice(0,90));
-  chk('chip thống kê nói rõ kỳ nào đang mở',
-      CACHE['knq-stats'].innerHTML.indexOf('period <b>2026-07</b>')>-1);
+  chk('thẻ TỒN KHO nói rõ kỳ nào đang mở',
+      H('knq-cards').indexOf('<span>2026-07</span>')>-1, H('knq-cards').slice(0,120));
   S2.setPeriod(was||'2026-08'); S2.setMonth(wasM); KNQ.render();
 })();
 (function(){

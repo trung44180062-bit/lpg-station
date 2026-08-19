@@ -135,6 +135,56 @@
  *        _asOf() thay vì dừng ở ngày cuối tháng ⇒ vẫn trừ tiếp trên BỘ
  *        BATCH CỦA KỲ CŨ bằng FEED OL1 của tháng mới người dùng nhập.
  *        Kỳ ĐÃ ĐÓNG vẫn kẹp ở cuối tháng để lịch sử tra lại không đổi.
+ * ------------------------------------------------------------
+ * v4.103 — ⭐ ĐỐI CHIẾU SAP ĐÚNG BẢN CHẤT TỪNG LOẠI LÔ ⭐
+ *
+ *   ⑥ P/X KHÔNG BAO GIỜ "KHỚP" VỚI SAP — VÀ ĐÓ LÀ ĐÚNG.
+ *      SAP chỉ khai lô P/X **MỘT LẦN MỖI THÁNG**, nên End Stock của SAP
+ *      đứng yên suốt kỳ trong khi Actual left KNQ trừ lùi hằng ngày theo
+ *      FEED OL1. Hai con số ĐƯƠNG NHIÊN lệch nhau. Bản cũ đem so rồi báo
+ *      "N batch(es) do not match SAP" ⇒ BÁO NHẦM, đã GỠ.
+ *        • P/X : SAP qty = số SAP khai đầu kỳ (chỗ này mới đáng soi, badge
+ *                dưới ô SAP qty lo). Actual left = SAP qty − OL1 đã dùng.
+ *        • D/E : SAP cập nhật LIÊN TỤC THEO NGÀY ⇒ Actual left KNQ LẤY
+ *                THẲNG số SAP của D-1. Chỉ D/E mới có ✓ SAP / Δ.
+ *
+ *   ⑦ QUÉT SAP HẰNG NGÀY + DẤU THỜI GIAN
+ *      `knq_bonded/meta/sapSync = {at, by, asOf, de, px}` — mọi máy đọc
+ *      chung, hiện ngay trên thanh công cụ và trong dải cảnh báo để nhìn
+ *      là biết số D/E đang mới tới đâu. Mở tab mà lần quét gần nhất chưa
+ *      tới D-1 thì TỰ QUÉT LẠI (nếu tab SAP đã có dữ liệu).
+ *
+ *   ⑧ TỔNG FEED OL1 RA NGOÀI MÀN HÌNH CHÍNH (#knq-ol1sum)
+ *      Hai cụm: **THỰC TỚI D-1** (số đã dùng thật) và **CẢ KỲ kể cả plan**,
+ *      mỗi cụm đủ TOTAL P+X · P · X. Trong modal ⛽ FEED OL1, dòng TOTAL
+ *      chuyển LÊN ĐẦU bảng và thêm dải tổng tới D-1 phía trên.
+ * ------------------------------------------------------------
+ * v4.104 — ⭐ VÒNG ĐỜI LÔ P/X: CHỈ ĐÓNG KỲ MỚI ĐƯỢC ĐÓNG LÔ ⭐
+ *
+ *   ⑨ LỖI NẶNG ĐÃ SỬA. Tick ✔ Done trên một lô P/X làm app ép Actual left
+ *      = 0, đặt st='done' và LẦN SAU KHÔNG TẢI VỀ NỮA — trong khi SAP vẫn
+ *      còn hàng cho lô đó. Bộ trừ lùi mất hẳn lượng hàng ấy ⇒ số của cả kỳ
+ *      sai. (Dữ liệu thật: 5 lô P/X bị đóng nhầm, tổng 13 695 432 kg.)
+ *      LUẬT MỚI, theo đúng cách SAP khai:
+ *        • P/X: ✔ Done / VASSCM **KHÔNG** đóng lô, **KHÔNG** ép về 0.
+ *          Ô tick bị KHOÁ. Lô P/X chỉ đóng khi bấm 📌 Close period và End
+ *          Stock SAP của NGÀY CUỐI KỲ bằng 0. Còn > 0 ⇒ mang sang kỳ sau
+ *          làm SAP qty đầu kỳ mới.
+ *        • D/E: giữ nguyên — SAP cập nhật theo ngày nên tick ✔ Done vẫn là
+ *          cách đóng lô bình thường.
+ *      `_rescuePX()` chạy một lần khi mở tab: kéo lại các lô P/X từng bị
+ *      đóng nhầm (st='done' mà SAP còn hàng, kỳ chưa đóng), mở lại và ghi
+ *      sửa lên Firebase.
+ *
+ *   ⑩ D/E — THEO DÕI GIẢM DẦN QUA CÁC LẦN SYNC
+ *      Mỗi lần ⬇ Sync ghi `sapH[YYYY-MM-DD] = End Stock` (giữ 20 mốc gần
+ *      nhất). So hai mốc gần nhất ⇒ biết lô nào ĐANG BƠM RA (giảm) và tốc
+ *      độ giảm kg/ngày ⇒ ▶ PUMPING NOW cho D/E là số THẬT chứ không suy ra.
+ *   ⑪ CẢNH BÁO SẮP CẠN: còn dưới LOW_KG = 200 tấn thì tô cam trên bảng và
+ *      đếm riêng ở thẻ tổng.
+ *   ⑫ GIAO DIỆN GỘP LẠI: bỏ dải chip + 3 cụm tổng rời rạc, thay bằng 4 THẺ
+ *      (#knq-cards): TỒN KHO · ▶ ĐANG BƠM RA · OL1 ĐÃ DÙNG · SAP. Thanh
+ *      công cụ chia nhóm PERIOD · DECLARE · SAP · DATA.
  * ⚠ Firebase rules: cần ".indexOn": ["st"] cho knq_bonded/gi và /go.
  * ============================================================ */
 "use strict";
@@ -153,6 +203,8 @@ const KNQ = (function(){
   const COLS      = 16;            /* số cột của bảng chính (dùng cho colspan) */
   const DEF_TOT_KG= 2000000;       /* ngày chưa gõ TỔNG P+X → TẠM TÍNH 2.000 tấn */
   const SAP_TOL   = 1;             /* kg — lệch trong ngưỡng này coi là khớp SAP */
+  const LOW_KG    = 200000;        /* ⭐ còn dưới 200 tấn → cảnh báo sắp cạn  */
+  const SAPH_KEEP = 20;            /* giữ bao nhiêu mốc lịch sử SAP mỗi lô    */
 
   /* ── RAM ─────────────────────────────────────────────────── */
   const GI  = {};                  /* id → dòng GET IN  (1 chuyến tàu)      */
@@ -180,6 +232,10 @@ const KNQ = (function(){
   let _pushT=null, _renT=null;     /* hẹn giờ tự đẩy / vẽ lại                */
   let _pushing=0;                  /* số lệnh update() đang bay             */
   let _arch=null, _archM='';       /* snapshot kỳ đã đóng đang mở ở 📜 Archive */
+  /* ⭐ v4.103 — DẤU THỜI GIAN QUÉT SAP, dùng chung mọi máy (meta/sapSync) */
+  let _sapSync={ at:'', by:'', asOf:'', de:0, px:0 };
+  let _reopened=null;              /* kết quả _rescuePX() để nêu trong cảnh báo */
+  let _autoSap=false;              /* đã tự quét SAP trong phiên này chưa    */
   let _archBusy=false;
   let _olUnit='T';                 /* đơn vị gõ ở modal OL1: 'T' hay 'kg'   */
   let _imp=null;                   /* bảng thô vừa đọc từ file Excel        */
@@ -266,6 +322,16 @@ const KNQ = (function(){
     return '20'+m[1]+'-'+m[2]+'-'+m[3];
   }
   function _outDate(r){ return _batchDate(r.batch)||r.date||r.regDate||''; }
+  /* ⭐ v4.104 — LÔ ĐÃ ĐÓNG THẬT SỰ CHƯA?
+     D/E : SAP cập nhật theo ngày ⇒ tick ✔ Done là đóng, như cũ.
+     P/X : SAP chỉ khai MỘT LẦN MỖI THÁNG. Chừng nào SAP còn ghi nhận hàng
+           thì lô ĐANG được dùng để trừ lùi cho kỳ — tick ✔ Done KHÔNG được
+           phép đóng nó. Chỉ 📌 Close period (thấy End Stock cuối kỳ = 0) mới
+           đóng, và lúc đó chính nó ghi st='done'. */
+  function _isPX(r){ return r.letter==='P'||r.letter==='X'; }
+  /* ⚠ ĐỪNG đọc r.st ở đây — recalc() ghi đè r.st mỗi vòng, đọc nó là vòng
+     lặp tự tham chiếu. `pxDone` là field BỀN, CHỈ closeMonth() được đặt. */
+  function _closedRow(r){ return _isPX(r) ? !!r.pxDone : !!r.hqDone; }
   function _sortKey(r){ return (_outDate(r)||'9999-12-31')+'|'+String(r.decl||'')+'|'+String(r._id||''); }
   function _nextYm(ym){
     let y=+String(ym).slice(0,4), m=+String(ym).slice(5,7);
@@ -385,6 +451,26 @@ const KNQ = (function(){
     if(L==='X') return _xOf(u,mode,pj?avg:0);
     return _pOf(u,mode,pj?_avg.X:0);
   }
+  /* ⭐ v4.103 — CỘNG FEED OL1 TRONG MỘT KHOẢNG NGÀY (kg).
+     mode 'act'  = số THỰC: X chỉ lấy ô X đã gõ/import, thiếu coi như 0.
+     mode 'proj' = số CẢ KỲ: thiếu X thì lấy plan X trong file.
+     Ngày có dòng mà chưa gõ TỔNG ⇒ tính theo mức tạm tính và ĐẾM vào .def,
+     để người đọc biết trong tổng này có bao nhiêu ngày là số đoán. */
+  function _ol1Sum(from,to,mode){
+    const o={ t:0, p:0, x:0, n:0, def:0, first:'', last:'' };
+    Object.keys(USE).sort().forEach(d=>{
+      if(!d || d<from || d>to) return;
+      const u=USE[d]||{};
+      const raw=_totOf(u), dfl=(raw==null);
+      const tot=dfl?DEF_TOT_KG:raw;
+      const xv=(mode==='proj') ? _xOf(u,'proj',0) : (_num(u.x)!=null?_num(u.x):0);
+      o.n++; if(dfl) o.def++;
+      o.t+=tot; o.x+=xv; o.p+=Math.max(0,tot-xv);
+      if(!o.first) o.first=d;
+      o.last=d;
+    });
+    return o;
+  }
   /* bình quân AVG_DAYS ngày gần nhất CÓ SỐ (kg/ngày) */
   function _avgRate(L){
     const t=_asOf(), v=[];      /* v4.99 — bình quân KHÔNG lấy ngày hôm nay */
@@ -427,6 +513,21 @@ const KNQ = (function(){
       r.warn=''; r.eta=''; r.etaDays=null; r.zeroDate=''; r.projected=false;
       r.remainKg=null; r.usedKg=null; r.balKg=null; r.head=false;
       r.sapDiff=null; r.sapOk=null;
+      /* ⭐ v4.104 — D/E: so hai mốc SAP gần nhau ⇒ lô nào ĐANG BƠM RA và
+         tốc độ rút. Đây là số THẬT lấy từ SAP, không phải dự đoán. */
+      r.drop=null; r.dropFrom=''; r.dropTo=''; r.dropRate=null;
+      if(!_isPX(r) && r.sapH){
+        const ks=Object.keys(r.sapH).sort();
+        if(ks.length>=2){
+          const a=ks[ks.length-2], b=ks[ks.length-1];
+          const d=_num(r.sapH[a]), e=_num(r.sapH[b]);
+          if(d!=null && e!=null && d-e>0.5){
+            r.drop=Math.round(d-e); r.dropFrom=a; r.dropTo=b;
+            const nd=_dayDiff(b,a)||1;
+            r.dropRate=Math.round(r.drop/Math.max(1,nd));
+          }
+        }
+      }
     });
 
     /* ── số dư còn lại của TỪNG CHUYẾN (cột "Còn lại của chuyến") ── */
@@ -443,10 +544,13 @@ const KNQ = (function(){
 
     /* ── D / E : lấy thẳng tồn SAP theo mã batch ── */
     gos.forEach(r=>{
-      if(r.letter==='P'||r.letter==='X') return;
+      if(_isPX(r)) return;
       const s=_num(r.sapT);
       r.remainKg = (s!=null) ? s : (r.baseKg!=null?r.baseKg:null);
       if(s==null && r.batch) r.warn='Not updated from SAP yet — click ⬇ Sync from SAP';
+      /* ⭐ v4.104 — SAP tụt giữa hai lần quét ⇒ lô này ĐANG được bơm ra.
+         Với D/E đây là bằng chứng trực tiếp, không cần suy từ hàng đợi FIFO. */
+      if(r.drop>0 && !_closedRow(r) && r.remainKg>0.5) r.head=true;
     });
 
     /* ── P / X : FIFO trong KỲ đang xem, theo bảng FEED OL1 ──────────
@@ -458,7 +562,9 @@ const KNQ = (function(){
     _avg={ P:_avgRate('P'), X:_avgRate('X') };
     MATS.forEach(mat=>{
       ['P','X'].forEach(L=>{
-        const rows=gos.filter(r=>r.mat===mat && r.letter===L && !r.hqDone && r.baseKg!=null)
+        /* ⭐ v4.104 — lọc bằng _closedRow, KHÔNG bằng hqDone: lô P/X bị tick
+           ✔ Done nhưng SAP còn hàng vẫn phải nằm trong bộ trừ lùi. */
+        const rows=gos.filter(r=>r.mat===mat && r.letter===L && !_closedRow(r) && r.baseKg!=null)
           .sort((a,b)=>{ const ka=_sortKey(a), kb=_sortKey(b); return ka<kb?-1:(ka>kb?1:0); });
         if(!rows.length) return;
         const avg=_avg[L];
@@ -493,7 +599,7 @@ const KNQ = (function(){
         /* v4.97 — ▶ PUMPING NOW: batch ĐANG thực sự bị rút ra hôm nay =
            phần tử đầu hàng FIFO còn hàng và đã tới ngày dùng (ngày trong mã
            batch ≤ hôm nay). Mỗi (Mat × loại lô) chỉ có ĐÚNG MỘT. */
-        const hd=p1.find(it=>it.left>0.5 && !it.r.hqDone && eligible(it.r,T));
+        const hd=p1.find(it=>it.left>0.5 && !_closedRow(it.r) && eligible(it.r,T));
         /* eligible xét tới HÔM NAY (batch đã tới ngày dùng thì hôm nay đang
            được bơm), còn số liệu thì vẫn là số chốt của hôm qua. */
         if(hd) hd.r.head=true;
@@ -529,25 +635,40 @@ const KNQ = (function(){
     /* ── đã dùng · % · trạng thái · dự kiến hết ── */
     gos.forEach(r=>{
       if(r.remainKg==null) r.remainKg=r.baseKg;
-      /* v4.96 — ✔ DONE nghĩa là ĐÃ BƠM XONG **VÀ** ĐÃ KHAI VASSCM: hàng đã ra
-         khỏi kho ngoại quan nên khối lượng thực còn KNQ bắt buộc = 0, dù số
-         trừ lùi FIFO còn dư (thực tế bơm nhanh/chậm hơn dự kiến). */
-      if(r.hqDone) r.remainKg=0;
+      /* v4.96 — ✔ DONE = ĐÃ BƠM XONG **VÀ** ĐÃ KHAI VASSCM ⇒ hàng ra khỏi kho
+         ngoại quan, thực còn ép về 0.
+         ⭐ v4.104 — CHỈ ÁP CHO D/E. Với P/X, SAP khai một tháng một lần nên
+         chừng nào SAP còn hàng thì lô vẫn đang được trừ lùi; ép về 0 ở đây
+         là xoá sổ hàng có thật (lỗi đã dính, tổng 13,7 triệu kg). */
+      const px=_isPX(r);
+      if(r.hqDone && !px) r.remainKg=0;
       r.usedKg=(r.baseKg==null||r.remainKg==null)?null:Math.max(0,r.baseKg-r.remainKg);
       r.pct=(r.baseKg>0&&r.usedKg!=null)?Math.min(1,r.usedKg/r.baseKg):0;
-      if(r.hqDone)                    r.st='done';
+      /* ⭐ CÒN DƯỚI 200 TẤN → SẮP CẠN, tô cảnh báo cho dễ thấy */
+      r.low=(r.remainKg!=null && r.remainKg>0.5 && r.remainKg<LOW_KG);
+      if(_closedRow(r))               r.st='done';
       else if(!(r.remainKg>0.5))      r.st=(r.vas?'ready':'zero');
       else if(r.head)                 r.st='using';   /* đang bơm ra ngay lúc này */
       else if(!(r.usedKg>0.5))        r.st='wait';
       else                            r.st='using';
+      /* P/X bị tick ✔ Done từ bản cũ mà SAP còn hàng — nêu đích danh để user
+         biết vì sao ô tick vẫn xanh mà lô vẫn đang chạy. */
+      if(px && r.hqDone && !_closedRow(r))
+        r.warn=r.warn||'Ticked DONE by an older version, but SAP still holds stock — the batch stays '+
+               'in the run-down. Only 📌 Close period can close a P/X batch.';
       if(r.st!=='done' && r.st!=='zero' && r.st!=='ready' && r.zeroDate && r.projected){
         r.eta=r.zeroDate; r.etaDays=_dayDiff(r.zeroDate,T);
       }
-      /* ── ĐỐI CHIẾU VỚI SAP ────────────────────────────────────
-         So Actual left (KNQ tin là còn trong kho ngoại quan) với End Stock
-         của SAP ngày _asOf(). D/E khớp hiển nhiên vì lấy thẳng từ SAP; P/X
-         mới là chỗ đáng soi — lệch nghĩa là FEED OL1 gõ sai hoặc thiếu. */
-      if(r.sapEndN!=null && r.remainKg!=null && !r.hqDone){
+      /* ── ĐỐI CHIẾU VỚI SAP — ⭐ v4.103: CHỈ D/E ────────────────
+         P/X: SAP chỉ khai MỘT LẦN MỖI THÁNG. End Stock của SAP vì thế đứng
+         yên cả kỳ, còn Actual left KNQ trừ lùi hằng ngày theo FEED OL1 ⇒ hai
+         số ĐƯƠNG NHIÊN khác nhau, đem so là báo nhầm (bản cũ đã dính). Chỗ
+         đáng soi của P/X nằm ở ô SAP QTY — nó phải đúng bằng số SAP khai đầu
+         kỳ, và badge dưới ô đó đã lo việc này.
+         D/E: SAP cập nhật LIÊN TỤC THEO NGÀY ⇒ Actual left KNQ lấy thẳng số
+         SAP của D-1. Lệch ở đây = chưa quét SAP mới, đáng báo. */
+      if(px){ r.sapDiff=null; r.sapOk=null; }
+      else if(r.sapEndN!=null && r.remainKg!=null && !r.hqDone){
         r.sapDiff=Math.round(r.remainKg-r.sapEndN);
         r.sapOk=Math.abs(r.sapDiff)<=SAP_TOL;
       }
@@ -719,10 +840,13 @@ const KNQ = (function(){
     _pushT=setTimeout(()=>{ _pushT=null; _flush(false); },1500);
   }
   /* gắn cờ st (open/done) vào map trước khi đẩy */
+  /* ⭐ v4.104 — cờ st quyết định lần sau CÓ TẢI VỀ hay không, nên đây là chỗ
+     nguy hiểm nhất. Lô P/X KHÔNG bao giờ được đóng ở đây; chỉ closeMonth()
+     mới có quyền, và nó ghi thẳng st='done' vào _dirty. */
   function _stampSt(){
     [[GI,'gi'],[GO,'go']].forEach(([BAG,key])=>{
       Object.values(BAG).forEach(r=>{
-        const st=r.hqDone?'done':'open';
+        const st=(key==='go' && _isPX(r)) ? (r.pxDone?'done':'open') : (r.hqDone?'done':'open');
         if(r._svSt===st) return;
         const base=key+'/'+r._id, par=_dirty[base];
         if(par && typeof par==='object') par.st=st; else _dirty[base+'/st']=st;
@@ -778,6 +902,7 @@ const KNQ = (function(){
       R.child('meta').on('value',s=>{
         const v=s.val()||{};
         _closed=v.closed||{};
+        if(v.sapSync && !_mine()) _sapSync=Object.assign({at:'',by:'',asOf:'',de:0,px:0},v.sapSync);
         const p=v.curPeriod||'';
         if(!p || p===_curPeriod) return;
         const was=_curPeriod; _curPeriod=p;
@@ -833,7 +958,7 @@ const KNQ = (function(){
                    'price','qtyKg','note','hqDone','hqDate','st'];
   const GO_FIELDS=['giId','mat','no','time','regDate','decl','date','batch','letter',
                    'hqQty','sapKg','op','sapT','sapEnd','sapDate','price','qtyKg',
-                   'note','vas','vasDate','hqDone','hqDate','st'];
+                   'note','vas','vasDate','hqDone','hqDate','st','pxDone','sapH'];
   function _strip(r,F){ const o={}; F.forEach(k=>{ if(r[k]!==undefined) o[k]=r[k]; }); return o; }
 
   /* ⭐ v4.102 — ĐỌC META TRƯỚC rồi mới tải dữ liệu, vì con trỏ kỳ quyết định
@@ -845,8 +970,57 @@ const KNQ = (function(){
         const v=s.val()||{};
         _closed=v.closed||{};
         if(v.curPeriod) _curPeriod=v.curPeriod;
+        if(v.sapSync) _sapSync=Object.assign({at:'',by:'',asOf:'',de:0,px:0},v.sapSync);
       })
       .catch(e=>console.warn('[KNQ] meta',e));
+  }
+  /* ⭐ v4.104 — CỨU LÔ P/X BỊ ĐÓNG NHẦM.
+     Bản cũ để tick ✔ Done đặt st='done' cho lô P/X ⇒ lần sau KHÔNG tải về,
+     trong khi SAP vẫn còn hàng ⇒ bộ trừ lùi mất hẳn lượng đó (dữ liệu thật:
+     5 lô, 13 695 432 kg). Quét MỘT LẦN các dòng đang mang st='done', dòng
+     P/X nào KHÔNG có cờ pxDone (tức chưa từng được 📌 Close period đóng) và
+     thuộc kỳ CHƯA đóng thì kéo về, mở lại, ghi sửa lên Firebase.
+     Kéo về cả dòng GET IN cha, nếu không lô sẽ không có chỗ hiện. */
+  function _rescuePX(){
+    return _ref().child('go').orderByChild('st').equalTo('done').once('value')
+      .then(sn=>{
+        const v=sn.val()||{}, back=[], needGi={};
+        Object.keys(v).forEach(id=>{
+          if(GO[id]) return;
+          const r=Object.assign({_id:id},v[id]);
+          r.letter=r.letter||_letterOf(r.batch);
+          if(!_isPX(r)) return;                       /* D/E đóng bằng tay là hợp lệ */
+          if(r.pxDone) return;                        /* đã đóng kỳ đàng hoàng */
+          if(_closed[_ym(_outDate(r))]) return;       /* kỳ của nó đã chốt sổ */
+          r.st='open'; r._svSt='done';                /* ⇒ _stampSt sẽ ghi lại 'open' */
+          GO[id]=r; back.push(r);
+          if(r.giId && !GI[r.giId]) needGi[r.giId]=1;
+        });
+        if(!back.length) return 0;
+        const ids=Object.keys(needGi);
+        return Promise.all(ids.map(gid=>_ref().child('gi/'+gid).once('value')
+          .then(g=>{
+            const x=g.val(); if(!x) return;
+            const gg=Object.assign({_id:gid},x);
+            /* chuyến cha cũng bị đóng theo — nhưng nó vẫn còn lô sống, nên mở
+               lại luôn, không thì mỗi lần vào tab lại phải đi vớt. */
+            gg.hqDone=false; gg.hqDate=''; gg.st='open'; gg._svSt=x.st||'open';
+            GI[gid]=gg;
+            _markField('gi/'+gid,'hqDone',false);
+            _markField('gi/'+gid,'hqDate','');
+          })
+          .catch(e=>console.warn('[KNQ] rescue gi',e))
+        )).then(()=>{
+          let kg=0; back.forEach(r=>{ kg+=_n(_num(r.sapEnd)!=null?r.sapEnd:r.sapKg); });
+          _reopened={ n:back.length, kg:kg, list:back.map(r=>r.batch||'?') };
+          _say('♻ '+back.length+' P/X batch(es) had been closed by hand in an older version while SAP '+
+               'still held '+_K(kg)+' kg — they are back in the run-down: '+
+               back.slice(0,6).map(r=>r.batch||'?').join(', ')+(back.length>6?'…':'')+
+               '. Only 📌 Close period can close a P/X batch now.','warn');
+          return back.length;
+        });
+      })
+      .catch(e=>{ console.warn('[KNQ] rescuePX',e); return 0; });
   }
   function _load(){
     return _loadMeta().then(()=>{
@@ -862,7 +1036,7 @@ const KNQ = (function(){
       jobs.push(_ref().child('use').orderByKey().startAt(from).once('value')
         .then(s=>{ const v=s.val()||{}; Object.keys(v).forEach(k=>{ USE[k]=v[k]; }); })
         .catch(e=>console.warn('[KNQ] use',e)));
-      return Promise.all(jobs);
+      return Promise.all(jobs).then(()=>_rescuePX());
     });
   }
   function loadOld(){
@@ -884,13 +1058,14 @@ const KNQ = (function(){
   /* ============================================================
      ⬇ CẬP NHẬT D/E TỪ SAP  —  khớp theo MÃ BATCH người dùng gõ
   ============================================================ */
-  function pullSap(){
-    if(typeof SP==='undefined' || !SP.batch1100){ _say('❌ The SAP tab is not ready yet','er'); return; }
+  function pullSap(quiet){
+    const shout=(m,t)=>{ if(!quiet) _say(m,t); };
+    if(typeof SP==='undefined' || !SP.batch1100){ shout('❌ The SAP tab is not ready yet','er'); return false; }
     const res=SP.batch1100();
     if(!res.rows.length){
-      _say('❌ The SAP tab has no SLoc 1100 row with a split batch code'+
+      shout('❌ The SAP tab has no SLoc 1100 row with a split batch code'+
            (res.legacy?(' ('+res.legacy+' row(s) still in the old merged form — paste SAP again)'):''),'er');
-      return;
+      return false;
     }
     /* ⭐ CHỈ LẤY SỐ TỚI NGÀY _asOf() (hôm qua). Dòng SAP của ngày hôm nay —
        nếu có — là số dở dang, cố tình BỎ QUA. */
@@ -904,9 +1079,9 @@ const KNQ = (function(){
       if(r.date>_sapAsOf) _sapAsOf=r.date;
     });
     if(!_sapAsOf){
-      _say('❌ The SAP tab has no SLoc 1100 data on or before '+_dmy(_sapWant)+
+      shout('❌ The SAP tab has no SLoc 1100 data on or before '+_dmy(_sapWant)+
            ' — paste the ZMMFR022 export for '+_dmy(_sapWant),'er');
-      render(); return;
+      render(); return false;
     }
 
     let hit=0, miss=0, px=0;
@@ -922,9 +1097,18 @@ const KNQ = (function(){
       _markField('go/'+r._id,'sapEnd',b.endKg);
       _markField('go/'+r._id,'sapDate',b.date);
       /* P/X trừ lùi theo FEED OL1 nên KHÔNG đè Actual left — chỉ đối chiếu */
-      if(r.letter==='P'||r.letter==='X'){ px++; return; }
+      if(_isPX(r)){ px++; return; }
       r.sapT=b.endKg;
       _markField('go/'+r._id,'sapT',b.endKg);
+      /* ⭐ v4.104 — LỊCH SỬ SAP THEO NGÀY cho D/E. SAP cập nhật liên tục nên
+         so hai mốc gần nhau là biết CHÍNH XÁC lô nào đang được bơm ra và bơm
+         bao nhiêu — không phải suy đoán như P/X. Giữ SAPH_KEEP mốc gần nhất. */
+      const H=Object.assign({},r.sapH||{});
+      H[b.date]=b.endKg;
+      const ks=Object.keys(H).sort();
+      while(ks.length>SAPH_KEEP){ delete H[ks.shift()]; }
+      r.sapH=H;
+      _markField('go/'+r._id,'sapH',H);
       hit++;
     });
     /* mã batch CÓ trong SAP SLoc 1100 mà bảng KNQ chưa khai — dấu hiệu bỏ sót
@@ -937,18 +1121,37 @@ const KNQ = (function(){
         undecl++; if(undeclList.length<6) undeclList.push(m+' '+code);
       });
     });
+    /* ⭐ v4.103 — DẤU THỜI GIAN QUÉT SAP. Người dùng phải nhìn là biết số
+       D/E trên bảng đang mới tới đâu, ai quét, lúc nào. Ghi vào meta nên mọi
+       máy thấy cùng một mốc, không ai phải hỏi "số này quét chưa". */
+    _sapSync={ at:_stamp(), by:_who(), asOf:_sapAsOf, de:hit, px:px };
+    _dirty['meta/sapSync']=_sapSync; _btn(); _schedulePush();
     render();
-    _say('⬇ SAP as of '+_dmy(_sapAsOf)+' · '+hit+' D/E batch(es) written to Actual left'+
-         (px?(' · '+px+' P/X batch(es) compared only — they run down on FEED OL1'):'')+
+    _say('⬇ SAP scanned '+_sapSync.at+' · data as of '+_dmy(_sapAsOf)+' · '+hit+
+         ' D/E batch(es) written straight into Actual left'+
+         (px?(' · '+px+' P/X batch(es) keep running down on FEED OL1 (SAP declares them monthly, '+
+              'so they are NOT compared)'):'')+
          (miss?(' · '+miss+' code(s) not found in SAP'):'')+
          (undecl?(' · ⚠ '+undecl+' SAP batch code(s) not declared here: '+undeclList.join(', ')+
-                  (undecl>undeclList.length?'…':'')):'')+
-         ' — remember to 💾 Save','ok');
+                  (undecl>undeclList.length?'…':'')):''),'ok');
     if(_sapAsOf<_sapWant)
       _say('⚠ SAP is behind: the latest SLoc 1100 data is '+_dmy(_sapAsOf)+
            ', but KNQ works on '+_dmy(_sapWant)+' (yesterday). Paste a fresh ZMMFR022.','warn');
-    if(res.legacy) _say('⚠ '+res.legacy+' SLoc 1100 row(s) in the SAP tab are still in the old merged form — '+
+    if(res.legacy) shout('⚠ '+res.legacy+' SLoc 1100 row(s) in the SAP tab are still in the old merged form — '+
          'paste a fresh ZMMFR022 export so every batch code is split','warn');
+    return true;
+  }
+  /* QUÉT LẠI TỰ ĐỘNG khi mở tab mà lần quét gần nhất chưa tới D-1.
+     Chốt của người dùng: "hàng ngày dữ liệu phải được quét mới với SAP để
+     cập nhật D-1" — nên đừng bắt bấm tay mỗi sáng. */
+  function _autoSyncSap(){
+    if(_autoSap) return; _autoSap=true;
+    if(_sapSync.asOf && _sapSync.asOf>=_asOf()) return;   /* đã có số của D-1 */
+    if(typeof SP==='undefined' || !SP.batch1100) return;  /* tab SAP chưa sẵn */
+    let ok=false;
+    try{ ok=pullSap(true); }catch(e){ console.warn('[KNQ] auto sap',e); }
+    if(ok) _say('⬇ D/E stock refreshed from SAP automatically — data as of '+_dmy(_sapAsOf)+
+                ' · scanned '+_sapSync.at,'ok');
   }
   /* ── ⇐ SAP QTY FROM SAP — đổ End Stock của SAP vào cột SAP qty ─────
      Dùng khi khai batch mới: SAP qty của một batch chính là lượng GR vào SAP.
@@ -1089,11 +1292,22 @@ const KNQ = (function(){
          !confirm('Batch '+(r.batch||r.decl||'')+' is NOT ticked as VASSCM declared yet.\n\n'+
                   'Mark it DONE anyway?')){ el.checked=false; return; }
     }
+    /* ⭐ v4.104 — LÔ P/X KHÔNG ĐÓNG ĐƯỢC BẰNG TAY. SAP khai P/X một tháng
+       một lần; chừng nào SAP còn hàng thì lô còn phải nằm trong bộ trừ lùi.
+       Đóng bằng tay ở đây chính là lỗi làm mất 13,7 triệu kg của bản trước. */
+    if(kind==='go' && _isPX(r)){
+      if(el) el.checked=!!r.hqDone;
+      _say('🔒 A '+(LETTER_NAME[r.letter]||r.letter)+' batch cannot be closed by hand. SAP declares P/X '+
+           'once a month, so this batch keeps running down until 📌 Close period sees its SAP End Stock '+
+           'at zero on the last day of the period.','warn');
+      return;
+    }
     r.hqDone=on; r.hqDate=on?(r.hqDate||_today()):'';
     _markField(kind+'/'+id,'hqDone',r.hqDone);
     _markField(kind+'/'+id,'hqDate',r.hqDate);
     if(kind==='gi' && on){
-      childrenOf(id).forEach(c=>{ if(!c.hqDone){ c.hqDone=true; c.hqDate=c.hqDate||_today();
+      /* ⭐ v4.104 — lan xuống con NHƯNG BỎ QUA P/X (xem trên) */
+      childrenOf(id).forEach(c=>{ if(!c.hqDone && !_isPX(c)){ c.hqDone=true; c.hqDate=c.hqDate||_today();
         _markField('go/'+c._id,'hqDone',true); _markField('go/'+c._id,'hqDate',c.hqDate); } });
     }
     render();
@@ -1169,9 +1383,11 @@ const KNQ = (function(){
     if(_closed && _closed[M]){
       _say('❌ Period '+M+' has already been closed — open it read-only with 📜 Archive','er'); return; }
     const S=recalc();
-    const carry=S.gos.filter(r=>!r.hqDone && _ym(_outDate(r))<=M);
-    const zero =carry.filter(r=>!(r.remainKg>0.5));
-    const done =S.gos.filter(r=>r.hqDone).length;
+    /* ⭐ v4.104 — MỌI lô chưa đóng và thuộc kỳ này đều được xét. Với P/X đây
+       là LẦN DUY NHẤT được phép đóng: End Stock SAP ngày cuối kỳ = 0 ⇒ đóng,
+       còn > 0 ⇒ mang sang kỳ sau. */
+    const live=S.gos.filter(r=>!_closedRow(r) && _ym(_outDate(r))<=M);
+    const done =S.gos.filter(r=>_closedRow(r)).length;
 
     /* ── ① ĐỌC SAP TẠI NGÀY CUỐI KỲ ─────────────────────────── */
     const sap=_sapAt(M9);
@@ -1190,26 +1406,36 @@ const KNQ = (function(){
         'Close '+M+' anyway?')) return;
     }
 
-    /* ── ② SỐ SAP ĐÈ APP CHO MỌI LOẠI LÔ ────────────────────── */
+    /* ── ② SỐ SAP ĐÈ APP CHO MỌI LOẠI LÔ, VÀ QUYẾT ĐỊNH ĐÓNG/MANG SANG ──
+       Lô nào End Stock SAP ngày cuối kỳ = 0 ⇒ hết hàng thật ⇒ ĐÓNG (không
+       tải về nữa). Còn > 0 ⇒ số đó thành SAP qty đầu kỳ mới. */
     const plan=[]; let nSap=0, nApp=0;
-    carry.forEach(r=>{
+    live.forEach(r=>{
       const code=String(r.batch||'').trim().toUpperCase();
       const b=(code && sap.map[r.mat]) ? sap.map[r.mat][code] : null;
       const app=Math.max(0,r.remainKg||0);
       if(b) nSap++; else nApp++;
-      plan.push({ r:r, v:(b?Math.max(0,b.endKg):app), src:(b?'sap':'app'), app:app,
+      const v=b?Math.max(0,b.endKg):app;
+      plan.push({ r:r, v:v, shut:!(v>SAP_TOL), src:(b?'sap':'app'), app:app,
                   sapKg:(b?b.endKg:null), sapDate:(b?b.date:''),
                   diff:(b?(b.endKg-app):null) });
     });
+    const shut =plan.filter(p=>p.shut);
+    const carry=plan.filter(p=>!p.shut);
+    const blind=shut.filter(p=>p.src==='app');   /* đóng mà KHÔNG có số SAP xác nhận */
     const off=plan.filter(p=>p.diff!=null && Math.abs(p.diff)>SAP_TOL)
                   .sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff));
     if(!confirm('📌 CLOSE PERIOD '+M+'  →  OPEN PERIOD '+N+'\n\n'+
-      '• '+carry.length+' batch(es) carried over — their opening balance (SAP qty) in '+N+'\n'+
-      '     · '+nSap+' from the SAP End Stock of '+(sap.ok?_dmy(sap.asOf):'—')+'  (SAP is the official figure)\n'+
+      'SAP End Stock on '+_dmy(M9)+' decides everything below.\n\n'+
+      '• '+carry.length+' batch(es) STILL HOLD STOCK → carried over as the SAP qty (opening balance) of '+N+'\n'+
+      '     · '+nSap+' figure(s) from the SAP data of '+(sap.ok?_dmy(sap.asOf):'—')+'  (SAP is official)\n'+
       '     · '+nApp+' have no SAP row at that date → the app-computed actual left is used\n'+
-      '• '+done+' batch(es) ticked ✔ Done — NOT carried over\n'+
-      (zero.length?('\n⚠ '+zero.length+' batch(es) are at 0 but NOT ticked ✔ Done yet — they stay in\n'+
-        '   next period\'s run-down. Cancel and tick them first if that is wrong.\n'):'')+
+      '• '+shut.length+' batch(es) are at ZERO in SAP → CLOSED, dropped from the run-down\n'+
+      '• '+done+' batch(es) were already closed\n'+
+      (blind.length?('\n⚠ '+blind.length+' of the batches being closed have NO SAP row on '+_dmy(M9)+
+        ' — they are closed on the app figure alone:\n'+
+        blind.slice(0,6).map(p=>'     '+(p.r.batch||'?')).join('\n')+
+        (blind.length>6?('\n     …+'+(blind.length-6)+' more'):'')+'\n'):'')+
       (off.length?('\n⚠ '+off.length+' batch(es) differ from what this app computed:\n'+
         off.slice(0,6).map(p=>'     '+(p.r.batch||'?')+'   app '+_K(p.app)+'  →  SAP '+_K(p.sapKg)+
           '   ('+(p.diff>0?'+':'')+_K(p.diff)+' kg)').join('\n')+
@@ -1221,14 +1447,23 @@ const KNQ = (function(){
     const at=_stamp(), by=_who(), rows={};
     plan.forEach(p=>{
       const r=p.r;
-      r.op=r.op||{}; r.op[N]=p.v; _markOp(r._id,N,p.v);
+      if(p.shut){
+        /* ⭐ ĐÂY LÀ CHỖ DUY NHẤT ĐƯỢC ĐÓNG LÔ P/X. Ghi cờ bền pxDone + st. */
+        if(_isPX(r)){ r.pxDone=true; _markField('go/'+r._id,'pxDone',true); }
+        else if(!r.hqDone){ r.hqDone=true; r.hqDate=r.hqDate||M9;
+          _markField('go/'+r._id,'hqDone',true); _markField('go/'+r._id,'hqDate',r.hqDate); }
+        _markField('go/'+r._id,'st','done'); r._svSt='done'; r.st='done';
+      }else{
+        r.op=r.op||{}; r.op[N]=p.v; _markOp(r._id,N,p.v);
+      }
       rows[r._id]={ mat:r.mat||'', batch:r.batch||'', letter:r.letter||'',
         vessel:(GI[r.giId]&&GI[r.giId].vessel)||'', decl:r.decl||'',
         open:_n(r.baseKg), used:_n(r.usedKg), left:_n(p.app),
         sapEnd:(p.sapKg==null?'':p.sapKg), sapDate:p.sapDate||'',
-        carry:p.v, src:p.src };
+        carry:(p.shut?0:p.v), src:(p.shut?'closed':p.src) };
     });
-    S.gos.filter(r=>r.hqDone).forEach(r=>{
+    S.gos.filter(r=>_closedRow(r)).forEach(r=>{
+      if(rows[r._id]) return;
       rows[r._id]={ mat:r.mat||'', batch:r.batch||'', letter:r.letter||'',
         vessel:(GI[r.giId]&&GI[r.giId].vessel)||'', decl:r.decl||'',
         open:_n(r.baseKg), used:_n(r.usedKg), left:0,
@@ -1247,8 +1482,9 @@ const KNQ = (function(){
     _month=N; _useMonth=N; _syncEls();
     render();
     _flush(false);
-    _say('📌 Period '+M+' closed → '+N+' is open · '+nSap+' opening balance(s) from SAP, '+
-         nApp+' from the app · '+M+' archived and no longer synced','ok');
+    _say('📌 Period '+M+' closed → '+N+' is open · '+carry.length+' batch(es) carried over ('+nSap+
+         ' from SAP, '+nApp+' from the app) · '+shut.length+' closed at zero · '+M+
+         ' archived and no longer synced','ok');
   }
 
   /* ============================================================
@@ -1668,12 +1904,20 @@ const KNQ = (function(){
   }
   function _stTxt(r){
     if(r.st==='done')  return '<span class="knq-b done" title="Pumped out and declared in VASSCM">✅ Done</span>';
-    if(r.st==='ready') return '<span class="knq-b ready" title="Pumped out and VASSCM declared — tick ✔ Done to close it">🔵 Ready to close</span>';
+    if(r.st==='ready') return '<span class="knq-b ready" title="'+(_isPX(r)
+      ? 'Pumped out and VASSCM declared. A P/X batch is closed by 📌 Close period once its SAP End Stock '+
+        'on the last day of the period is zero — not by hand.'
+      : 'Pumped out and VASSCM declared — tick ✔ Done to close it')+'">🔵 '+
+      (_isPX(r)?'Awaiting period close':'Ready to close')+'</span>';
     if(r.st==='zero')  return '<span class="knq-b zero" title="Fully pumped out — VASSCM declaration still pending">🔴 VASSCM pending</span>';
     if(r.st==='wait')  return '<span class="knq-b wait">⏳ Not started</span>';
-    /* ĐÚNG MỘT batch mỗi (Mat × loại lô) mang cờ head — batch thật sự đang ra */
-    if(r.head) return '<span class="knq-b live" title="This is the batch physically coming out right now — the FIFO head for '+
-      (LETTER_NAME[r.letter]||r.letter)+'">▶ PUMPING NOW</span>';
+    /* ĐÚNG MỘT batch mỗi (Mat × loại lô) mang cờ head — batch thật sự đang ra.
+       D/E: bằng chứng trực tiếp = SAP tụt giữa hai lần quét. P/X: đầu hàng FIFO. */
+    if(r.head) return '<span class="knq-b live" title="'+(r.drop>0
+      ? ('SAP stock fell '+_K(r.drop)+' kg between '+_dmy(r.dropFrom)+' and '+_dmy(r.dropTo)+
+         ' — this batch is physically coming out right now')
+      : ('This is the batch physically coming out right now — the FIFO head for '+
+         (LETTER_NAME[r.letter]||r.letter)))+'">▶ PUMPING NOW</span>';
     return '<span class="knq-b using">🟢 Pumping</span>';
   }
   /* chuỗi chip đếm tình trạng get out của 1 chuyến (hiện cả khi đã gập) */
@@ -1706,10 +1950,114 @@ const KNQ = (function(){
     const S=recalc();
     _nShown=0;
     MATS.forEach(m=>_renderMat(m));
+    _renderCards(S);
     _renderBar(S);
     _renderAlerts(S);
     _btn();
     _refocus(k);
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     ⭐ v4.104 · BỐN THẺ TÌNH HÌNH  (#knq-cards)
+     ----------------------------------------------------------
+     Thay cho dải chip + ba cụm tổng của v4.103 — cùng một thông tin bị
+     bày ra ba chỗ (kỳ, ngày dữ liệu, mốc SAP đều lặp lại) nên nhìn rối.
+     Giờ gom thành BỐN THẺ, mỗi thẻ trả lời ĐÚNG MỘT CÂU HỎI:
+       ① Trong kho còn bao nhiêu?      ② Đang bơm lô nào?
+       ③ Kỳ này đã dùng bao nhiêu?     ④ Số SAP mới tới đâu?
+     Cái gì đã nằm sẵn ở chỗ khác (ô chọn kỳ, tiêu đề bảng) thì KHÔNG lặp.
+     ══════════════════════════════════════════════════════════ */
+  function _renderCards(S){
+    const box=document.getElementById('knq-cards'); if(!box) return;
+    const A=_asOf(), M=_month||_curP();
+    const c={using:0,wait:0,zero:0,ready:0,done:0,soon:0,low:0};
+    let left=0, base=0, mism=0;
+    S.gos.forEach(r=>{
+      if(c[r.st]!==undefined) c[r.st]++;
+      if(r.st!=='done'){ left+=r.remainKg||0; base+=r.baseKg||0; }
+      if(r.st==='using'&&r.etaDays!=null&&r.etaDays<=WARN_DAYS) c.soon++;
+      if(r.low && r.st!=='done') c.low++;
+      if(r.sapOk===false) mism++;
+    });
+    const pct=base>0?Math.round(left/base*100):0;
+
+    /* ── ② ĐANG BƠM RA ── mỗi (Mat × loại lô) đúng một lô */
+    const heads=S.gos.filter(r=>r.head && r.st!=='done')
+      .sort((a,b)=>{ const ka=a.mat+a.letter, kb=b.mat+b.letter; return ka<kb?-1:(ka>kb?1:0); });
+    const headHtml=heads.length ? heads.map(r=>
+        '<span class="knq-pump'+(r.low?' low':'')+'" title="'+
+          (r.drop>0 ? ('SAP stock fell '+_K(r.drop)+' kg between '+_dmy(r.dropFrom)+' and '+_dmy(r.dropTo)+
+                       ' — measured straight from SAP')
+                    : ('Head of the FIFO queue for '+r.mat+' '+(LETTER_NAME[r.letter]||r.letter)+
+                       ' — the batch the OL1 feed is drawing from'))+'">'+
+          '<b class="knq-lotdot knq-lot-'+String(r.letter||'').toLowerCase()+'">'+(r.letter||'?')+'</b>'+
+          '<i>'+_esc(r.mat)+'</i>'+
+          '<u>'+_esc(r.batch||'—')+'</u>'+
+          '<em>'+_K(r.remainKg)+' kg</em>'+
+          (r.drop>0?('<s>▼'+_K(r.dropRate||r.drop)+'/d</s>')
+                   :(r.eta?('<s>empty '+_dmy(r.eta)+'</s>'):''))+
+        '</span>').join('')
+      : '<span class="knq-cempty">Nothing is being drawn right now.</span>';
+
+    /* ── ③ OL1 ĐÃ DÙNG ── */
+    const M0=M+'-01';
+    const endAct=_isOpenP(M) ? A : (_lastDay(M)<A?_lastDay(M):A);
+    const endAll=_isOpenP(M) ? (_lastDay(_ym(_today()))>_lastDay(M)?_lastDay(_ym(_today())):_lastDay(M))
+                             : _lastDay(M);
+    const a=_ol1Sum(M0,endAct,'act');
+    const f=_ol1Sum(M0,endAll,'proj');
+
+    /* ── ④ SAP ── */
+    const fresh=(_sapSync.asOf&&_sapSync.asOf>=A);
+
+    box.innerHTML=
+      /* ① TỒN KHO */
+      '<div class="knq-card stock">'+
+        '<div class="knq-ch">🛢 IN BONDED WAREHOUSE<span>'+M+'</span></div>'+
+        '<div class="knq-cbig">'+_K(left)+'<u>kg</u></div>'+
+        '<div class="knq-csub">of '+_K(base)+' kg opening · <b>'+pct+'%</b> still in stock</div>'+
+        '<div class="knq-crow">'+
+          (c.using?'<span class="knq-tag using">'+c.using+' pumping</span>':'')+
+          (c.wait ?'<span class="knq-tag wait">'+c.wait+' not started</span>':'')+
+          (c.low  ?'<span class="knq-tag low" title="Less than '+_K(LOW_KG)+' kg ('+(LOW_KG/1000)+
+                   ' MT) left in the batch">'+c.low+' below '+(LOW_KG/1000)+' MT</span>':'')+
+          (c.soon ?'<span class="knq-tag soon">'+c.soon+' empty ≤'+WARN_DAYS+'d</span>':'')+
+          (c.zero ?'<span class="knq-tag zero">'+c.zero+' VASSCM pending</span>':'')+
+          (c.ready?'<span class="knq-tag ready">'+c.ready+' awaiting close</span>':'')+
+          (mism  ?'<span class="knq-tag bad" title="D/E batches not on the SAP figure — click ⬇ Sync SAP">'+
+                   mism+' D/E ≠ SAP</span>':'')+
+        '</div>'+
+      '</div>'+
+      /* ② ĐANG BƠM RA */
+      '<div class="knq-card pump">'+
+        '<div class="knq-ch">▶ COMING OUT NOW<span>'+heads.length+' batch(es)</span></div>'+
+        '<div class="knq-plist">'+headHtml+'</div>'+
+      '</div>'+
+      /* ③ OL1 */
+      '<div class="knq-card ol1">'+
+        '<div class="knq-ch">⛽ OL1 USED<span>to '+_dmy(endAct)+'</span></div>'+
+        '<div class="knq-cgrid">'+
+          '<span class="knq-cv tot"><i>TOTAL P+X</i><b>'+_T(a.t)+'</b><u>MT</u></span>'+
+          '<span class="knq-cv p"><i>P Petchem</i><b>'+_T(a.p)+'</b><u>MT</u></span>'+
+          '<span class="knq-cv x"><i>X Export</i><b>'+_T(a.x)+'</b><u>MT</u></span>'+
+        '</div>'+
+        '<div class="knq-csub">'+a.n+' day(s) counted'+
+          (a.def?(' · <b class="knq-warn">'+a.def+' assumed '+(DEF_TOT_KG/1000)+' MT</b>'):'')+
+          ' · whole period incl. plan <b>'+_T(f.t)+' MT</b></div>'+
+      '</div>'+
+      /* ④ SAP */
+      '<div class="knq-card sap'+(fresh?'':' stale')+'">'+
+        '<div class="knq-ch">🔄 SAP D/E<span>'+(fresh?'up to date':'stale')+'</span></div>'+
+        '<div class="knq-cbig sm">'+(_sapSync.asOf?_dmy(_sapSync.asOf):'—')+
+          '<u>'+(fresh?'= D-1 ✓':'behind D-1')+'</u></div>'+
+        '<div class="knq-csub">'+(_sapSync.at
+            ? ('scanned <b>'+_esc(_sapSync.at)+'</b>'+(_sapSync.by?(' by '+_esc(_sapSync.by)):'')+
+               ' · '+(_sapSync.de||0)+' D/E written')
+            : 'never scanned — click <b>⬇ Sync SAP</b>')+'</div>'+
+        '<div class="knq-csub dim" title="SAP declares P and X once a month, so they are never overwritten '+
+          'from SAP — they run down on the FEED OL1 figures instead.">P/X run on FEED OL1, not on SAP</div>'+
+      '</div>';
+    box.style.display='';
   }
 
   /* ── DẢI CẢNH BÁO CHẤT LƯỢNG DỮ LIỆU ────────────────────────
@@ -1771,10 +2119,31 @@ const KNQ = (function(){
       _K(DEF_TOT_KG)+' kg/day TOTAL P+X: '+miss.slice(0,6).map(_dmy).join(', ')+
       (miss.length>6?(' …+'+(miss.length-6)):'')+'.']);
 
+    /* ⭐ v4.104 — LÔ P/X TỪNG BỊ ĐÓNG NHẦM, VỪA ĐƯỢC KÉO VỀ */
+    if(_reopened && _reopened.n)
+      out.push(['bad','<b>'+_reopened.n+' P / X batch(es) had been closed by hand</b> in an older '+
+        'version while SAP still held <b>'+_K(_reopened.kg)+' kg</b> for them. The run-down was missing '+
+        'that stock, so every later batch was being over-consumed. They are back in the queue: '+
+        _reopened.list.slice(0,8).map(_esc).join(', ')+(_reopened.list.length>8?'…':'')+
+        '. A P / X batch can now only be closed by <b>📌 Close period</b>, when its SAP End Stock on the '+
+        'last day of the period is zero. Press <b>💾 Save</b> to make the fix stick.']);
+    /* ⭐ v4.103 — CHỈ D/E MỚI ĐÁNG BÁO LỆCH. P/X lệch với SAP là chuyện
+       đương nhiên (SAP khai P/X mỗi tháng một lần), báo ở đây là báo nhầm. */
     const bad=S.gos.filter(r=>r.sapOk===false);
-    if(bad.length) out.push(['warn','<b>'+bad.length+' batch(es) do not match SAP</b> as of '+_dmy(_sapAsOf)+
-      ': '+bad.slice(0,5).map(r=>_esc(r.batch||'?')+' (Δ '+(r.sapDiff>0?'+':'')+_K(r.sapDiff)+')').join(' · ')+
-      (bad.length>5?(' …+'+(bad.length-5)):'')+'. Check the FEED OL1 figures or the declared SAP qty.']);
+    if(bad.length) out.push(['warn','<b>'+bad.length+' D/E batch(es) are not on the SAP figure</b> of '+
+      _dmy(_sapAsOf)+': '+bad.slice(0,5).map(r=>_esc(r.batch||'?')+' (Δ '+(r.sapDiff>0?'+':'')+_K(r.sapDiff)+')').join(' · ')+
+      (bad.length>5?(' …+'+(bad.length-5)):'')+'. D/E stock comes straight from SAP — click '+
+      '<b>⬇ Sync from SAP</b> to refresh them.']);
+    /* D/E phải được quét MỚI mỗi ngày để đúng mốc D-1 */
+    if(!_sapSync.at){
+      out.push(['info','<b>SAP has never been scanned from this database.</b> D / E stock is read straight '+
+        'from SAP and must be refreshed daily to sit on '+_dmy(A)+' (D-1). Click <b>⬇ Sync from SAP</b>.']);
+    }else if(_sapSync.asOf<A){
+      out.push(['warn','<b>D / E stock is stale.</b> Last scan '+_esc(_sapSync.at)+
+        (_sapSync.by?(' by '+_esc(_sapSync.by)):'')+' carried SAP data of <b>'+_dmy(_sapSync.asOf)+
+        '</b>, but KNQ works on <b>'+_dmy(A)+'</b>. Paste a fresh ZMMFR022 in LPG Sales ▸ SAP, then '+
+        '<b>⬇ Sync from SAP</b>. (P / X are unaffected — SAP declares them monthly and they run down on FEED OL1.)']);
+    }
 
     box.innerHTML=out.length
       ? out.map(o=>'<div class="knq-al '+o[0]+'">'+
@@ -1786,46 +2155,24 @@ const KNQ = (function(){
     box.style.display='';
   }
 
+  /* ⭐ v4.104 — dải chip cũ đã chuyển hết vào #knq-cards. Hàm này giờ chỉ lo
+     phần chú thích động của các nút trên thanh công cụ. */
   function _renderBar(S){
-    const c={using:0,wait:0,zero:0,ready:0,done:0,soon:0};
-    let left=0, base=0, mism=0;
-    S.gos.forEach(r=>{
-      if(c[r.st]!==undefined) c[r.st]++;
-      if(r.st!=='done'){ left+=r.remainKg||0; base+=r.baseKg||0; }
-      if(r.st==='using'&&r.etaDays!=null&&r.etaDays<=WARN_DAYS) c.soon++;
-      if(r.sapOk===false) mism++;
-    });
-    const el=document.getElementById('knq-stats');
-    if(el) el.innerHTML=
-      '<span class="knq-chip using"><b>'+c.using+'</b> pumping</span>'+
-      '<span class="knq-chip wait"><b>'+c.wait+'</b> not started</span>'+
-      (c.soon?'<span class="knq-chip soon"><b>'+c.soon+'</b> ending soon</span>':'')+
-      '<span class="knq-chip zero"><b>'+c.zero+'</b> VASSCM pending</span>'+
-      (c.ready?'<span class="knq-chip ready"><b>'+c.ready+'</b> ready to close</span>':'')+
-      (c.done?'<span class="knq-chip done"><b>'+c.done+'</b> done</span>':'')+
-      (mism?('<span class="knq-chip zero" title="Actual left differs from the SAP End Stock of '+
-        _dmy(_sapAsOf)+'"><b>'+mism+'</b> ≠ SAP</span>'):'')+
-      '<span class="knq-chip tot">Actual left <b>'+_K(left)+'</b> / '+_K(base)+' kg</span>'+
-      '<span class="knq-chip asof" title="SAP closes one day late and today is still being pumped, so the last '+
-        'final figures are yesterday\'s. Everything from today on is forecast.">data as of <b>'+_dmy(_asOf())+'</b></span>'+
-      '<span class="knq-chip '+(_overdue()?'soon':'per')+'" title="The open period. Periods before it are '+
-        'archived on Firebase and no longer synced to this machine — open them with 📜 Archive.">period <b>'+
-        _curP()+'</b>'+(_overdue()?' · overdue':'')+'</span>'+
-      (_sapAsOf?('<span class="knq-chip '+(_sapAsOf<_asOf()?'soon':'sap')+'">SAP '+
-        (_sapAsOf<_asOf()?'behind — ':'')+'<b>'+_dmy(_sapAsOf)+'</b></span>'):
-        '<span class="knq-chip soon">SAP not pulled</span>')+
-      (filterOn()?('<span class="knq-chip filt">filtered <b>'+_nShown+'</b> / '+S.gos.length+
-        ' batches <button class="knq-x" title="Clear the filter" onclick="KNQ.clearFilter()">✕</button></span>'):'');
     const b=document.getElementById('knq-close');
     if(b){
       b.title='Close period '+(_month||'—')+': reads the SAP End Stock at '+
-        _dmy(_lastDay(_month||_curP()))+' (the last day of the period, NOT D-1 — SAP publishes the '+
-        'P / X batches a few days late) and writes it as the SAP Qty (opening balance) of the next '+
-        'period for every lot type. Batches with no SAP row at that date carry the app-computed '+
-        'actual left; batches ticked ✔ Done are not carried over. The closed period is archived on '+
-        'Firebase and stops syncing to the machines.';
+        _dmy(_lastDay(_month||_curP()))+' — the last day of the period, NOT D-1, because SAP publishes '+
+        'the P / X batches a few days late. A batch at ZERO in SAP is closed and dropped from the '+
+        'run-down; a batch that still holds stock carries that SAP figure into the next period as its '+
+        'SAP qty. This is the ONLY thing that can close a P / X batch. The closed period is archived '+
+        'on Firebase and stops syncing to the machines.';
       b.classList.toggle('hot',_overdue());
     }
+    const sy=document.getElementById('knq-sap-btn');
+    if(sy) sy.title='Read the SAP tab for the End Stock of YESTERDAY. D/E batches take it straight into '+
+      'Actual left and their day-by-day history is kept, so the app can tell which D/E batch is being '+
+      'pumped right now. P/X are left alone — SAP declares them monthly.'+
+      (_sapSync.at?(' Last scan '+_sapSync.at+' → SAP data of '+_dmy(_sapSync.asOf)+'.'):' Never scanned yet.');
   }
 
   function _renderMat(mat){
@@ -1919,14 +2266,25 @@ const KNQ = (function(){
   function _sapBadge(r){
     if(r.hqDone) return '';
     if(!r.batch) return '';
-    if(!_sapAsOf) return '<div class="knq-sapb dim" title="Click ⬇ Sync from SAP">SAP —</div>';
+    /* ⭐ v4.103 — P/X KHÔNG đối chiếu ở đây. SAP khai P/X mỗi tháng một lần
+       nên End Stock của SAP đứng yên cả kỳ; Actual left là số TRỪ LÙI theo
+       FEED OL1, lệch với SAP là chuyện đương nhiên, không phải lỗi. */
+    if(r.letter==='P'||r.letter==='X')
+      return '<div class="knq-sapb ol1" title="SAP declares P / X once a month, so its End Stock stays '+
+             'frozen all period. This figure is the SAP qty run down by the FEED OL1 usage — it is NOT '+
+             'meant to equal SAP. What must match SAP is the SAP qty cell on the left.">↓ per OL1</div>';
+    if(!_sapAsOf) return '<div class="knq-sapb dim" title="Click ⬇ Sync from SAP to take the D/E stock '+
+                         'of yesterday straight from SAP">SAP —</div>';
     if(r.sapEndN==null)
       return '<div class="knq-sapb bad" title="This batch code is not in the SAP SLoc 1100 data of '+
              _dmy(_sapAsOf)+'">no SAP row</div>';
     if(r.sapOk)
-      return '<div class="knq-sapb ok" title="Matches the SAP End Stock of '+_dmy(_sapAsOf)+'">✓ SAP</div>';
+      return '<div class="knq-sapb ok" title="D/E stock is taken straight from SAP. SAP data as of '+
+             _dmy(_sapAsOf)+(_sapSync.at?(', scanned '+_sapSync.at+(_sapSync.by?(' by '+_sapSync.by):'')):'')+
+             '">✓ SAP '+_dmy(_sapAsOf)+'</div>';
     return '<div class="knq-sapb bad" title="SAP End Stock of '+_dmy(_sapAsOf)+' is '+_K(r.sapEndN)+
-           ' kg — KNQ is off by '+_K(r.sapDiff)+' kg">Δ '+(r.sapDiff>0?'+':'')+_K(r.sapDiff)+'</div>';
+           ' kg — KNQ is off by '+_K(r.sapDiff)+' kg. Click ⬇ Sync from SAP to refresh D/E.">Δ '+
+           (r.sapDiff>0?'+':'')+_K(r.sapDiff)+'</div>';
   }
 
   /* ── DÒNG GET OUT — 1 mã batch duy nhất ─────────────────────
@@ -1970,10 +2328,16 @@ const KNQ = (function(){
        Đặt trên <tr> để tô thanh rail bên trái, và trên ô batch để tô nền. */
     const lot=r.letter?(' knq-lot-'+r.letter.toLowerCase()):' knq-lot-none';
     return '<tr class="knq-go knq-'+r.st+lot+(soon?' knq-soon':'')+(r.head?' knq-live':'')+'">'+
-      '<td class="c"><input type="checkbox" class="knq-ck"'+(r.hqDone?' checked':'')+
-        ' title="DONE = fully pumped out AND declared in VASSCM. Actual Left is forced to 0 and '+
-        'the row is no longer loaded after saving."'+
-        ' onchange="KNQ.toggleDone(\'go\',\''+id+'\',this)"></td>'+
+      '<td class="c">'+(px
+        ? ('<span class="knq-lock" title="A P / X batch cannot be closed by hand. SAP declares them once '+
+           'a month, so the batch keeps running down on FEED OL1 until 📌 Close period finds its SAP End '+
+           'Stock at zero on the last day of the period — that is the only thing that closes it.">🔒</span>'+
+           (r.hqDone?'<div class="knq-relive" title="An older version ticked this batch DONE and dropped it '+
+             'from the run-down even though SAP still held stock. It has been put back.">re-opened</div>':''))
+        : ('<input type="checkbox" class="knq-ck"'+(r.hqDone?' checked':'')+
+           ' title="DONE = fully pumped out AND declared in VASSCM. Actual Left is forced to 0 and '+
+           'the row is no longer loaded after saving."'+
+           ' onchange="KNQ.toggleDone(\'go\',\''+id+'\',this)">'))+'</td>'+
       '<td class="c sm">'+i+'</td>'+
       '<td>'+_stTxt(r)+'</td>'+
       '<td class="knq-dim sm">↳ get out</td>'+
@@ -1995,9 +2359,14 @@ const KNQ = (function(){
         '. A batch not used up at period close carries its remainder here for the next period."'+
         ' onchange="KNQ.setOp(\''+id+'\',this.value)">'+opHint+sapHint+'</td>'+
       '<td class="n">'+_K(r.usedKg)+(px?'<div class="sm">per OL1 '+(_month||'')+'</div>':'')+'</td>'+
-      '<td class="n b">'+_K(r.remainKg)+
-        (r.hqDone?'<div class="sm">out of KNQ</div>'
+      '<td class="n b'+(r.low?' knq-lowcell':'')+'">'+_K(r.remainKg)+
+        (_closedRow(r)?'<div class="sm">out of KNQ</div>'
                  :(r.zeroDate&&!r.projected?('<div class="sm">empty '+_dmy(r.zeroDate)+'</div>'):''))+
+        (r.low?('<div class="knq-lowtag" title="Less than '+_K(LOW_KG)+' kg ('+(LOW_KG/1000)+
+                ' MT) left — running out">⚠ low '+(Math.round(r.remainKg/1000))+' MT</div>'):'')+
+        (r.drop>0?('<div class="knq-drop" title="SAP stock fell by '+_K(r.drop)+' kg between '+
+                _dmy(r.dropFrom)+' and '+_dmy(r.dropTo)+' — this batch is being pumped out right now">▼ '+
+                _K(r.drop)+' kg since '+_dmy(r.dropFrom)+'</div>'):'')+
         _sapBadge(r)+'</td>'+
       '<td class="n">'+(r.baseKg>0?((r.pct*100).toFixed(1)+'%'):'')+
         '<div class="knq-pbar"><i style="width:'+((r.pct||0)*100).toFixed(1)+'%"></i></div></td>'+
@@ -2031,7 +2400,8 @@ const KNQ = (function(){
       _renderImp(); return;
     }
     let sT=0,sP=0,sX=0,nDef=0;
-    tb.innerHTML=days.map(d=>{
+    let aT=0,aP=0,aX=0,aN=0,aDef=0;         /* ⭐ v4.103 — luỹ kế THỰC tới D-1 */
+    const body=days.map(d=>{
       const u=USE[d]||{}, x=_num(u.x), xp=_num(u.xp);
       const tRaw=_totOf(u), def=(tRaw==null);
       const tot=def?DEF_TOT_KG:tRaw;
@@ -2039,6 +2409,10 @@ const KNQ = (function(){
       const p=Math.max(0,tot-(x!=null?x:0));
       if(def) nDef++;
       sT+=tot; sP+=p; if(xe!=null) sX+=xe;
+      /* luỹ kế tới D-1 dùng số THỰC: X thiếu thì coi như 0, không mượn plan */
+      if(d<=A){ aN++; if(def) aDef++;
+        const xa=(x!=null)?x:0;
+        aT+=tot; aX+=xa; aP+=Math.max(0,tot-xa); }
       const src=(x!=null)
         ? (u.xs==='p' ? '<span class="knq-b wait" title="PLAN figure loaded from the file">Plan</span>'
                       : '<span class="knq-b using" title="Actual figure">Actual</span>')
@@ -2067,13 +2441,29 @@ const KNQ = (function(){
         '<td class="c">'+src+'</td>'+
         '<td><input class="knq-in" value="'+_esc(u.note||'')+'" onchange="KNQ.setUseNote(\''+d+'\',this.value)">'+
           '<button class="knq-x" onclick="KNQ.delUseRow(\''+d+'\')">✕</button></td></tr>';
-    }).join('')+
-      '<tr class="knq-tot"><td class="c">TOTAL '+_useMonth+'</td>'+
+    }).join('');
+    /* ⭐ v4.103 — DÒNG TỔNG LÊN ĐẦU BẢNG, và tách làm HAI:
+         ① TỔNG TỚI D-1 = lượng ĐÃ DÙNG THẬT (mốc chốt số của cả tab KNQ)
+         ② TỔNG CẢ THÁNG = thực + plan, chỉ để nhìn xu hướng
+       Đặt trên đầu để không phải cuộn hết 31 dòng mới thấy con số. */
+    const U=_useMonth;
+    tb.innerHTML=
+      '<tr class="knq-tot knq-tot-d1"><td class="c">USED to '+_dmy(A)+
+        '<div class="sm">actual · D-1</div></td>'+
+      '<td class="n" title="Actual TOTAL P+X drawn from the 1st up to yesterday">'+_disp(aT)+'</td>'+
+      '<td class="n" title="P = TOTAL − X, actual">'+_disp(aP)+'</td>'+
+      '<td class="n" title="X actually keyed in / imported — days with no X count as 0 here">'+_disp(aX)+'</td>'+
+      '<td colspan="3">'+aN+' day(s) counted'+
+        (aDef?('<span class="knq-warn"> · ⚠ '+aDef+' with no TOTAL keyed in, assumed '+
+          _disp(DEF_TOT_KG)+'</span>'):'')+
+        ' — this is the figure the P/X run-down uses.</td></tr>'+
+      '<tr class="knq-tot"><td class="c">TOTAL '+U+'<div class="sm">incl. plan</div></td>'+
       '<td class="n">'+_disp(sT)+'</td><td class="n">'+_disp(sP)+'</td>'+
       '<td class="n">'+_disp(sX)+'</td>'+
-      '<td colspan="3">'+(nDef?('<span class="knq-warn">⚠ '+nDef+
+      '<td colspan="3">'+days.length+' day(s)'+(nDef?('<span class="knq-warn"> · ⚠ '+nDef+
         ' day(s) with no TOTAL P+X keyed in — assuming '+_disp(DEF_TOT_KG)+
-        ' per day</span>'):'')+'</td></tr>';
+        ' per day</span>'):'')+'</td></tr>'+
+      body;
     _renderImp();
     _refocus(_fk);
   }
@@ -2214,6 +2604,7 @@ const KNQ = (function(){
       render();
       _attachLive();        /* ⭐ từ đây mọi máy thấy nhau theo thời gian thực */
       _syncTag('✓ synced '+_hm(),'ok');
+      _autoSyncSap();       /* ⭐ D/E phải là số của D-1 — quét lại nếu đã cũ */
     }).catch(e=>{ console.warn('[KNQ] load',e); render(); _say('❌ Could not load KNQ data','er'); });
   }
 
@@ -2241,6 +2632,12 @@ const KNQ = (function(){
              overdue:_overdue, isOpenP:_isOpenP, liveFrom:_liveFrom,
              closed:()=>_closed, setClosed:c=>{ _closed=c||{}; },
              sapAt:_sapAt, dirty:()=>_dirty, flush:_flush,
+             /* v4.103 — dấu thời gian quét SAP + tổng FEED OL1 */
+             sapSync:()=>_sapSync, setSapSync:v=>{ _sapSync=v||{at:'',by:'',asOf:'',de:0,px:0}; },
+             /* v4.104 — vòng đời lô P/X · lô sắp cạn · lô vừa được cứu */
+             isPX:_isPX, closedRow:_closedRow, reopened:()=>_reopened,
+             rescuePX:_rescuePX, LOW_KG:LOW_KG,
+             ol1Sum:_ol1Sum, autoSyncSap:()=>{ _autoSap=false; _autoSyncSap(); },
              arch:()=>_arch, dirtyOver:_dirtyOver }
   };
 })();

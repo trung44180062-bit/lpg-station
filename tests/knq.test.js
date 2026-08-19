@@ -526,19 +526,42 @@ chk('_asOf() = hôm qua, KHÔNG phải hôm nay', S.asOf()===YD && S.asOf()!==TD
       K(S.GO[B].usedKg)===u0+1000000, u0+' → '+K(S.GO[B].usedKg));
   KNQ.setUse(YD,'t','1000'); KNQ.recalc();
 
-  /* ĐỐI CHIẾU SAP */
-  S.GO[B].sapEnd=K(S.GO[B].remainKg);
+  /* ── ĐỐI CHIẾU SAP — ⭐ v4.103: CHỈ D/E ──────────────────────
+     SAP khai lô P/X MỖI THÁNG MỘT LẦN nên End Stock của SAP đứng yên cả kỳ,
+     còn Actual left KNQ trừ lùi hằng ngày theo FEED OL1 ⇒ lệch là ĐƯƠNG
+     NHIÊN, không được báo lỗi. Chỉ D/E (SAP cập nhật theo ngày) mới đối chiếu. */
+  S.GO[B].sapEnd=K(S.GO[B].remainKg)-250000;      /* lô P, lệch hẳn 250 T */
   KNQ.recalc();
-  chk('sapEnd trùng Actual left ⇒ sapOk = true (ký hiệu ✓ SAP)',
-      S.GO[B].sapOk===true && S.GO[B].sapDiff===0, JSON.stringify([S.GO[B].sapOk,S.GO[B].sapDiff]));
-  S.GO[B].sapEnd=K(S.GO[B].remainKg)-250000;
+  chk('⭐ lô P lệch SAP vẫn KHÔNG bị coi là sai (SAP khai P/X 1 tháng/lần)',
+      S.GO[B].sapOk===null && S.GO[B].sapDiff===null,
+      JSON.stringify([S.GO[B].sapOk,S.GO[B].sapDiff]));
+  /* lô D cùng chuyến — đây mới là chỗ được phép đối chiếu */
+  const BD=go(V,{ decl:'d1d', batch:M.slice(2,4)+M.slice(5,7)+'01D900', sapKg:'4000000' });
+  S.GO[BD].sapT=3000000; S.GO[BD].sapEnd=3000000;
   KNQ.recalc();
-  chk('sapEnd lệch ⇒ sapOk = false và sapDiff = +250 000 (ký hiệu Δ)',
-      S.GO[B].sapOk===false && S.GO[B].sapDiff===250000, String(S.GO[B].sapDiff));
+  chk('lô D: Actual left lấy thẳng số SAP ⇒ khớp, sapOk = true (✓ SAP)',
+      S.GO[BD].sapOk===true && S.GO[BD].sapDiff===0 && K(S.GO[BD].remainKg)===3000000,
+      JSON.stringify([S.GO[BD].sapOk,S.GO[BD].sapDiff,K(S.GO[BD].remainKg)]));
+  S.GO[BD].sapEnd=3000000-250000;
+  KNQ.recalc();
+  chk('lô D lệch SAP ⇒ sapOk = false, sapDiff = +250 000 (chưa quét SAP mới)',
+      S.GO[BD].sapOk===false && S.GO[BD].sapDiff===250000, String(S.GO[BD].sapDiff));
   chk('batch đã tick ✔ Done thì KHÔNG đối chiếu SAP nữa',
-      (KNQ.toggleVas(B,{checked:true}), KNQ.toggleDone('go',B,{checked:true}), KNQ.recalc(),
-       S.GO[B].sapOk===null));
-  KNQ.toggleDone('go',B,{checked:false});
+      (KNQ.toggleVas(BD,{checked:true}), KNQ.toggleDone('go',BD,{checked:true}), KNQ.recalc(),
+       S.GO[BD].sapOk===null));
+  KNQ.toggleDone('go',BD,{checked:false}); KNQ.delGo(BD);
+
+  /* ── TỔNG FEED OL1 (v4.103) ─────────────────────────────────
+     Tổng THỰC chỉ được đếm tới D-1; ngày hôm nay là số dở dang. */
+  KNQ.setUse(YD,'t','1000'); KNQ.setUse(YD,'x','300');
+  KNQ.setUse(TD,'t','9999'); KNQ.setUse(TD,'x','999');
+  const sAct=S.ol1Sum(YD,YD,'act');
+  chk('_ol1Sum() cộng đúng TOTAL / P / X của một ngày',
+      K(sAct.t)===1000000 && K(sAct.x)===300000 && K(sAct.p)===700000,
+      JSON.stringify([K(sAct.t),K(sAct.p),K(sAct.x)]));
+  chk('tổng THỰC tới D-1 KHÔNG ăn số của hôm nay',
+      K(S.ol1Sum(M+'-01',YD,'act').t)<K(S.ol1Sum(M+'-01',TD,'act').t));
+  KNQ.delUseRow(TD);
   KNQ.delGi(V); KNQ._state.setMonth('2026-08');
 })();
 
@@ -654,6 +677,99 @@ console.log('\n[12] v4.102 — KỲ MỞ / KỲ ĐÃ ĐÓNG · TRỪ LÙI VƯỢ
   KNQ.delGi(V); KNQ.delGi(V2);
   KNQ.delUseRow('2026-08-05');
   S.setPeriod(OLD_P); S.setClosed(OLD_CL); S.setMonth(OLD_MONTH);
+})();
+
+/* ---------- 13. v4.104 — VÒNG ĐỜI LÔ P/X · D/E GIẢM DẦN · SẮP CẠN ---------- */
+console.log('\n[13] v4.104 — ⭐ LÔ P/X CHỈ ĐÓNG KHI 📌 CLOSE PERIOD THẤY SAP = 0');
+(function(){
+  const OLD_M=S.month(), OLD_P=S.rawPeriod(), OLD_CL=S.closed();
+  S.setPeriod('2026-08'); S.setMonth('2026-08'); S.setClosed({});
+
+  /* Hàng đợi riêng (C4 × X) để không ai tranh FIFO */
+  const V=gi('C4',{ no:'PX', vessel:'PX LIFECYCLE', decl:'pxl' });
+  const B=go(V,{ decl:'px1', batch:'260801X910', sapKg:'999999999' });
+  KNQ.recalc();
+  const left0=K(S.GO[B].remainKg);
+  chk('lô X đang chạy, còn hàng', left0>0, left0+' kg');
+
+  /* ── 13.1 TICK ✔ DONE KHÔNG ĐƯỢC PHÉP ĐÓNG LÔ P/X ────────────
+     Đây chính là lỗi làm mất 13,7 triệu kg: bản cũ ép Actual left = 0,
+     đặt st='done' rồi lần sau không tải về dù SAP vẫn còn hàng. */
+  KNQ.toggleDone('go',B,{checked:true});
+  KNQ.recalc();
+  chk('⭐ tick ✔ Done trên lô X KHÔNG ép Actual left về 0',
+      K(S.GO[B].remainKg)===left0, left0+' → '+K(S.GO[B].remainKg));
+  chk('⭐ …và KHÔNG đặt trạng thái done (lô vẫn nằm trong bộ trừ lùi)',
+      S.GO[B].st!=='done' && !S.GO[B].hqDone, S.GO[B].st+' / hqDone='+S.GO[B].hqDone);
+  captured=null; KNQ.save();
+  chk('⭐ …và KHÔNG ghi st="done" lên Firebase (lần sau vẫn tải về)',
+      !captured || (captured['go/'+B+'/st']!=='done' &&
+        !(captured['go/'+B] && captured['go/'+B].st==='done')),
+      JSON.stringify(captured&&(captured['go/'+B+'/st']||(captured['go/'+B]||{}).st)));
+
+  /* lô D thì tick ✔ Done vẫn đóng bình thường — SAP cập nhật theo ngày */
+  const BD=go(V,{ decl:'pxd', batch:'260801D910', sapKg:'500000' });
+  S.GO[BD].sapT=500000;
+  KNQ.recalc();
+  KNQ.toggleDone('go',BD,{checked:true});
+  KNQ.recalc();
+  chk('lô D: tick ✔ Done vẫn đóng được như cũ (SAP cập nhật theo ngày)',
+      S.GO[BD].st==='done' && K(S.GO[BD].remainKg)===0);
+  KNQ.toggleDone('go',BD,{checked:false});
+
+  /* ── 13.2 CHỈ 📌 CLOSE PERIOD MỚI ĐÓNG ĐƯỢC LÔ P/X ─────────── */
+  /* ⚠ mã 260714X001 nằm trong SAP dưới Mat C3 — phải khai trên chuyến C3,
+     khai nhầm sang C4 thì _sapAt() tra không ra (SAP khớp cả Mat lẫn mã). */
+  const V3=gi('C3',{ no:'PX3', vessel:'PX SAP CODE', decl:'pxs' });
+  const B0=go(V3,{ decl:'px0', batch:'260714X001', sapKg:'3000000' });  /* SAP end = 1 172 329 */
+  KNQ.recalc();
+  captured=null;
+  KNQ.closeMonth();                       /* SAP fixture: 260714X001 end = 1 172 329 > 0 */
+  chk('đóng kỳ: lô P/X còn hàng trong SAP ⇒ MANG SANG, không đóng',
+      !S.GO[B0].pxDone && S.GO[B0].op && K(S.GO[B0].op['2026-09'])===1172329,
+      JSON.stringify(S.GO[B0].op||null));
+  chk('lô KHÔNG có số SAP ⇒ mang sang bằng số app tự tính',
+      !S.GO[B].pxDone && S.GO[B].op && S.GO[B].op['2026-09']!=null,
+      JSON.stringify(S.GO[B].op||null));
+
+  /* giờ cho SAP về 0 → đóng kỳ phải ĐÓNG hẳn lô đó */
+  S.setPeriod('2026-09'); S.setMonth('2026-09'); S.setClosed({});
+  const B9=go(V,{ decl:'px9', batch:'260901X911', sapKg:'0' });
+  KNQ.recalc();
+  captured=null;
+  KNQ.closeMonth();
+  chk('⭐ đóng kỳ: lô P/X ở mức 0 ⇒ ĐÓNG HẲN (pxDone + st=done)',
+      S.GO[B9].pxDone===true &&
+      (captured['go/'+B9+'/st']==='done' || (captured['go/'+B9]||{}).st==='done'),
+      JSON.stringify([S.GO[B9].pxDone, captured['go/'+B9+'/st']]));
+  KNQ.recalc();
+  chk('lô đã đóng kỳ thì rời hẳn bộ trừ lùi', S.GO[B9].st==='done');
+  chk('…và mở lại được đúng cách: bỏ cờ pxDone ⇒ quay lại bộ dữ liệu',
+      (S.GO[B9].pxDone=false, KNQ.recalc(), S.GO[B9].st!=='done'), S.GO[B9].st);
+
+  /* ── 13.3 D/E GIẢM DẦN QUA CÁC LẦN SYNC ⇒ ĐANG BƠM RA ─────── */
+  const BH=go(V,{ decl:'pxh', batch:'260901D911', sapKg:'3000000' });
+  S.GO[BH].sapT=2400000;
+  S.GO[BH].sapH={ '2026-08-16':3000000, '2026-08-17':2700000, '2026-08-18':2400000 };
+  KNQ.recalc();
+  chk('⭐ D/E: SAP tụt giữa hai lần quét ⇒ nhận diện ĐANG BƠM RA',
+      S.GO[BH].head===true && K(S.GO[BH].drop)===300000 && S.GO[BH].dropFrom==='2026-08-17',
+      JSON.stringify([S.GO[BH].head,K(S.GO[BH].drop),S.GO[BH].dropFrom]));
+  chk('…kèm tốc độ rút kg/ngày', K(S.GO[BH].dropRate)===300000, String(K(S.GO[BH].dropRate)));
+  S.GO[BH].sapH={ '2026-08-17':2400000, '2026-08-18':2400000 };
+  KNQ.recalc();
+  chk('SAP đứng yên ⇒ KHÔNG coi là đang bơm', !S.GO[BH].drop);
+
+  /* ── 13.4 CẢNH BÁO SẮP CẠN DƯỚI 200 TẤN ────────────────────── */
+  S.GO[BH].sapT=199999; S.GO[BH].sapH=null; KNQ.recalc();
+  chk('⭐ còn dưới 200 tấn ⇒ bật cờ sắp cạn', S.GO[BH].low===true, K(S.GO[BH].remainKg)+' kg');
+  S.GO[BH].sapT=200001; KNQ.recalc();
+  chk('trên 200 tấn ⇒ không cảnh báo', !S.GO[BH].low);
+  S.GO[BH].sapT=0; KNQ.recalc();
+  chk('cạn hẳn (0) thì KHÔNG phải "sắp cạn" nữa', !S.GO[BH].low);
+
+  KNQ.delGi(V); KNQ.delGi(V3);
+  S.setPeriod(OLD_P); S.setClosed(OLD_CL); S.setMonth(OLD_M);
 })();
 
 console.log('\n'+(fail?('❌ '+fail+' KIỂM TRA THẤT BẠI'):'✅ TẤT CẢ KIỂM TRA ĐỀU ĐẠT'));

@@ -388,3 +388,113 @@
 
 /* ── ô batch của bảng archive: lô không đọc được chữ cái ──── */
 .knq-bcell.knq-lot-n{ background:var(--panel-2);color:var(--ink-3); }
+
+/* ── dòng TỔNG TỚI D-1 ở ĐẦU bảng FEED OL1 ─────────────────── */
+.knq-tb tr.knq-tot-d1 td{ background:var(--green-soft);color:#0f5c2e; }
+.knq-tb tr.knq-tot-d1 td .sm{ color:#157a40;font-weight:700; }
+
+/* ── P/X: Actual left KHÔNG đối chiếu SAP, chỉ chú thích nguồn ── */
+.knq-sapb.ol1{ color:#6b21a8;font-weight:700; }
+
+/* ═══════════════════════════════════════════════════════════
+   v4.104 — THANH CÔNG CỤ CHIA NHÓM · BỐN THẺ TÌNH HÌNH
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── nhóm nút trên thanh công cụ ────────────────────────────
+   Trước đây 9 nút xếp một hàng liền, mắt không biết cắt ở đâu. Giờ mỗi
+   nhóm là một khối có nhãn nhỏ + nền nhạt, đọc lướt là ra việc. */
+.knq-grp{
+  display:flex;align-items:center;gap:5px;
+  padding:3px 8px 3px 7px;border-radius:8px;
+  background:var(--panel-2);border:1px solid var(--line);
+}
+.knq-glab{
+  font-size:8.5px;font-weight:900;letter-spacing:.7px;text-transform:uppercase;
+  color:var(--ink-3);padding-right:3px;border-right:1px solid var(--line);margin-right:2px;
+}
+.knq-grp input[type=month]{
+  font:inherit;font-size:11px;padding:3px 5px;border:1px solid var(--line);
+  border-radius:6px;background:var(--panel);color:var(--ink);
+}
+
+/* ── BỐN THẺ TÌNH HÌNH ──────────────────────────────────────
+   Mỗi thẻ trả lời ĐÚNG MỘT câu hỏi, viền trái có màu riêng để mắt nhận ra
+   ngay mà không cần đọc tiêu đề. */
+.knq-cards{
+  flex:0 0 auto;display:flex;flex-wrap:wrap;gap:8px;padding:0 12px 8px;align-items:stretch;
+}
+.knq-cards:empty{ display:none; }
+.knq-card{
+  flex:1 1 220px;min-width:210px;display:flex;flex-direction:column;gap:3px;
+  padding:8px 11px 9px;border-radius:9px;
+  border:1px solid var(--line);border-left:4px solid var(--ink-3);background:var(--panel);
+}
+.knq-card.stock{ border-left-color:#123a63;background:linear-gradient(180deg,#f3f7fc,var(--panel)); }
+.knq-card.pump { border-left-color:#1f9254;background:linear-gradient(180deg,#f0faf4,var(--panel));flex:2 1 320px; }
+.knq-card.ol1  { border-left-color:#6b21a8;background:linear-gradient(180deg,#f8f4fd,var(--panel)); }
+.knq-card.sap  { border-left-color:#2f6fd0;background:linear-gradient(180deg,#f2f6fd,var(--panel)); }
+.knq-card.sap.stale{ border-left-color:#c2410c;background:linear-gradient(180deg,#fdf3ec,var(--panel)); }
+
+.knq-ch{
+  display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  font-size:9.5px;font-weight:900;letter-spacing:.55px;text-transform:uppercase;color:var(--ink-2);
+}
+.knq-ch span{ font-size:9px;font-weight:800;letter-spacing:.2px;color:var(--ink-3);text-transform:none; }
+.knq-cbig{ font-size:21px;font-weight:900;line-height:1.05;color:var(--ink);font-variant-numeric:tabular-nums; }
+.knq-cbig.sm{ font-size:16px; }
+.knq-cbig u{ text-decoration:none;font-size:10px;font-weight:800;color:var(--ink-3);margin-left:5px; }
+.knq-csub{ font-size:10px;line-height:1.4;color:var(--ink-3); }
+.knq-csub b{ color:var(--ink-2);font-weight:800; }
+.knq-csub.dim{ color:var(--ink-3);opacity:.8;font-size:9px; }
+
+.knq-crow{ display:flex;flex-wrap:wrap;gap:4px;margin-top:2px; }
+.knq-tag{
+  font-size:9.5px;font-weight:800;padding:2px 6px;border-radius:999px;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--ink-2);white-space:nowrap;
+}
+.knq-tag.using{ background:var(--green-soft);border-color:#bfe6cd;color:#157a40; }
+.knq-tag.wait { background:var(--blue-soft);border-color:#cfe2f5;color:#0d4ea0; }
+.knq-tag.soon { background:var(--orange-soft);border-color:#f6d4b4;color:#a8530a; }
+.knq-tag.low  { background:#fff1e2;border-color:#f0c08a;color:#9a4a00; }
+.knq-tag.zero { background:#fde8e8;border-color:#f3c4c4;color:#a02020; }
+.knq-tag.ready{ background:#e8f1fd;border-color:#bcd6f4;color:#12518f; }
+.knq-tag.bad  { background:#fde8e8;border-color:#f3c4c4;color:#a02020; }
+
+/* ── thẻ ▶ COMING OUT NOW ───────────────────────────────────
+   Mỗi lô một viên: chấm loại lô · Mat · mã batch · còn lại · tốc độ rút
+   (D/E đo thẳng từ SAP) hoặc ngày dự kiến hết (P/X suy từ FEED OL1). */
+.knq-plist{ display:flex;flex-wrap:wrap;gap:5px;margin-top:2px; }
+.knq-pump{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 8px 3px 4px;border-radius:999px;
+  border:1px solid #bfe6cd;background:var(--panel);white-space:nowrap;
+}
+.knq-pump.low{ border-color:#f0c08a;background:#fff8f0; }
+.knq-pump .knq-lotdot{ width:15px;height:15px;font-size:9px;line-height:15px; }
+.knq-pump i{ font-style:normal;font-size:9px;font-weight:800;color:var(--ink-3); }
+.knq-pump u{ text-decoration:none;font-size:11px;font-weight:900;color:var(--ink);font-family:ui-monospace,Menlo,Consolas,monospace; }
+.knq-pump em{ font-style:normal;font-size:11px;font-weight:800;color:#157a40;font-variant-numeric:tabular-nums; }
+.knq-pump.low em{ color:#9a4a00; }
+.knq-pump s{ text-decoration:none;font-size:9px;font-weight:700;color:var(--ink-3); }
+.knq-cempty{ font-size:10px;color:var(--ink-3);font-style:italic; }
+
+/* ── thẻ ⛽ OL1 ─────────────────────────────────────────────── */
+.knq-cgrid{ display:flex;gap:14px;flex-wrap:wrap;margin:1px 0 1px; }
+.knq-cv{ display:flex;flex-direction:column;line-height:1.15; }
+.knq-cv i{ font-style:normal;font-size:8.5px;font-weight:800;letter-spacing:.2px;color:var(--ink-3); }
+.knq-cv b{ font-size:14px;font-weight:900;color:var(--ink);font-variant-numeric:tabular-nums; }
+.knq-cv u{ text-decoration:none;font-size:8.5px;font-weight:700;color:var(--ink-3); }
+.knq-cv.tot b{ color:#123a63; }
+.knq-cv.p   b{ color:#3730a3; }
+.knq-cv.x   b{ color:#6b21a8; }
+
+/* ── lô P/X: ô tick bị KHOÁ, chỉ 📌 Close period đóng được ──── */
+.knq-lock{ font-size:12px;opacity:.55;cursor:help; }
+.knq-relive{
+  font-size:8px;font-weight:800;color:#a8530a;line-height:1.1;margin-top:1px;letter-spacing:.1px;
+}
+
+/* ── sắp cạn (< 200 tấn) và tốc độ rút đo từ SAP ────────────── */
+.knq-tb td.knq-lowcell{ background:#fff6ec; }
+.knq-lowtag{ font-size:8.5px;font-weight:900;color:#9a4a00;line-height:1.2;margin-top:1px; }
+.knq-drop  { font-size:8.5px;font-weight:700;color:#157a40;line-height:1.2;margin-top:1px; }

@@ -15,7 +15,7 @@
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
 <link rel="stylesheet" href="css/alloc.css?v=468"><!-- Allocation planner (LPG Sales) — link ACTIVE -->
-<link rel="stylesheet" href="css/knq.css?v=499"><!-- KNQ XNK kho ngoại quan (Reports) — link ACTIVE -->
+<link rel="stylesheet" href="css/knq.css?v=4104"><!-- KNQ XNK kho ngoại quan (Reports) — link ACTIVE -->
 <!-- ⚠ BẪY: khối dưới đây là COMMENT — mọi <link> trong nó KHÔNG được nạp.
      Toàn bộ app CSS thực sự nằm trong core.css. Khi thêm style mới thì viết
      vào core.css, ĐỪNG thêm link ở đây rồi tưởng là đã nạp (v4.82 dính đúng
@@ -2343,9 +2343,9 @@
                  phần hàng trong ống → tốn thêm chỗ trong bồn. Bỏ tick = tính
                  như cũ (chỉ chỉnh phần hàng còn lại trong bồn). -->
             <div class="spp-circ">
-              <label class="spp-circ-chk" title="Ô này chỉ tính cho BƯỚC SAU: đưa bồn về tỉ lệ thường sau khi bán xong lô đặc biệt.&#10;KHÔNG trùng với tuần hoàn của ★ MIX TỈ LỆ ĐẶC BIỆT ngoài panel — panel lo lúc TRỘN (ống đang chứa hàng tỉ lệ CŨ), ô này lo lúc HỒI PHỤC (trộn xong ống chứa hàng tỉ lệ ĐẶC BIỆT).&#10;CÓ (mặc định): hàng trong ống cũng phải kéo về tỉ lệ thường → tốn thêm chỗ → MAX SAFE MIX nhỏ hơn, an toàn hơn.&#10;KHÔNG: chỉ chỉnh phần hàng nằm trong bồn.">
+              <label class="spp-circ-chk" title="Mẻ trộn theo plan này có chạy tuần hoàn qua đường ống hay không.&#10;CÓ (mặc định): phần hàng tỉ lệ cũ/đặc biệt trong ống cũng phải được chỉnh về tỉ lệ thường → MAX SAFE MIX nhỏ hơn (an toàn hơn).&#10;KHÔNG: chỉ chỉnh phần hàng trong bồn.">
                 <input type="checkbox" id="spp-circ" checked onchange="MC.spPlanCalc()">
-                <span>🔁 CÓ TUẦN HOÀN ỐNG KHI ĐƯA BỒN VỀ TỈ LỆ THƯỜNG</span>
+                <span>🔁 CÓ TUẦN HOÀN ĐƯỜNG ỐNG (hàng tỉ lệ cũ trong ống)</span>
               </label>
               <div class="spp-circ-fld">
                 <span class="spp-circ-lbl">PIPE VOL (m³)</span>
@@ -2360,8 +2360,8 @@
                 <input class="spp-inp" id="spp-special" type="text" inputmode="decimal" oninput="MC.spPlanCalc()" data-lbl="SPECIAL RATIO C3 %" onblur="MC.chkInp(this,'pct')">
               </div>
               <div class="spp-fld">
-                <div class="spp-lbl" title="Tỉ lệ thương mại thường mà bồn phải quay về sau khi bán xong lô đặc biệt. Mặc định 55 %.">NORMAL RATIO C3 %</div>
-                <input class="spp-inp" id="spp-norm" type="text" inputmode="decimal" value="55" oninput="MC.spPlanCalc()" data-lbl="NORMAL RATIO C3 %" onblur="MC.chkInp(this,'pct')">
+                <div class="spp-lbl" title="The normal commercial ratio the tank must return to after the special sale (typically 53–54)">NORMAL RATIO C3 %</div>
+                <input class="spp-inp" id="spp-norm" type="text" inputmode="decimal" value="53.5" oninput="MC.spPlanCalc()" data-lbl="NORMAL RATIO C3 %" onblur="MC.chkInp(this,'pct')">
               </div>
               <div class="spp-fld">
                 <div class="spp-lbl" title="Planned special-product sales in tons">SALE PLAN (ton)</div>
@@ -3446,22 +3446,41 @@
          ✔ Done = đã bơm xong VÀ đã khai VASSCM ⇒ Actual left ép về 0. 16 cột. -->
     <div class="rpt-pg" id="rpt-pg-knq" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
 
+      <!-- ═══ THANH CÔNG CỤ (v4.104) — CHIA THEO VIỆC, KHÔNG PHẢI MỘT HÀNG
+           NÚT DÀI. Bốn nhóm có nhãn: PERIOD (kỳ) · DECLARE (khai báo) ·
+           SAP · DATA. Dải chip cũ đã dời hẳn xuống #knq-cards. ═══ -->
       <div class="knq-bar">
-        <div class="knq-cfg"><label>Run-down period</label>
-          <input type="month" id="knq-month" onchange="KNQ.onMonth()" title="The month whose FEED OL1 figures are used for the run-down. The batch table itself is NEVER filtered by month."></div>
-        <button class="knq-btn accent" id="knq-close" onclick="KNQ.closeMonth()">📌 Close period</button>
-        <span class="knq-sep"></span>
-        <button class="knq-btn primary" onclick="KNQ.addGi('C3')" title="Declare a new C3 vessel (Get In row)">➕ Get In C3</button>
-        <button class="knq-btn primary" onclick="KNQ.addGi('C4')" title="Declare a new C4 vessel (Get In row)">➕ Get In C4</button>
-        <button class="knq-btn accent" onclick="KNQ.openOl1()" title="Open the daily OL1 feed table (P / X) — the source of the P and X run-down">⛽ FEED OL1</button>
-        <button class="knq-btn primary" onclick="KNQ.pullSap()" title="Read the SAP tab for the End Stock of YESTERDAY (SAP closes one day late, and today is still being pumped). D/E batches get it written straight into Actual left; P/X batches are compared only — they keep running down on FEED OL1.">⬇ Sync from SAP (D-1)</button>
-        <button class="knq-btn primary" onclick="KNQ.fillSapQty()" title="Fill the SAP qty column from the SAP End Stock of yesterday, matched on batch code. Empty cells are filled automatically; cells that already hold a different figure are only overwritten if you confirm.">⇐ SAP qty from SAP</button>
-        <div class="knq-stats" id="knq-stats"></div>
+        <div class="knq-grp">
+          <span class="knq-glab">Period</span>
+          <input type="month" id="knq-month" onchange="KNQ.onMonth()" title="The open period — the month whose FEED OL1 figures drive the run-down. The batch table itself is NEVER filtered by month.">
+          <button class="knq-btn accent" id="knq-close" onclick="KNQ.closeMonth()">📌 Close</button>
+          <button class="knq-btn" id="knq-arch-btn" onclick="KNQ.openArch()" title="Open a period that has already been closed, read-only. Closed periods stay on Firebase for the record but are no longer downloaded to the machines.">📜 Archive</button>
+        </div>
+        <div class="knq-grp">
+          <span class="knq-glab">Declare</span>
+          <button class="knq-btn primary" onclick="KNQ.addGi('C3')" title="Declare a new C3 vessel (Get In row)">➕ C3</button>
+          <button class="knq-btn primary" onclick="KNQ.addGi('C4')" title="Declare a new C4 vessel (Get In row)">➕ C4</button>
+          <button class="knq-btn accent" onclick="KNQ.openOl1()" title="Open the daily OL1 feed table — the source of the whole P and X run-down">⛽ FEED OL1</button>
+        </div>
+        <div class="knq-grp">
+          <span class="knq-glab">SAP</span>
+          <button class="knq-btn primary" id="knq-sap-btn" onclick="KNQ.pullSap()">⬇ Sync SAP</button>
+          <button class="knq-btn" onclick="KNQ.fillSapQty()" title="Fill the SAP qty column from the SAP End Stock of yesterday, matched on batch code. Empty cells are filled automatically; a cell that already holds a different figure is only overwritten if you confirm.">⇐ SAP qty</button>
+        </div>
         <div class="spacer"></div>
-        <button class="knq-btn accent" onclick="KNQ.loadOld()" title="Load the rows already ticked Done so you can review them">📂 Load archived</button>
-        <button class="knq-btn" id="knq-save" onclick="KNQ.save()">💾 Save</button>
-        <button class="knq-btn success" onclick="KNQ.exportXlsx()">📤 Export</button>
+        <div class="knq-grp">
+          <span class="knq-glab">Data</span>
+          <span class="knq-sync" id="knq-sync"></span>
+          <button class="knq-btn" id="knq-save" onclick="KNQ.save()" title="Push straight away. Every change is pushed to Firebase automatically about 1.5 s after you stop typing and lands on the other machines, so this button is only a “send it now”.">💾 Save</button>
+          <button class="knq-btn" onclick="KNQ.loadOld()" title="Also load the rows already closed, so you can review them">📂 Closed rows</button>
+          <button class="knq-btn success" onclick="KNQ.exportXlsx()">📤 Export</button>
+        </div>
       </div>
+
+      <!-- ═══ BỐN THẺ TÌNH HÌNH (v4.104) — thay dải chip + 3 cụm tổng cũ.
+           Mỗi thẻ trả lời đúng MỘT câu hỏi: còn bao nhiêu · đang bơm lô nào ·
+           kỳ này dùng bao nhiêu · số SAP mới tới đâu. ═══ -->
+      <div class="knq-cards" id="knq-cards"></div>
 
       <!-- ═══ THANH LỌC (v4.97) — đơn vị quản lý là BATCH nên lọc ở mức dòng
            GET OUT; chuyến nào không còn batch lọt lưới thì ẩn cả chuyến.
@@ -3571,6 +3590,32 @@
       </div>
 
       <!-- ═══ MODAL — ⛽ FEED OL1 (lượng dùng P / X hằng ngày) ═══ -->
+      <!-- ═══ 📜 ARCHIVE (v4.102) — KỲ ĐÃ ĐÓNG, CHỈ ĐỌC ═══════════════
+           Kỳ đã đóng vẫn nằm nguyên trên Firebase (knq_bonded/periods/<kỳ>)
+           nhưng KHÔNG còn được tải về / đồng bộ về máy. Hộp này đọc thẳng
+           node đó một lần khi người dùng chọn kỳ. ═══ -->
+      <div class="knq-modal" id="knq-arch">
+        <div class="knq-modal-box wide">
+          <div class="knq-modal-h">
+            <b>📜 Closed period — read-only archive</b>
+            <button class="knq-x" onclick="KNQ.closeArch()" title="Close">✕</button>
+          </div>
+          <div class="knq-modal-c">
+            <div class="knq-frow">
+              <label>Period</label>
+              <select id="knq-arch-m" onchange="KNQ.loadArch()"></select>
+              <button class="knq-btn" onclick="KNQ.loadArch()" title="Read this period again from Firebase">↻ Reload</button>
+              <span class="knq-sep"></span>
+              <span class="knq-dim">Snapshot taken the moment 📌 Close period was pressed: opening balance, used in period, actual left, the SAP End Stock that decided the carry-over, and the FEED OL1 totals of that month.</span>
+            </div>
+            <div id="knq-arch-body"></div>
+          </div>
+          <div class="knq-modal-f">
+            <button class="knq-btn" onclick="KNQ.closeArch()">Close</button>
+          </div>
+        </div>
+      </div>
+
       <div class="knq-modal" id="knq-ol1">
         <div class="knq-modal-box wide">
           <div class="knq-modal-h">
@@ -4517,7 +4562,7 @@
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>
 <script src="js/features/mthr.js"></script>
-<script src="js/features/knq.js?v=499"></script><!-- v4.99 — KNQ chốt số theo NGÀY HÔM QUA (D-1): trừ lùi thực dừng ở hôm qua, hôm nay trở đi là dự báo; ⬇ Sync from SAP lấy End Stock đúng ngày D-1 cho cả 4 loại lô; ⇐ SAP qty from SAP; ✓/Δ khớp SAP; dải cảnh báo #knq-alerts -->
+<script src="js/features/knq.js?v=4104"></script><!-- v4.104 — ⭐ SỬA LỖI NẶNG: tick ✔ Done trên lô P/X từng đóng lô + ép Actual left=0 + không tải về nữa dù SAP còn hàng (5 lô, 13.695.432 kg bị mất khỏi bộ trừ lùi) — nay P/X KHOÁ ô tick, chỉ 📌 Close period đóng được khi End Stock SAP ngày cuối kỳ = 0; _rescuePX() kéo lại lô bị đóng nhầm; D/E lưu sapH theo ngày để biết lô nào ĐANG bơm ra + cảnh báo dưới 200 T; giao diện gom thành 4 thẻ #knq-cards, thanh công cụ chia nhóm · v4.103 — TỔNG FEED OL1 (thực tới D-1 + cả kỳ kèm plan) ra ngoài màn hình chính #knq-ol1sum, dòng TOTAL của modal OL1 chuyển lên đầu bảng; GỠ cảnh báo "P/X không khớp SAP" (SAP khai P/X 1 tháng/lần nên lệch là đương nhiên) — chỉ D/E mới đối chiếu; D/E tự quét lại SAP khi mở tab nếu chưa có số D-1; dấu thời gian quét SAP lưu ở meta/sapSync, hiện trên thanh công cụ · v4.102 — KNQ đồng bộ THẬT nhiều máy: gi/go/use gắn listener realtime + tự đẩy sau 1,5s (💾 Save chỉ là đẩy ngay); con trỏ kỳ knq_bonded/meta/curPeriod dùng chung, kỳ đã đóng lưu ở periods/<YYYY-MM> và NGỪNG đồng bộ về máy (xem bằng 📜 Archive); 📌 Close period đọc End Stock SAP tại NGÀY CUỐI KỲ (không phải D-1, vì SAP lô P/X chậm vài ngày) và đè vào tồn đầu kỳ mới cho cả 4 loại lô; quá hạn đóng kỳ thì banner đỏ + vẫn trừ lùi tiếp bằng OL1 tháng mới -->
 <script src="js/features/inv.js?v=4.75"></script>
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
