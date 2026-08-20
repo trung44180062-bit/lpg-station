@@ -1191,8 +1191,6 @@
                     title="The daily OL1 usage table — the source of the whole P and X run-down">⛽ FEED OL1</button>
             <button class="bond-btn" onclick="BOND.exportXlsx()"
                     title="Export the whole table to Excel. Keep that file — it is the signed-off record of the period.">📤 Export</button>
-            <button class="bond-btn" onclick="BOND.migrate()"
-                    title="Run this ONCE: read the old KNQ tab and copy vessel name, voyage number and declaration numbers across, matched on batch code. Cells that already hold something are left alone, and nothing in the old tab is deleted.">🔁 Import from old KNQ tab</button>
           </div>
           <!-- ═══ THANH LỌC (v4.106) — như tab KNQ cũ, AND với nhau.
                ⚠ Thẻ thống kê vẫn tính trên TOÀN BỘ lô, không theo phần đang
@@ -1272,7 +1270,17 @@
               </select>
               <button class="bond-btn" onclick="BOND.addUseRow()">➕ Add day</button>
               <button class="bond-btn" onclick="BOND.fillMonth()">📅 Fill month</button>
+              <span class="bond-sep"></span>
+              <!-- v4.108 — nạp cột X từ file kế hoạch. App tự ghép ACTUAL tới
+                   ngày đầu tiên thiếu số, từ đó trở đi lấy PLAN. -->
+              <button class="bond-btn accent" onclick="BOND.pickFile()"
+                      title="Read the X column (actual + plan) from an Excel file. The app takes ACTUAL up to the first day with no figure, then PLAN from there on.">📥 Import Excel</button>
+              <button class="bond-btn" onclick="BOND.pasteOpen()"
+                      title="Paste a whole table copied from Excel instead of picking a file">📋 Paste Excel</button>
+              <input type="file" id="bondOl1File" accept=".xlsx,.xls,.csv"
+                     style="display:none" onchange="BOND.fileChosen(this)">
             </div>
+            <div id="bondOl1Imp" style="display:none"></div>
             <div class="bond-ol1-wrap">
               <table class="bond-ol1">
                 <thead>
@@ -1281,6 +1289,7 @@
                     <th>TOTAL P+X (<span id="bondOl1UnitH">MT</span>)</th>
                     <th>X — Export Petchem</th>
                     <th>P = TOTAL − X</th>
+                    <th style="width:76px" title="Where the X figure came from: Actual / Plan from the imported file, or Keyed by hand">Source</th>
                     <th>Note</th>
                     <th style="width:44px"></th>
                   </tr>

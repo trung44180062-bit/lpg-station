@@ -69,6 +69,33 @@
  *    Đây chính là chỗ đã sót ở bản đầu — bảng OL1 mất mức tạm tính nên
  *    không dự đoán được ngày bơm xong cho P/X.
  *
+ * ⚠ ĐANG LÀM VIỆC Ở ĐÂU THÌ MÀN HÌNH PHẢI Ở NGUYÊN ĐÓ (v4.107 — đã dính)
+ *    Bản đầu: mỗi lần gõ một ô hay tick VAS đều `replaceData` cả bảng ⇒
+ *    Tabulator dựng lại toàn bộ dòng ⇒ NHẢY VỀ ĐẦU. Đang sửa lô thứ 25 mà
+ *    cứ gõ xong một ô lại phải cuộn xuống tìm lại — rất dễ gõ nhầm sang
+ *    dòng khác. Cách chữa, hai tầng:
+ *      ① `_refill()` so CHỮ KÝ bộ dòng. Không đổi ⇒ `updateData()` sửa đúng
+ *         ô trong DOM sẵn có, không đụng vị trí cuộn. Chỉ khi bộ dòng THỰC
+ *         SỰ đổi (lọc, đổi kỳ, dán SAP mới) mới `replaceData`.
+ *      ② Cả hai đường đều lưu/trả `scrollTop` + `scrollLeft` của
+ *         `.tabulator-tableholder` — bảng rộng nên phải giữ cả cuộn ngang.
+ *    ⚠ `updateData()` KHÔNG chạy lại rowFormatter ⇒ phải gọi `_paintAll()`,
+ *    không thì tick VAS xong dòng vẫn giữ màu cũ.
+ *    Bảng FEED OL1 dính y hệt (dựng lại cả <tbody>): giữ chỗ cuộn + ô đang
+ *    đứng qua `data-u="<ngày>|<cột>"`, nếu không Tab qua 31 ngày là mất ô.
+ *
+ * ⭐ v4.108 — FEED OL1 NHẬN SỐ X TỪ FILE KẾ HOẠCH
+ *    📥 Import Excel / 📋 Paste Excel. App tự chấm điểm tiêu đề cột để tách
+ *    cột ACTUAL và cột PLAN (file KH tiếng Hàn), rồi GHÉP: lấy ACTUAL tới
+ *    ngày đầu tiên thiếu số, từ đó trở đi lấy PLAN và KHÔNG quay lại actual.
+ *    Mỗi ngày mang cờ nguồn `xs`: 'a' actual · 'p' plan · 'm' người dùng gõ.
+ *    ⚠ Ngày `xs==='m'` KHÔNG bị import đè (trừ khi tích "overwrite").
+ *    ⚠ Cột **Source** trong bảng OL1 hiện đúng ba nhãn đó — người dùng phải
+ *    nhìn ra ngay đâu là số THẬT, đâu là số KẾ HOẠCH, vì cả Actual left lẫn
+ *    Empty by đều đứng trên nó. Ngày ĐÃ QUA mà còn cờ 'p' ⇒ dải cảnh báo
+ *    nhắc import actual, vì trừ lùi đang chạy trên số kế hoạch.
+ *    Số plan gốc luôn giữ ở `xp` để đối chiếu, import bao nhiêu lần cũng vậy.
+ *
  * ⚠ NÚT XOÁ DÒNG PHẢI GHIM TRÁI. Bảng 22 cột, để ✕ ở tận cùng bên phải là
  *    người dùng không bao giờ nhìn thấy (đã dính một lần).
  *
@@ -138,6 +165,9 @@ const BOND = (function(){
   let _rows=[];                  /* kết quả recalc gần nhất (ĐÃ lọc)         */
   let _all=[];                   /* trước khi lọc — dùng cho thẻ thống kê    */
   let _olUnit='T';
+  let _imp=null;                 /* bảng thô vừa đọc từ file Excel / ô dán  */
+  let _wb=null;                  /* workbook đang mở (để đổi sheet)         */
+  let _paste=false;              /* đang mở ô dán từ Excel                  */
   let _sapDay='', _sapBehind=false;
   /* ⭐ ẢNH CHỤP NGÀY LIỀN TRƯỚC (D-2) — dùng để nhận ra LÔ MỚI: mã batch
      chưa có ở ngày trước mà nay đã có (và cột GR dương) = hàng vừa nhập kho. */
@@ -188,6 +218,13 @@ const BOND = (function(){
   function _K(v){ return (v==null||!isFinite(v)) ? '' : Math.round(v).toLocaleString('en-US'); }
   function _T(v){ return (v==null||!isFinite(v)) ? '' :
     (v/1000).toLocaleString('en-US',{maximumFractionDigits:1}); }
+  function _op(list,cur,blank){
+    let h=blank?('<option value="">'+blank+'</option>'):'';
+    (list||[]).forEach(o=>{ const val=(o.v!==undefined)?o.v:o, lbl=(o.l!==undefined)?o.l:o;
+      h+='<option value="'+_esc(val)+'"'+(String(val)===String(cur==null?'':cur)?' selected':'')+
+         '>'+_esc(lbl)+'</option>'; });
+    return h;
+  }
   function _who(){ try{ return (typeof CURRENT_USER!=='undefined' && CURRENT_USER && CURRENT_USER.name)
     ? CURRENT_USER.name : ''; }catch(_){ return ''; } }
   function _stamp(){ const d=new Date(), z=n=>String(n).padStart(2,'0');
@@ -371,12 +408,15 @@ const BOND = (function(){
   function _ol1Sum(){
     const M=_month||_ym(_asOf());
     const from=M+'-01', to=(_sapDay||_wantDay());
-    const o={ t:0,x:0,p:0,n:0,def:0,miss:[] };
+    const o={ t:0,x:0,p:0,n:0,def:0,miss:[],plan:[] };
     for(let d=from; d && d<=to; d=_addDays(d,1)){
       const u=USE[d];
       if(!u){ o.miss.push(d); continue; }
       const raw=_totOf(u), dfl=(raw==null), tot=dfl?DEF_TOT_KG:raw, x=_xOf(u);
       o.n++; if(dfl) o.def++;
+      /* ⭐ ngày ĐÃ QUA mà ô X vẫn mang cờ PLAN ⇒ chưa import số thực hiện.
+         Trừ lùi vẫn chạy trên số đó, nên phải nói ra chứ không để im. */
+      if(String(u.xs||'')==='p' && _num(u.x)!=null) o.plan.push(d);
       o.t+=tot; o.x+=x; o.p+=Math.max(0,tot-x);
     }
     return o;
@@ -937,92 +977,159 @@ const BOND = (function(){
     return C;
   }
 
+  /* ⭐ MÀU DÒNG mang HAI tầng thông tin cùng lúc:
+       · thanh rail bên trái = LOẠI LÔ (P chàm · X tím · D mòng két · E hổ phách)
+       · nền dòng            = TÌNH TRẠNG (đang bơm nổi lên, đã xong mờ đi)
+     Tách hẳn ra hàm riêng để còn gọi lại sau updateData() — cập nhật tại chỗ
+     KHÔNG chạy lại rowFormatter, không gọi thì tick VAS xong dòng vẫn giữ
+     màu cũ. */
+  function _paintRow(row){
+    try{
+      const d=row.getData(), el=row.getElement();
+      [...el.classList].forEach(c=>{ if(/^bond-(r|lot)-/.test(c)) el.classList.remove(c); });
+      if(d.st) el.classList.add('bond-r-'+d.st);
+      el.classList.add('bond-lot-'+String(d.letter||'none').toLowerCase());
+      if(d.soon)   el.classList.add('bond-r-soon');
+      if(d.isNew)  el.classList.add('bond-r-isnew');
+      if(d.noInfo) el.classList.add('bond-r-noinfo');
+    }catch(_){}
+  }
+  function _paintAll(){ try{ _table.getRows().forEach(_paintRow); }catch(_){} }
+
+  /* ── GIỮ NGUYÊN CHỖ ĐANG LÀM VIỆC ───────────────────────────
+     ⚠ LỖI ĐÃ DÍNH: mỗi lần gõ một ô hay tick VAS là bảng bị replaceData,
+     Tabulator dựng lại toàn bộ dòng ⇒ NHẢY VỀ ĐẦU BẢNG. Đang sửa lô thứ 25
+     mà mỗi lần gõ lại phải cuộn xuống tìm lại — vừa khó chịu vừa dễ gõ nhầm
+     sang dòng khác.
+     Phần tử cuộn thật của Tabulator v6 là .tabulator-tableholder; giữ cả
+     scrollTop lẫn scrollLeft vì bảng này rộng, người dùng hay đang cuộn ngang. */
+  function _holder(){
+    try{ const g=_el('bondGrid'); return g?g.querySelector('.tabulator-tableholder'):null; }
+    catch(_){ return null; }
+  }
+  function _posSave(){ const h=_holder(); return h?{ t:h.scrollTop, l:h.scrollLeft }:null; }
+  function _posLoad(p){
+    if(!p) return; const h=_holder(); if(!h) return;
+    if(p.t) h.scrollTop=p.t;
+    if(p.l) h.scrollLeft=p.l;
+  }
+
+  let _keys='';                  /* chữ ký bộ dòng của lần vẽ gần nhất */
+  function _sig(rows){ return rows.map(r=>r.key).join('|'); }
+
   function _build(){
     const host=_el('bondGrid'); if(!host) return;
     if(typeof Tabulator==='undefined'){ host.innerHTML='<div class="bond-empty">Tabulator is not loaded</div>'; return; }
+    const pos=_posSave();
     if(_table){ try{ _table.destroy(); }catch(_){} _table=null; }
     _table=new Tabulator('#bondGrid',{
       data:_rows, layout:'fitDataStretch', height:'100%', index:'key',
       columns:_columns(),
       placeholder:'No batch yet — paste a ZMMFR022 export under “📊 Raw SAP”, then come back here',
-      /* ⭐ MÀU DÒNG mang HAI tầng thông tin cùng lúc:
-           · thanh rail bên trái = LOẠI LÔ (P chàm · X tím · D mòng két · E hổ phách)
-           · nền dòng            = TÌNH TRẠNG (đang bơm nổi lên, đã xong mờ đi) */
-      rowFormatter:row=>{
-        const d=row.getData(), el=row.getElement();
-        [...el.classList].forEach(c=>{ if(/^bond-(r|lot)-/.test(c)) el.classList.remove(c); });
-        if(d.st) el.classList.add('bond-r-'+d.st);
-        el.classList.add('bond-lot-'+String(d.letter||'none').toLowerCase());
-        if(d.soon)   el.classList.add('bond-r-soon');
-        if(d.isNew)  el.classList.add('bond-r-isnew');
-        if(d.noInfo) el.classList.add('bond-r-noinfo');
-      }
+      rowFormatter:_paintRow
     });
     _table.on('cellEdited',cell=>{
       const d=cell.getRow().getData();
       setInfo(d.key,cell.getField(),cell.getValue());
     });
+    _table.on('tableBuilt',()=>{ _posLoad(pos); });
+    _keys=_sig(_rows);
   }
+
+  /* ⭐ CẬP NHẬT TẠI CHỖ khi bộ dòng KHÔNG đổi.
+     Gõ một ô, tick VAS, hay số SAP nhích một chút — bộ dòng vẫn y nguyên,
+     nên chỉ cần updateData(): Tabulator sửa đúng ô trong DOM sẵn có, không
+     dựng lại bảng, không đụng vị trí cuộn.
+     Chỉ khi bộ dòng THỰC SỰ đổi (lọc, đổi kỳ, dán SAP mới, lô mới xuất hiện)
+     mới replaceData — và ngay cả lúc đó vẫn trả người dùng về đúng chỗ cũ. */
   function _refill(){
     if(!_table){ _build(); return; }
-    try{ _table.replaceData(_rows); }catch(_){ _build(); }
+    const sig=_sig(_rows), pos=_posSave();
+    if(sig===_keys){
+      try{
+        const r=_table.updateData(_rows);
+        if(r && r.then) r.then(()=>{ _paintAll(); _posLoad(pos); })
+                         .catch(()=>{ _hardFill(pos,sig); });
+        else { _paintAll(); _posLoad(pos); }
+        return;
+      }catch(_){ /* rơi xuống đường vẽ lại */ }
+    }
+    _hardFill(pos,sig);
+  }
+  function _hardFill(pos,sig){
+    _keys=sig||_sig(_rows);
+    try{
+      const r=_table.replaceData(_rows);
+      if(r && r.then) r.then(()=>_posLoad(pos)); else _posLoad(pos);
+    }catch(_){ _build(); }
   }
 
   /* ============================================================
      THẺ THỐNG KÊ + DẢI CẢNH BÁO
   ============================================================ */
+  /* ⭐ v4.107 — BỐN THẺ, MỖI THẺ TRẢ LỜI ĐÚNG MỘT CÂU HỎI
+     ------------------------------------------------------------
+     Đã BỎ hai thẻ "IN BONDED WAREHOUSE" và "P+X RUN DOWN ON OL1": tổng tồn
+     kho đã nằm sẵn ở cột Actual left của bảng, bày thêm một lần nữa chỉ tổ
+     chiếm chỗ. Bốn thẻ còn lại đều là thứ KHÔNG đọc được từ bảng:
+       ⏳ lô nào sắp hết trước · ⛽ kỳ này đã dùng bao nhiêu
+       🔗 số SAP mới tới đâu   · 🚩 còn việc gì phải làm
+     Ít thẻ hơn ⇒ mỗi thẻ rộng ra ⇒ chữ to lên được. Dòng phụ tách làm hai
+     tầng: tầng NỔI cho thứ cần đọc lướt (mã batch, ngày hết), tầng mờ cho
+     phần diễn giải.  */
   function _renderCards(){
     const box=_el('bondCards'); if(!box) return;
     if(!_cardsOpen){ box.innerHTML=''; box.style.display='none'; return; }
     box.style.display='';
     const M=_month||_ym(_asOf());
     const o=_ol1Sum();
-    const live=_all.filter(r=>r.inSap && _n(r.left)>0.5);
-    const byMat={};
-    MATS.forEach(m=>{ byMat[m]=live.filter(r=>r.mat===m).reduce((a,r)=>a+_n(r.left),0); });
-    const px=live.filter(r=>_isPX(r.letter)).reduce((a,r)=>a+_n(r.left),0);
-    const de=live.filter(r=>!_isPX(r.letter)).reduce((a,r)=>a+_n(r.left),0);
     const nNew =_all.filter(r=>r.noInfo && r.inSap).length;
     const nGone=_all.filter(r=>r.st==='gone').length;
     const nZero=_all.filter(r=>r.st==='emptied').length;
     const nLow =_all.filter(r=>r.low).length;
-    const card=(cls,head,big,unit,sub)=>
+    /* lead = dòng NỔI (to, đậm) · foot = dòng diễn giải (nhỏ, mờ) */
+    const card=(cls,head,big,unit,lead,foot)=>
       '<div class="bond-card '+cls+'"><div class="bond-ch">'+head+'</div>'+
-      '<div class="bond-cb">'+big+'<u>'+unit+'</u></div><div class="bond-cs">'+sub+'</div></div>';
+      '<div class="bond-cb">'+big+(unit?('<u>'+unit+'</u>'):'')+'</div>'+
+      (lead?('<div class="bond-cl">'+lead+'</div>'):'')+
+      (foot?('<div class="bond-cs">'+foot+'</div>'):'')+'</div>';
     box.innerHTML=
-      card('stock','🛢 IN BONDED WAREHOUSE<span>'+M+'</span>',
-        _T(byMat.C3+byMat.C4),'T',
-        'C3 '+_T(byMat.C3)+' T · C4 '+_T(byMat.C4)+' T · '+live.length+' batch(es) still holding')+
-      card('split','⚖ P+X RUN DOWN ON OL1 · D+E FROM SAP',
-        _T(px),'T',
-        'P+X '+_T(px)+' T · D+E '+_T(de)+' T')+
       (function(){
         /* ⭐ DỰ BÁO — lô nào sắp hết trước, còn mấy ngày. Đây là câu hỏi
-           điều độ hỏi mỗi sáng: bao giờ phải có lô tiếp theo. */
+           điều độ hỏi mỗi sáng: bao giờ phải có lô tiếp theo.
+           Mã batch và ngày hết là HAI THỨ PHẢI ĐỌC ĐƯỢC TỪ XA, nên cho lên
+           dòng nổi riêng chứ không nhét chung một chuỗi dài. */
         const q=_all.filter(r=>r.projected && r.etaDays!=null && _isPX(r.letter))
                     .sort((a,b)=>a.etaDays-b.etaDays);
-        const soon=q.filter(r=>r.etaDays<=WARN_DAYS);
         if(!q.length) return '';
+        const soon=q.filter(r=>r.etaDays<=WARN_DAYS);
         const f=q[0];
         return card('eta'+(soon.length?' hot':''),'⏳ RUNNING OUT FIRST',
           (f.etaDays<=0?'today':f.etaDays),(f.etaDays<=0?'':'days'),
-          f.mat+' '+f.letter+' '+_esc(f.bcode)+' · ≈ '+_dmy(f.eta)+
-          (soon.length>1?(' · '+soon.length+' batch(es) empty within '+WARN_DAYS+' days'):''));
+          '<span class="bond-tag-lot l-'+String(f.letter).toLowerCase()+'">'+
+            _esc(f.mat)+' '+_esc(f.letter)+'</span>'+
+          '<b class="bond-bignum">'+_esc(f.bcode)+'</b>'+
+          '<b class="bond-bigdate">≈ '+_dmy(f.eta)+'</b>',
+          _K(f.left)+' kg left'+
+          (soon.length>1?(' · '+soon.length+' batches empty within '+WARN_DAYS+' days'):''));
       })()+
       card('ol1','⛽ FEED OL1 USED<span>'+_dmy(M+'-01')+' → '+_dmy(_sapDay||_wantDay())+'</span>',
         _T(o.t),'T',
-        'P '+_T(o.p)+' T · X '+_T(o.x)+' T · '+o.n+' days'+
-        (o.def?(' · ⚠ '+o.def+' assumed'):''))+
+        '<b>P '+_T(o.p)+'</b><span class="bond-cx">T</span>'+
+        '<b>X '+_T(o.x)+'</b><span class="bond-cx">T</span>',
+        o.n+' days'+(o.def?(' · ⚠ '+o.def+' on the assumed rate'):''))+
       card('sap','🔗 SAP FIGURES IN USE',
         _dmy(_sapDay)||'—','',
-        (_sapBehind?'⚠ nothing for '+_dmy(_wantDay())+' yet — using an older day':'on the D-1 mark')+
-        ' · '+_all.length+' batch(es)')+
+        '<b class="bond-bignum">'+_all.length+' batches</b>',
+        _sapBehind?('⚠ nothing for '+_dmy(_wantDay())+' yet — using an older day')
+                  :'on the D-1 mark')+
       (nNew+nGone+nZero+nLow
         ? card('flags','🚩 NEEDS ATTENTION', String(nNew+nGone+nZero+nLow),'',
-            [nGone?('⛔ '+nGone+' gone from SAP'):'',
-             nZero?('◍ '+nZero+' empty, no VASSCM'):'',
-             nNew ?('✎ '+nNew+' missing details'):'',
-             nLow ?('⚠ '+nLow+' running low'):''].filter(Boolean).join(' · '))
+            [nGone?('<b class="bond-need bad">⛔ '+nGone+' gone from SAP</b>'):'',
+             nZero?('<b class="bond-need warn">◍ '+nZero+' empty, no VASSCM</b>'):'',
+             nNew ?('<b class="bond-need warn">✎ '+nNew+' missing details</b>'):'',
+             nLow ?('<b class="bond-need warn">⚠ '+nLow+' running low</b>'):''
+            ].filter(Boolean).join(''),'')
         : '');
   }
   function _renderAlerts(){
@@ -1056,6 +1163,12 @@ const BOND = (function(){
     if(o.def)
       out.push(['warn','<b>'+o.def+' day(s) have no TOTAL P+X keyed in</b> — they run on the assumed '+
         _K(DEF_TOT_KG)+' kg/day, so “used” for P/X is an estimate, not the real figure. '+
+        '<button class="bond-btn" onclick="BOND.openOl1()">⛽ Open FEED OL1</button>']);
+    if(o.plan.length)
+      out.push(['warn','<b>'+o.plan.length+' day(s) already past are still running on PLAN figures</b> ('+
+        o.plan.slice(0,6).map(_dmy).join(', ')+(o.plan.length>6?(' …+'+(o.plan.length-6)):'')+
+        ') — the run-down is using the planned X, not what really went out. Import the actual '+
+        'column with <b>📥 Import Excel</b> in FEED OL1. '+
         '<button class="bond-btn" onclick="BOND.openOl1()">⛽ Open FEED OL1</button>']);
     const soon=_all.filter(r=>r.soon).sort((a,b)=>a.etaDays-b.etaDays);
     if(soon.length)
@@ -1096,9 +1209,12 @@ const BOND = (function(){
   function openOl1(){
     const m=_el('bondOl1'); if(m) m.classList.add('on');
     const s=_el('bondOl1Month'); if(s) s.value=_month||_ym(_asOf());
-    _renderUse();
+    _renderUse(); _renderImp();
   }
-  function closeOl1(){ const m=_el('bondOl1'); if(m) m.classList.remove('on'); }
+  function closeOl1(){
+    const m=_el('bondOl1'); if(m) m.classList.remove('on');
+    _imp=null; _paste=false; _renderImp();
+  }
   function onOl1Month(){ _renderUse(); }
   function onOl1Unit(){ const s=_el('bondOl1Unit'); _olUnit=(s&&s.value)||'T'; _renderUse(); }
   function _olM(){ const s=_el('bondOl1Month'); return (s&&s.value)||_month||_ym(_asOf()); }
@@ -1112,7 +1228,9 @@ const BOND = (function(){
     else{
       const kg=_toKg(val);
       u[f]=(kg==null?'':Math.round(kg));
-      if(f==='x') u.xs='a';                  /* gõ tay = số thực, không phải plan */
+      /* ⭐ 'm' = GÕ TAY. Đánh dấu riêng để lần import sau KHÔNG đè lên số
+         người dùng đã tự nhập (trừ khi tích ô "overwrite"). */
+      if(f==='x') u.xs=(kg==null?'':'m');
     }
     USE[d]=u;
     const pay={}; pay[FB_USE+'/'+d]=u;
@@ -1146,15 +1264,321 @@ const BOND = (function(){
     const pay={}; pay[FB_USE+'/'+d]=null;
     _push(pay,'deleted OL1 '+_dmy(d)); _renderUse(); render();
   }
+  /* ⚠ CÙNG MỘT LỖI VỚI BẢNG CHÍNH: bảng OL1 dựng lại cả <tbody> mỗi lần gõ
+     xong một ô, nên vừa NHẢY VỀ ĐẦU vừa mất luôn ô đang Tab tới — 31 dòng
+     mà cứ gõ một ngày lại bị ném về ngày 1. Giữ lại chỗ cuộn và ô đang đứng
+     (kèm vị trí con trỏ) rồi trả về sau khi vẽ. */
+  function _useFocus(){
+    try{
+      const el=document.activeElement;
+      if(!el||!el.getAttribute) return null;
+      const k=el.getAttribute('data-u'); if(!k) return null;
+      return { k:k, s:el.selectionStart, e:el.selectionEnd };
+    }catch(_){ return null; }
+  }
+  function _useRestore(f,top){
+    try{
+      const w=document.querySelector('.bond-ol1-wrap');
+      if(w && top) w.scrollTop=top;
+    }catch(_){}
+    if(!f) return;
+    try{
+      const el=document.querySelector('[data-u="'+f.k+'"]');
+      if(!el) return;
+      el.focus();
+      if(f.s!=null && el.setSelectionRange) el.setSelectionRange(f.s,f.e);
+    }catch(_){}
+  }
+  /* ============================================================
+     📥 IMPORT X TỪ EXCEL  ·  📋 DÁN TỪ EXCEL   (v4.108)
+     ------------------------------------------------------------
+     Bố cục file KH (sheet "일자별 C3사용량 (예상 및 실적)"):
+        cột NGÀY   = ngày trong tháng 1..31, KHÔNG phải ngày đầy đủ
+        cột PLAN   = 관세유예 C3사용량 (kế hoạch)
+        cột ACTUAL = 관세유예 C3사용량 (thực hiện)
+     ⭐ CÁCH GHÉP: lấy ACTUAL từ đầu tháng cho tới NGÀY ĐẦU TIÊN THIẾU ACTUAL,
+     từ ngày đó trở đi lấy PLAN cho hết tháng và KHÔNG quay lại actual nữa —
+     đúng cách người dùng đọc file. Kết quả ghi vào ô X, kèm cờ nguồn `xs`
+     ('a' actual · 'p' plan · 'm' gõ tay) để bảng phân biệt được; số plan gốc
+     luôn giữ nguyên ở `xp` để đối chiếu.
+     ⚠ Ngày người dùng ĐÃ GÕ TAY (`xs==='m'`) mặc định KHÔNG bị đè.
+  ============================================================ */
+  function pickFile(){ const f=_el('bondOl1File'); if(f){ f.value=''; f.click(); } }
+  function fileChosen(input){
+    const f=input&&input.files&&input.files[0]; if(!f) return;
+    if(typeof XLSX==='undefined'){ _say('❌ The XLSX library is not loaded','er'); return; }
+    const rd=new FileReader();
+    rd.onload=e=>{
+      try{
+        _wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+        const names=_wb.SheetNames||[];
+        const sh=_pickSheet(names);
+        _paste=false;
+        _imp=_prepImp(_aoaOf(sh),f.name,sh,names);
+        _renderImp();
+        _say('📥 Read '+f.name+' — check the columns, then click APPLY','ok');
+      }catch(err){ console.warn('[BOND] import',err); _say('❌ Could not read the file: '+err.message,'er'); }
+    };
+    rd.readAsArrayBuffer(f);
+  }
+  function _aoaOf(name){
+    const sh=(_wb&&_wb.Sheets)?_wb.Sheets[name]:null;
+    return XLSX.utils.sheet_to_json(sh||{},{header:1,raw:true,defval:null});
+  }
+  /* sheet nào chứa lượng dùng C3 hằng ngày */
+  function _pickSheet(names){
+    const L=names||[];
+    let best=L[0]||'', bs=-1;
+    L.forEach(n=>{
+      const h=String(n).toLowerCase();
+      let sc=0;
+      if(/c3/.test(h))                              sc+=4;
+      if(/사용량|usage|feed|ol1|dùng/.test(h))       sc+=4;
+      if(/일자별|daily|hằng ngày|hang ngay/.test(h)) sc+=3;
+      if(/bom|생산|production|재고|stock/.test(h))   sc-=3;
+      if(sc>bs){ bs=sc; best=n; }
+    });
+    return best;
+  }
+  function pasteOpen(){ _paste=true; _imp=null; _renderImp();
+    setTimeout(()=>{ const t=_el('bondPasteTxt'); if(t) t.focus(); },40); }
+  function pasteCancel(){ _paste=false; _renderImp(); }
+  function pasteRead(){
+    const t=_el('bondPasteTxt');
+    const txt=(t&&t.value)||'';
+    if(!txt.trim()){ _say('⚠ Nothing pasted yet','warn'); return; }
+    const aoa=txt.replace(/\r/g,'').split('\n').filter(l=>l.trim()!=='')
+                 .map(l=>l.split('\t').map(c=>{ const n=_num(c);
+                   return (n!=null&&String(c).trim()!=='')?n:c; }));
+    try{
+      _paste=false;
+      _imp=_prepImp(aoa,'(pasted from Excel)','',[]);
+      _renderImp();
+      _say('📋 Read '+_imp.body.length+' row(s) — check the columns, then click APPLY','ok');
+    }catch(err){ _say('❌ Could not read it: '+err.message,'er'); }
+  }
+  /* chấm điểm 1 tiêu đề cột cho vai trò 'act' (thực tế) hoặc 'plan' */
+  function _hScore(h,kind){
+    h=String(h||'').toLowerCase();
+    let s=0;
+    if(/c3/.test(h))                                              s+=5;
+    if(/사용량|usage|feed|dùng|dung/.test(h))                     s+=4;
+    if(/생산|production|\bpp\b/.test(h))                          s-=3;
+    if(/stock|재고|통관|declared|tồn|ton kho/.test(h))            s-=6;
+    if(/total|합계|tổng|sum|p\s*\+\s*x/.test(h))                  s-=6;
+    if(/(^|[^a-z])x([^a-z]|$)/.test(h))                           s+=3;
+    const isAct =/actual|실적|thực|thuc te/.test(h);
+    const isPlan=/plan|계획|예상|추정|estimat|kế hoạch|ke hoach/.test(h);
+    if(kind==='act'){ if(isAct) s+=6; if(isPlan) s-=6; }
+    else            { if(isPlan) s+=6; if(isAct) s-=6; }
+    return s;
+  }
+  /* chuẩn hoá bảng thô: tìm dòng tiêu đề, đoán cột ngày + cột actual/plan */
+  function _prepImp(aoa,fname,sheet,sheets){
+    const rows=(aoa||[]).filter(r=>r&&r.some(c=>c!=null&&String(c).trim()!==''));
+    if(!rows.length) throw new Error('no rows found');
+    let hdr=0, best=-1;
+    rows.slice(0,12).forEach((r,i)=>{
+      const k=r.filter(c=>typeof c==='string'&&String(c).trim()).length;
+      if(k>best){ best=k; hdr=i; }
+    });
+    const head=(rows[hdr]||[]).map((c,i)=>
+      (String(c==null?'':c).replace(/\s+/g,' ').trim())||('Col '+(i+1)));
+    const body=rows.slice(hdr+1);
+    const nc=Math.max(head.length,...body.map(r=>r.length));
+    while(head.length<nc) head.push('Col '+(head.length+1));
+
+    /* cột NGÀY ĐẦY ĐỦ = cột parse được nhiều ngày nhất */
+    let dCol=-1, dBest=0;
+    for(let c=0;c<nc;c++){ let k=0; body.forEach(r=>{ if(_toIso(r[c])) k++; });
+      if(k>dBest){ dBest=k; dCol=c; } }
+    if(dBest<3) dCol=-1;
+    /* không có → cột NGÀY TRONG THÁNG 1..31 (file Hàn tách cột 월 / 일자) */
+    let dayCol=-1, dayBest=0;
+    for(let c=0;c<nc;c++){
+      if(c===dCol) continue;
+      const seen={}; let k=0;
+      body.forEach(r=>{ const v=_num(r[c]);
+        if(v!=null&&v>=1&&v<=31&&Math.abs(v-Math.round(v))<1e-9&&!seen[v]){ seen[v]=1; k++; } });
+      if(k>dayBest){ dayBest=k; dayCol=c; }
+    }
+    if(dayBest<15) dayCol=-1;
+    if(dCol<0 && dayCol<0) throw new Error('no date column found');
+
+    /* cột số: chấm điểm riêng cho ACTUAL và PLAN */
+    let aCol=-1,aBest=0, pCol=-1,pBest=0;
+    for(let c=0;c<nc;c++){
+      if(c===dCol||c===dayCol) continue;
+      if(!body.some(r=>_num(r[c])!=null)) continue;
+      const sa=_hScore(head[c],'act'), sp=_hScore(head[c],'plan');
+      if(sa>aBest){ aBest=sa; aCol=c; }
+      if(sp>pBest){ pBest=sp; pCol=c; }
+    }
+    if(aCol===pCol && aCol>=0){ if(aBest>=pBest) pCol=-1; else aCol=-1; }
+    /* tháng áp dụng: lấy từ tiêu đề "8월" nếu có, không thì tháng đang xem */
+    let month=_olM();
+    const title=String((rows[0]||[]).join(' ')+' '+sheet).match(/(\d{1,2})\s*월/);
+    if(title){ const mm=+title[1];
+      if(mm>=1&&mm<=12) month=month.slice(0,4)+'-'+String(mm).padStart(2,'0'); }
+    return { name:fname, sheet:sheet||'', sheets:sheets||[], head, body,
+             dCol, dayCol, aCol, pCol, unit:'T', month, ow:false };
+  }
+  function _toIso(v){
+    if(v==null) return '';
+    if(v instanceof Date && !isNaN(v))
+      return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
+    if(typeof v==='number' && v>20000 && v<80000){          /* serial Excel */
+      const t=Date.UTC(1899,11,30)+Math.round(v)*86400000, d=new Date(t);
+      return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0');
+    }
+    const st=String(v).trim();
+    let m=st.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if(m) return m[1]+'-'+m[2].padStart(2,'0')+'-'+m[3].padStart(2,'0');
+    m=st.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+    if(m){ let y=m[3]; if(y.length===2) y='20'+y;
+      return y+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0'); }
+    return '';
+  }
+  function impSet(field,val){
+    if(!_imp) return;
+    if(field==='sheet'){
+      try{ const keep=_imp.name; _imp=_prepImp(_aoaOf(val),keep,val,_imp.sheets); }
+      catch(err){ _say('❌ This sheet cannot be read: '+err.message,'er'); }
+    }
+    else if(field==='unit'||field==='month') _imp[field]=val;
+    else if(field==='ow') _imp.ow=!!val;
+    else _imp[field]=(+val);
+    _renderImp();
+  }
+  function impCancel(){ _imp=null; _paste=false; _renderImp(); }
+  /* danh sách ngày + giá trị sau khi ghép actual → plan (dùng cả cho xem trước) */
+  function _impRows(){
+    if(!_imp) return [];
+    const { body, dCol, dayCol, aCol, pCol, month }=_imp;
+    const seen={}, list=[];
+    body.forEach(r=>{
+      let d=(dCol>=0)?_toIso(r[dCol]):'';
+      if(!d && dayCol>=0){
+        const v=_num(r[dayCol]);
+        if(v!=null&&v>=1&&v<=31&&Math.abs(v-Math.round(v))<1e-9)
+          d=month+'-'+String(Math.round(v)).padStart(2,'0');
+      }
+      if(!d || seen[d]) return;          /* dòng TỔNG mang lại ngày cũ → bỏ */
+      seen[d]=1;
+      list.push({ d:d, a:(aCol>=0?_num(r[aCol]):null), p:(pCol>=0?_num(r[pCol]):null) });
+    });
+    list.sort((u,v)=>u.d<v.d?-1:(u.d>v.d?1:0));
+    let stop=(aCol<0);
+    list.forEach(o=>{
+      if(!stop && o.a==null) stop=true;  /* ngày đầu tiên thiếu actual → chuyển plan */
+      o.src=stop?'p':'a';
+      o.v=stop?o.p:o.a;
+    });
+    return list;
+  }
+  function impApply(){
+    if(!_imp) return;
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
+    const { dCol, dayCol, aCol, pCol, unit, ow }=_imp;
+    if(dCol<0&&dayCol<0){ _say('⚠ No Date column detected','warn'); return; }
+    if(aCol<0&&pCol<0){ _say('⚠ Pick at least one number column (Actual or Plan)','warn'); return; }
+    const f=(unit==='kg')?1:1000;
+    const R=_impRows();
+    const pay={};
+    let na=0, np=0, skip=0, keep=0;
+    R.forEach(o=>{
+      const u=Object.assign({ t:'', x:'', xp:'', note:'' },USE[o.d]||{});
+      if(o.p!=null) u.xp=Math.round(o.p*f);          /* giữ plan gốc để đối chiếu */
+      if(o.v==null) skip++;
+      else if(u.xs==='m' && !ow) keep++;             /* đã gõ tay → không đè */
+      else{
+        u.x=Math.round(o.v*f); u.xs=o.src;
+        if(o.src==='a') na++; else np++;
+      }
+      USE[o.d]=u; pay[FB_USE+'/'+o.d]=u;
+    });
+    const firstPlan=(R.filter(o=>o.src==='p'&&o.v!=null)[0]||{}).d;
+    _push(pay,'OL1 import '+R.length+' days');
+    if(R.length){ const m=_el('bondOl1Month'); if(m) m.value=_ym(R[0].d); }
+    _imp=null; _paste=false; _renderImp(); _renderUse(); render();
+    _say('📥 X loaded: '+na+' ACTUAL day(s)'+(np?(' · '+np+' PLAN day(s)'):'')+
+         (firstPlan?(' (plan from '+_dmy(firstPlan)+')'):'')+
+         (keep?(' · kept '+keep+' hand-keyed day(s)'):'')+
+         (skip?(' · '+skip+' day(s) with no figure'):''),'ok');
+  }
+  function _renderImp(){
+    const box=_el('bondOl1Imp'); if(!box) return;
+    if(_paste){
+      box.style.display='';
+      box.innerHTML=
+        '<div class="bond-hint"><b>📋 Paste from Excel</b> — select the range in Excel '+
+        '(include the header row if you can), Ctrl+C, then Ctrl+V into the box below and click <b>READ</b>.</div>'+
+        '<textarea id="bondPasteTxt" class="bond-paste" rows="6" '+
+        'placeholder="Paste here… one row per day, columns separated by Tab"></textarea>'+
+        '<div class="bond-frow">'+
+          '<button class="bond-btn accent" onclick="BOND.pasteRead()">✔ READ</button>'+
+          '<button class="bond-btn" onclick="BOND.pasteCancel()">Cancel</button>'+
+        '</div>';
+      return;
+    }
+    if(!_imp){ box.innerHTML=''; box.style.display='none'; return; }
+    box.style.display='';
+    const opts=_imp.head.map((h,i)=>({v:i,l:(i+1)+'. '+(h.length>46?(h.slice(0,46)+'…'):h)}));
+    const none=[{v:-1,l:'— none —'}];
+    const R=_impRows();
+    const nA=R.filter(o=>o.src==='a'&&o.v!=null).length;
+    const nP=R.filter(o=>o.src==='p'&&o.v!=null).length;
+    const fp=(R.filter(o=>o.src==='p'&&o.v!=null)[0]||{}).d;
+    const la=(R.filter(o=>o.src==='a'&&o.v!=null).slice(-1)[0]||{}).d;
+    box.innerHTML=
+      '<div class="bond-hint"><b>📥 '+_esc(_imp.name)+'</b>'+
+      (_imp.sheet?(' · sheet <b>'+_esc(_imp.sheet)+'</b>'):'')+' — '+_imp.body.length+' row(s). '+
+      'The app takes <b>ACTUAL</b> up to the first day with no figure, and <b>PLAN</b> from there on. '+
+      'The result goes into the <b>X</b> cell and is tagged so the table shows which is which.</div>'+
+      '<div class="bond-frow">'+
+        (_imp.sheets&&_imp.sheets.length>1
+          ? ('<label>Sheet</label><select onchange="BOND.impSet(\'sheet\',this.value)">'+
+             _op(_imp.sheets.map(n=>({v:n,l:n})),_imp.sheet)+'</select>')
+          : '')+
+        (_imp.dCol>=0
+          ? ('<label>Date column</label><select onchange="BOND.impSet(\'dCol\',this.value)">'+
+             _op(none.concat(opts),_imp.dCol)+'</select>')
+          : ('<label>Day column (1–31)</label><select onchange="BOND.impSet(\'dayCol\',this.value)">'+
+             _op(none.concat(opts),_imp.dayCol)+'</select>'+
+             '<label>Month</label><input type="month" value="'+_esc(_imp.month)+'"'+
+             ' onchange="BOND.impSet(\'month\',this.value)">'))+
+        '<label>ACTUAL column</label><select onchange="BOND.impSet(\'aCol\',this.value)">'+
+          _op(none.concat(opts),_imp.aCol)+'</select>'+
+        '<label>PLAN column</label><select onchange="BOND.impSet(\'pCol\',this.value)">'+
+          _op(none.concat(opts),_imp.pCol)+'</select>'+
+        '<label>Unit</label><select onchange="BOND.impSet(\'unit\',this.value)">'+
+          _op([{v:'T',l:'MT'},{v:'kg',l:'kg'}],_imp.unit)+'</select>'+
+        '<label class="bond-ow" title="By default a hand-keyed day is NOT overwritten by the file">'+
+          '<input type="checkbox"'+(_imp.ow?' checked':'')+
+          ' onchange="BOND.impSet(\'ow\',this.checked)"> overwrite hand-keyed days</label>'+
+        '<button class="bond-btn accent" onclick="BOND.impApply()">✔ APPLY</button>'+
+        '<button class="bond-btn" onclick="BOND.impCancel()">Cancel</button>'+
+      '</div>'+
+      '<div class="bond-hint'+(R.length?'':' bad')+'">'+
+        (R.length
+          ? ('Will load <b>'+R.filter(o=>o.v!=null).length+'</b> day(s): <b>'+nA+'</b> actual'+
+             (la?(' up to '+_dmy(la)):'')+' · <b>'+nP+'</b> plan'+(fp?(' from '+_dmy(fp)):'')+'.')
+          : 'No date recognised — pick the date column again.')+'</div>';
+  }
+
   function _renderUse(){
     const tb=_el('bondOl1Body'); if(!tb) return;
+    const _f=_useFocus();
+    let _top=0;
+    try{ const w=document.querySelector('.bond-ol1-wrap'); if(w) _top=w.scrollTop; }catch(_){}
     const M=_olM(), A=_asOf();
     const uh=_el('bondOl1UnitH'); if(uh) uh.textContent=(_olUnit==='kg'?'kg':'MT');
     const days=Object.keys(USE).filter(d=>_ym(d)===M).sort();
     if(!days.length){
-      tb.innerHTML='<tr><td colspan="6" class="bond-empty">'+M+' has no day yet — '+
+      tb.innerHTML='<tr><td colspan="7" class="bond-empty">'+M+' has no day yet — '+
         'click <b>📅 Fill month</b>.</td></tr>';
-      const f=_el('bondOl1Tot'); if(f) f.innerHTML=''; return;
+      const f=_el('bondOl1Tot'); if(f) f.innerHTML='';
+      _useRestore(_f,_top); return;
     }
     /* ⭐ NGÀY TƯƠNG LAI CHẠY MỨC TẠM TÍNH — đây là thứ cho ra cột "Dự kiến
        hết" của lô P/X. Ô TỔNG để trống (hoặc đang là 0) thì hiện chữ mờ
@@ -1178,17 +1602,18 @@ const BOND = (function(){
         '<td class="bond-od">'+_dmy(d)+
           (isA?'<span class="bond-sub">data as of</span>'
               :(fut?'<span class="bond-sub">forecast</span>':''))+'</td>'+
-        '<td><input class="bond-in n'+(dfl?' bond-asm':'')+'" inputmode="decimal" placeholder="'+
+        '<td><input class="bond-in n'+(dfl?' bond-asm':'')+'" data-u="'+d+'|t" inputmode="decimal" placeholder="'+
           (dfl?('assumed '+_fromKgTxt(DEF_TOT_KG)):'')+'"'+
           (dfl?(' title="No TOTAL P+X keyed in — running on the assumed '+_fromKgTxt(DEF_TOT_KG)+
                 ' so the run-out date can still be projected. Type the real figure and it takes over."'):'')+
           ' value="'+_esc((raw==null||dfl)?'':_fromKg(raw))+'"'+
           ' onchange="BOND.setUse(\''+d+'\',\'t\',this.value)"></td>'+
-        '<td><input class="bond-in n" inputmode="decimal" value="'+_esc(xTyped==null?'':_fromKg(xTyped))+'"'+
+        '<td><input class="bond-in n" data-u="'+d+'|x" inputmode="decimal" value="'+_esc(xTyped==null?'':_fromKg(xTyped))+'"'+
           (fut&&xTyped==null?' placeholder="plan '+_fromKgTxt(x)+'"':'')+
           ' onchange="BOND.setUse(\''+d+'\',\'x\',this.value)"></td>'+
         '<td class="n '+(dfl?'bond-asm':'bond-dim')+'">'+_fromKgTxt(p)+'</td>'+
-        '<td><input class="bond-in" value="'+_esc(u.note||'')+'"'+
+        '<td class="c">'+_srcTag(u,fut)+'</td>'+
+        '<td><input class="bond-in" data-u="'+d+'|note" value="'+_esc(u.note||'')+'"'+
           ' onchange="BOND.setUse(\''+d+'\',\'note\',this.value)"></td>'+
         '<td class="c"><span class="bond-del" onclick="BOND.delUseRow(\''+d+'\')">✕</span></td></tr>';
     }).join('');
@@ -1198,6 +1623,23 @@ const BOND = (function(){
       (nDef?(' · <span class="bond-warnt">⚠ '+nDef+' PAST day(s) with no TOTAL</span>'):'')+
       (nFut?(' · <span class="bond-asmt">'+nFut+' day(s) ahead on the assumed '+
              _fromKgTxt(DEF_TOT_KG)+'</span>'):'');
+    _useRestore(_f,_top);
+  }
+  /* ⭐ NGUỒN CỦA SỐ X — ba loại, phải nhìn ra ngay là số thật hay số kế hoạch:
+       Actual  · lấy từ cột thực hiện của file           (xanh)
+       Plan    · lấy từ cột kế hoạch của file            (cam)
+       Keyed   · người dùng tự gõ — import KHÔNG đè lên  (xanh dương)
+     Ô X trống ở ngày tương lai mà có plan trong file thì hiện Plan mờ. */
+  function _srcTag(u,fut){
+    const x=_num(u&&u.x), xp=_num(u&&u.xp), xs=String((u&&u.xs)||'');
+    if(x==null){
+      return xp!=null
+        ? '<span class="bond-src p dim" title="Only a plan figure exists for this day">Plan</span>'
+        : '<span class="bond-dim">—</span>';
+    }
+    if(xs==='m') return '<span class="bond-src m" title="Typed in by hand — an Excel import will not overwrite it">Keyed</span>';
+    if(xs==='p') return '<span class="bond-src p" title="PLAN figure loaded from the Excel file">Plan</span>';
+    return '<span class="bond-src a" title="ACTUAL figure loaded from the Excel file">Actual</span>';
   }
   function _fromKgTxt(kg){
     return _olUnit==='kg' ? Math.round(kg).toLocaleString('en-US')
@@ -1298,67 +1740,14 @@ const BOND = (function(){
     _say('📤 Period '+M+' exported — keep this file as the signed-off record','ok');
   }
 
-  /* ============================================================
-     🔁 CHUYỂN DỮ LIỆU TỪ TAB KNQ CŨ  (chạy MỘT LẦN)
-     ------------------------------------------------------------
-     Tên tàu, STT chuyến và số tờ khai là thứ người dùng gõ tay, SAP không
-     có. Đọc knq_bonded/gi + go, ghép theo mã batch, ghi sang knq_info.
-     KHÔNG đè lên ô đã có số ở knq_info — chạy lại nhiều lần vẫn an toàn.
-  ============================================================ */
-  function migrate(){
-    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
-    _say('🔁 Reading the old KNQ tab…','');
-    const R=_ref();
-    Promise.all([
-      R.ref('knq_bonded/gi').once('value').then(s=>s.val()||{}),
-      R.ref('knq_bonded/go').once('value').then(s=>s.val()||{})
-    ]).then(([gi,go])=>{
-      const pay={}; const list=[]; let skip=0;
-      Object.keys(go).forEach(id=>{
-        const r=go[id]||{};
-        const bcode=String(r.batch||'').trim().toUpperCase();
-        const mat=String(r.mat||'').trim();
-        if(!bcode||!mat) return;
-        const k=_key(mat,bcode);
-        const g=gi[r.giId]||{};
-        const cur=INFO[k]||{};
-        const put=(f,v)=>{
-          if(v===''||v==null) return;
-          const c=cur[f];
-          if(!(c===''||c==null||c===false)) return;      /* đã có thì giữ */
-          pay[FB_INFO+'/'+k+'/'+f]=v;
-          INFO[k]=INFO[k]||{}; INFO[k][f]=v;
-        };
-        const before=Object.keys(pay).length;
-        put('vno',    String(g.no||'').trim());
-        put('vessel', String(g.vessel||'').trim());
-        put('dIn',    String(g.decl||'').trim());
-        put('dOut',   String(r.decl||'').trim());
-        const hq=_num(r.hqQty); if(hq!=null) put('hqQty',Math.round(hq));
-        if(r.vas) put('vas',true);
-        put('vasDate',String(r.vasDate||'').trim());
-        put('note',   String(r.note||'').trim());
-        if(Object.keys(pay).length>before) list.push(mat+' '+bcode);
-        else skip++;
-      });
-      if(!list.length){ _say('✓ Nothing to carry over — every batch already has its details','ok'); return; }
-      if(!confirm('🔁 CARRY DETAILS OVER FROM THE OLD KNQ TAB\n\n'+
-        list.length+' batch(es) will be filled in:\n'+
-        list.slice(0,12).map(s=>'   '+s).join('\n')+(list.length>12?('\n   …+'+(list.length-12)):'')+
-        '\n\n'+(skip?(skip+' batch(es) already have details — left untouched.\n\n'):'')+
-        'Nothing in the old KNQ tab is deleted. Continue?')) return;
-      _push(pay,'carried over '+list.length+' batches').then(ok=>{
-        if(ok){ _say('🔁 Details of '+list.length+' batch(es) carried over','ok'); render(); }
-      });
-    }).catch(e=>{ console.warn('[BOND] migrate',e); _say('❌ Could not read the old KNQ data','er'); });
-  }
-
   return {
     init, onEnter, render, recalc, setMode,
     setInfo, delRow,
     savePeriod, openPeriod, closePeriod, delPeriod,
     openOl1, closeOl1, onOl1Month, onOl1Unit, setUse, addUseRow, fillMonth, delUseRow,
-    toggleCards, toggleSlim, onMonth, exportXlsx, migrate,
+    toggleCards, toggleSlim, onMonth, exportXlsx,
+    pickFile, fileChosen, pasteOpen, pasteRead, pasteCancel,
+    impSet, impApply, impCancel,
     onFilter, clearFilter, filterOn,
     /* hook kiểm thử — không dùng trong app */
     _state:{ INFO, USE, rows:()=>_rows, all:()=>_all, periods:()=>PERIODS,
@@ -1370,6 +1759,9 @@ const BOND = (function(){
              setArch:a=>{ _arch=a; }, arch:()=>_arch,
              batchDate:_batchDate, letterOf:_letterOf, key:_key,
              totOf:_totOf, useOf:_useOf, ol1Sum:_ol1Sum, hasInfo:_hasInfo,
+             imp:()=>_imp, setImp:v=>{ _imp=v; _paste=false; },
+             prepImp:_prepImp, impRows:_impRows, toIso:_toIso,
+             pickSheet:_pickSheet, srcTag:_srcTag,
              DEF_TOT_KG, LOW_KG, loaded:()=>_loaded, markLoaded:()=>{ _loaded=true; } }
   };
 })();

@@ -330,6 +330,87 @@ rows=BOND.recalc();
 chk('⭐ …nhưng SAP còn mã thì dòng HIỆN LẠI ở dạng chưa khai (SAP mới là chủ)',
     !!by('260818X001') && by('260818X001').flag==='new');
 
+/* ---------- [5b] IMPORT FEED OL1 TỪ EXCEL ---------- */
+console.log('\n[5b] 📥 IMPORT X TỪ EXCEL — GHÉP ACTUAL → PLAN');
+S.setMonth('2026-08');
+/* bảng thô kiểu file KH: cột ngày 1..31, cột PLAN và ACTUAL riêng.
+   ACTUAL chỉ có tới ngày 5 — từ ngày 6 trở đi phải tự chuyển sang PLAN. */
+const AOA=[['일자별 C3사용량 (예상 및 실적) 8월'],
+           ['일자','관세유예 C3사용량 (생산 계획)','관세유예 C3사용량 (실적)','생산량']];
+for(let i=1;i<=31;i++) AOA.push([i, 100+i, (i<=5? (200+i) : null), 9999]);
+const imp=S.prepImp(AOA,'KH.xlsx','sheet1',['sheet1']);
+chk('nhận ra cột NGÀY 1–31 (file không có ngày đầy đủ)', imp.dayCol===0 && imp.dCol<0,
+    'dayCol='+imp.dayCol+' dCol='+imp.dCol);
+chk('⭐ chấm điểm tiêu đề ⇒ tách đúng cột PLAN và cột ACTUAL',
+    imp.pCol===1 && imp.aCol===2, 'plan@'+imp.pCol+' actual@'+imp.aCol);
+chk('…và KHÔNG nhầm sang cột 생산량 (sản lượng)', imp.aCol!==3 && imp.pCol!==3);
+chk('⭐ đọc được tháng "8월" từ tiêu đề', imp.month==='2026-08', imp.month);
+S.setImp(imp);            /* nạp vào module rồi soi danh sách ngày */
+const IR=S.impRows();
+chk('dựng đủ 31 ngày', IR.length===31, IR.length+' ngày');
+chk('⭐ 5 ngày đầu lấy ACTUAL', IR.slice(0,5).every(o=>o.src==='a'&&o.v===o.a),
+    IR.slice(0,5).map(o=>o.d.slice(8)+':'+o.src).join(' '));
+chk('⭐ từ ngày 6 trở đi chuyển hẳn sang PLAN', IR.slice(5).every(o=>o.src==='p'&&o.v===o.p),
+    IR.slice(5,9).map(o=>o.d.slice(8)+':'+o.src).join(' '));
+chk('⭐ KHÔNG quay lại actual dù cột actual có số lẻ tẻ về sau',
+    IR.filter(o=>o.src==='a').length===5);
+
+/* gõ tay một ngày rồi import — mặc định KHÔNG được đè */
+BOND.setUse('2026-08-03','x','777');
+chk('gõ tay ⇒ đánh dấu nguồn "m"', S.USE['2026-08-03'].xs==='m', S.USE['2026-08-03'].xs);
+const keptVal=S.USE['2026-08-03'].x;
+S.setImp(imp); imp.ow=false; BOND.impApply();
+chk('⭐ import KHÔNG đè lên ngày đã gõ tay',
+    S.USE['2026-08-03'].x===keptVal && S.USE['2026-08-03'].xs==='m',
+    fmt(S.USE['2026-08-03'].x));
+chk('⭐ ngày khác nhận số ACTUAL, đổi đơn vị tấn → kg',
+    S.USE['2026-08-01'].x===201000 && S.USE['2026-08-01'].xs==='a',
+    fmt(S.USE['2026-08-01'].x)+' xs='+S.USE['2026-08-01'].xs);
+chk('⭐ ngày sau mốc nhận số PLAN', S.USE['2026-08-10'].x===110000 && S.USE['2026-08-10'].xs==='p',
+    fmt(S.USE['2026-08-10'].x)+' xs='+S.USE['2026-08-10'].xs);
+chk('⭐ cột plan gốc luôn được giữ ở xp để đối chiếu',
+    S.USE['2026-08-01'].xp===101000, fmt(S.USE['2026-08-01'].xp));
+/* bật overwrite thì mới đè */
+S.setImp(imp); imp.ow=true; BOND.impApply();
+chk('tích "overwrite" thì ngày gõ tay MỚI bị đè',
+    S.USE['2026-08-03'].x===203000 && S.USE['2026-08-03'].xs==='a',
+    fmt(S.USE['2026-08-03'].x));
+
+/* ngày đầy đủ + đơn vị kg */
+const AOA2=[['Date','Actual C3 usage','Plan C3 usage'],
+            ['2026-09-01',1000,2000],['2026-09-02',null,2500],['2026-09-03',null,2600]];
+const imp2=S.prepImp(AOA2,'x.xlsx','',[]);
+chk('file có NGÀY ĐẦY ĐỦ thì dùng cột ngày, không cần cột 1–31',
+    imp2.dCol===0 && imp2.dayCol<0, 'dCol='+imp2.dCol);
+chk('_toIso đọc được cả chuỗi ISO, dd/mm/yyyy và serial Excel',
+    S.toIso('2026-08-18')==='2026-08-18' && S.toIso('18/08/2026')==='2026-08-18' &&
+    S.toIso(46252)==='2026-08-18',
+    S.toIso(46252));
+S.setImp(imp2);
+const IR2=S.impRows();
+chk('⭐ ngày 1 actual, ngày 2–3 chuyển plan', IR2[0].src==='a'&&IR2[1].src==='p'&&IR2[2].src==='p');
+
+/* ngày ĐÃ QUA còn chạy số PLAN ⇒ phải cảnh báo, vì trừ lùi đang dùng số kế hoạch */
+S.USE['2026-08-10']=Object.assign({},S.USE['2026-08-10'],{xs:'p'});
+const os=S.ol1Sum();
+chk('⭐ đếm được ngày ĐÃ QUA còn mang cờ PLAN (chưa import actual)',
+    os.plan.indexOf('2026-08-10')>-1, os.plan.length+' ngày');
+S.USE['2026-08-10']=Object.assign({},S.USE['2026-08-10'],{xs:'a'});
+chk('…import actual vào thì hết đếm', S.ol1Sum().plan.indexOf('2026-08-10')<0);
+
+/* nhãn nguồn hiển thị */
+chk('nhãn nguồn: Actual / Plan / Keyed đúng ba màu',
+    /bond-src a/.test(S.srcTag({x:1,xs:'a'})) &&
+    /bond-src p/.test(S.srcTag({x:1,xs:'p'})) &&
+    /bond-src m/.test(S.srcTag({x:1,xs:'m'})));
+chk('ô X trống mà có plan ⇒ hiện Plan mờ', /bond-src p dim/.test(S.srcTag({xp:5})));
+chk('không có gì ⇒ gạch ngang', /bond-dim/.test(S.srcTag({})));
+
+/* trả dữ liệu OL1 về nguyên trạng cho các mục sau */
+Object.keys(DB.knq_bonded.use||{}).forEach(d=>{ S.USE[d]=DB.knq_bonded.use[d]; });
+Object.keys(S.USE).forEach(d=>{ if(!(DB.knq_bonded.use||{})[d]) delete S.USE[d]; });
+rows=BOND.recalc();
+
 /* ---------- [6] LƯU KỲ ---------- */
 console.log('\n[6] 💾 LƯU KỲ');
 BOND.savePeriod();

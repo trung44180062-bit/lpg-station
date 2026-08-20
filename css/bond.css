@@ -64,39 +64,81 @@
 .bond-filters .bond-fq:focus{ outline:2px solid #9cc0e8;outline-offset:-1px;border-color:#9cc0e8; }
 .bond-filters select{ max-width:auto;font-size:11px; }
 
-/* ── THẺ THỐNG KÊ ───────────────────────────────────────────── */
+/* ── THẺ THỐNG KÊ (v4.107) ──────────────────────────────────────
+   Đã bỏ 2 thẻ nên 4 thẻ còn lại rộng ra — dùng chỗ đó để PHÓNG CHỮ.
+   Ba tầng chữ rõ rệt, mắt bắt được từ xa:
+     .bond-cb  số lớn 30px   → câu trả lời
+     .bond-cl  dòng NỔI 15px → mã batch / ngày hết, thứ phải đọc lướt
+     .bond-cs  dòng mờ 11px  → diễn giải, đọc khi cần
+   ============================================================ */
 .bond-cards{
-  display:flex;gap:9px;flex-wrap:wrap;flex:0 0 auto;
-  padding:9px 10px;border-bottom:1px solid var(--line);background:var(--panel-2);
+  display:flex;gap:10px;flex-wrap:wrap;flex:0 0 auto;
+  padding:10px;border-bottom:1px solid var(--line);background:var(--panel-2);
 }
 .bond-card{
-  flex:1 1 190px;min-width:180px;
-  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line-2,#bcc8d5);
-  border-radius:8px;padding:8px 11px;
+  flex:1 1 250px;min-width:236px;
+  background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--line-2,#bcc8d5);
+  border-radius:9px;padding:10px 14px 11px;
 }
-.bond-card.stock{ border-left-color:#123a63; }
-.bond-card.split{ border-left-color:#6b21a8; }
 .bond-card.ol1  { border-left-color:#2f9e63; }
 .bond-card.sap  { border-left-color:#2f6fd0; }
 .bond-card.flags{ border-left-color:#c2410c; }
 .bond-card.eta  { border-left-color:#0d9488; }
-.bond-card.eta.hot{ border-left-color:#d97706;background:#fffaf2; }
+.bond-card.eta.hot{ border-left-color:#d97706;background:#fffaf2;border-color:#f0d5ac; }
 .bond-card.eta.hot .bond-cb{ color:#8a4b00; }
 .bond-ch{
   display:flex;align-items:center;gap:6px;
-  font-size:8.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
+  font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
 }
 .bond-ch span{
-  margin-left:auto;font-size:9px;font-weight:700;letter-spacing:0;text-transform:none;
+  margin-left:auto;font-size:10px;font-weight:700;letter-spacing:0;text-transform:none;
   color:var(--ink-2);background:var(--panel-2);border:1px solid var(--line);
-  border-radius:20px;padding:0 6px;white-space:nowrap;
+  border-radius:20px;padding:1px 8px;white-space:nowrap;
 }
 .bond-cb{
-  font-size:21px;font-weight:900;line-height:1.15;color:var(--ink);margin-top:2px;
-  font-variant-numeric:tabular-nums;
+  font-size:30px;font-weight:900;line-height:1.1;color:var(--ink);margin-top:3px;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;
 }
-.bond-cb u{ text-decoration:none;font-size:10px;font-weight:700;color:var(--ink-3);margin-left:3px; }
-.bond-cs{ font-size:10px;color:var(--ink-2);line-height:1.45;margin-top:2px; }
+.bond-cb u{ text-decoration:none;font-size:13px;font-weight:800;color:var(--ink-3);margin-left:4px; }
+
+/* dòng NỔI — mã batch, ngày hết, số liệu chính */
+.bond-cl{
+  display:flex;align-items:center;flex-wrap:wrap;gap:5px 8px;
+  margin-top:5px;font-size:15px;line-height:1.35;color:var(--ink);
+}
+.bond-cl b{ font-weight:800;font-variant-numeric:tabular-nums; }
+.bond-cx{ font-size:10.5px;font-weight:700;color:var(--ink-3);margin-left:-5px; }
+
+/* mã batch — to, mono, để đọc lướt không nhầm ký tự */
+.bond-bignum{
+  font-family:ui-monospace,'SFMono-Regular',Menlo,monospace;
+  font-size:16px;font-weight:800;letter-spacing:.01em;color:var(--ink);
+}
+/* ngày hết — nổi bằng nền, vì đây là thứ người điều độ tìm đầu tiên */
+.bond-bigdate{
+  font-size:15px;font-weight:900;font-variant-numeric:tabular-nums;
+  padding:1px 9px;border-radius:6px;white-space:nowrap;
+  background:#e8f5f2;color:#0d6b60;border:1px solid #a9d8d0;
+}
+.bond-card.eta.hot .bond-bigdate{ background:#fde8cf;color:#8a4b00;border-color:#e6b878; }
+
+/* chip loại lô trên thẻ */
+.bond-tag-lot{
+  font-size:11px;font-weight:900;padding:2px 8px;border-radius:5px;white-space:nowrap;
+}
+.bond-tag-lot.l-p{ background:#e8e7ff;color:#3730a3; }
+.bond-tag-lot.l-x{ background:#f4e6fb;color:#6b21a8; }
+.bond-tag-lot.l-d{ background:#dcf2ef;color:#0f6b60; }
+.bond-tag-lot.l-e{ background:#fdeed6;color:#96560d; }
+
+/* thẻ NEEDS ATTENTION — mỗi việc một dòng, không nhồi vào một chuỗi dài */
+.bond-card.flags .bond-cl{ flex-direction:column;align-items:flex-start;gap:3px; }
+.bond-need{ font-size:13px;font-weight:700;line-height:1.4;white-space:nowrap; }
+.bond-need.bad { color:#9c2a20; }
+.bond-need.warn{ color:#8a4b00; }
+
+/* dòng diễn giải */
+.bond-cs{ font-size:11px;color:var(--ink-3);line-height:1.45;margin-top:4px; }
 
 /* ── DẢI CẢNH BÁO ───────────────────────────────────────────── */
 .bond-alerts{ flex:0 0 auto;display:flex;flex-direction:column;gap:5px;padding:8px 10px;background:var(--panel); }
@@ -321,3 +363,42 @@ td.bond-asm{ color:#7b8b9c;font-style:italic; }
   .bond-cards{ padding:7px 8px; }
   .bond-card{ flex:1 1 140px;min-width:140px; }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   v4.108 — IMPORT EXCEL VÀO FEED OL1 + PHÂN BIỆT ACTUAL / PLAN
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── NGUỒN CỦA SỐ X ─────────────────────────────────────────────
+   Ba nhãn, ba màu. Người dùng phải nhìn ra ngay đâu là số THẬT, đâu là số
+   KẾ HOẠCH — vì Thực còn và Dự kiến hết đều đứng trên đó. */
+.bond-src{
+  display:inline-block;font-size:9px;font-weight:900;letter-spacing:.03em;
+  padding:1px 7px;border-radius:4px;border:1px solid transparent;white-space:nowrap;cursor:help;
+}
+.bond-src.a{ background:#e2f5ea;border-color:#8fcfab;color:#12663a; }  /* Actual */
+.bond-src.p{ background:#fdeee0;border-color:#e8b98a;color:#8a4b00; }  /* Plan   */
+.bond-src.m{ background:#e6effb;border-color:#a5c3e8;color:#1c4f96; }  /* Keyed  */
+.bond-src.dim{ opacity:.55; }
+
+/* ── KHỐI IMPORT trong modal FEED OL1 ─────────────────────────── */
+#bondOl1Imp{
+  display:flex;flex-direction:column;gap:8px;
+  padding:10px 12px;border:1px solid #9cc0e8;border-radius:8px;background:#f5f9ff;
+}
+#bondOl1Imp .bond-hint{ background:var(--panel);border-color:#c3daf3; }
+#bondOl1Imp .bond-hint.bad{ background:#fdf0ee;border-color:#eebab3;color:#9c2a20; }
+#bondOl1Imp .bond-frow select{ max-width:280px; }
+#bondOl1Imp .bond-frow label{ text-transform:none;letter-spacing:0;font-size:11px;color:var(--ink-2); }
+.bond-ow{
+  display:inline-flex;align-items:center;gap:5px;cursor:pointer;
+  padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);
+}
+.bond-ow input{ margin:0;cursor:pointer; }
+.bond-paste{
+  width:100%;min-height:120px;resize:vertical;
+  padding:8px 10px;border:1px solid var(--line);border-radius:7px;
+  background:var(--panel);color:var(--ink);
+  font-family:ui-monospace,'SFMono-Regular',Menlo,monospace;font-size:11.5px;line-height:1.5;
+}
+.bond-paste:focus{ outline:2px solid #9cc0e8;outline-offset:-1px;border-color:#9cc0e8; }
+.bond-sep{ width:1px;height:20px;background:var(--line);margin:0 3px; }
