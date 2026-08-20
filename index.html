@@ -1067,10 +1067,10 @@
            không phải đổi nguồn số. ═══ -->
       <div class="bond-mode">
         <button class="bond-mbtn on" id="bondModeRaw" onclick="BOND.setMode('raw')"
-                title="Bảng ZMMFR022 nguyên bản — mọi SLoc, mọi ngày">📊 SAP thô</button>
+                title="The raw ZMMFR022 grid — every SLoc, every date">📊 Raw SAP</button>
         <button class="bond-mbtn" id="bondModeKnq" onclick="BOND.setMode('knq')"
-                title="Kho ngoại quan: lọc SLoc 1100, gộp theo mã batch, thêm cột tàu / tờ khai và cột Thực còn trừ lùi theo FEED OL1">🛃 Kho ngoại quan (KNQ)</button>
-        <span class="bond-mnote">Cùng một lần dán dữ liệu · số của kho ngoại quan lấy thẳng từ SAP</span>
+                title="Bonded warehouse: SLoc 1100 only, one row per batch code, plus vessel / declaration columns and an Actual left column run down on FEED OL1">🛃 Bonded warehouse</button>
+        <span class="bond-mnote">One paste feeds both · bonded-warehouse figures come straight from SAP</span>
       </div>
 
       <div id="spViewRaw">
@@ -1176,64 +1176,64 @@
 
         <div class="bond-bar">
           <div class="bond-grp">
-            <span class="bond-glab">Kỳ</span>
+            <span class="bond-glab">Period</span>
             <input type="month" id="bondMonth" onchange="BOND.onMonth()"
-                   title="Kỳ trừ lùi — tháng nào thì dùng FEED OL1 của tháng đó. Ảnh chụp SAP luôn là ngày D-1 (hoặc ngày cuối kỳ nếu xem kỳ đã qua).">
+                   title="The run-down period — the month whose FEED OL1 figures drive the calculation. The SAP snapshot is always D-1, or the last day of the month when you look at a past period.">
             <button class="bond-btn" onclick="BOND.savePeriod()"
-                    title="Chụp lại cả bảng đúng như đang hiện — số SAP, số trừ lùi, thông tin đã gõ — để sau này gọi về xem. KHÔNG khoá gì, không đổi gì; bấm lại là đè lên ảnh cũ của cùng kỳ.">💾 Lưu kỳ</button>
-            <select id="bondPerSel" title="Các kỳ đã có ảnh chụp"><option value="">Kỳ đã lưu…</option></select>
-            <button class="bond-btn" onclick="BOND.openPeriod()" title="Mở ảnh chụp của kỳ đã chọn (chỉ đọc)">📜 Xem</button>
-            <button class="bond-btn danger" onclick="BOND.delPeriod()" title="Xoá ảnh chụp của kỳ đã chọn để Firebase khỏi phình. Không ảnh hưởng dữ liệu SAP hay thông tin lô.">🗑 Xoá kỳ</button>
+                    title="Photograph the whole table exactly as it stands — SAP figures, run-down figures, the details you typed — so you can call it back later. Nothing is locked, nothing changes; pressing it again overwrites the earlier snapshot of the same period.">💾 Save period</button>
+            <select id="bondPerSel" title="Periods that already have a snapshot"><option value="">Saved periods…</option></select>
+            <button class="bond-btn" onclick="BOND.openPeriod()" title="Open the snapshot of the selected period, read-only">📜 Open</button>
+            <button class="bond-btn danger" onclick="BOND.delPeriod()" title="Delete the selected period's snapshot to keep Firebase small. SAP data and batch details are not affected.">🗑 Delete</button>
           </div>
           <div class="bond-grp">
-            <span class="bond-glab">Dữ liệu</span>
+            <span class="bond-glab">Data</span>
             <button class="bond-btn accent" onclick="BOND.openOl1()"
-                    title="Bảng lượng dùng OL1 hằng ngày — nguồn trừ lùi của toàn bộ lô P và X">⛽ FEED OL1</button>
+                    title="The daily OL1 usage table — the source of the whole P and X run-down">⛽ FEED OL1</button>
             <button class="bond-btn" onclick="BOND.exportXlsx()"
-                    title="Xuất cả bảng ra Excel. Cất file này lại — đó là bản chốt của kỳ.">📤 Xuất Excel</button>
+                    title="Export the whole table to Excel. Keep that file — it is the signed-off record of the period.">📤 Export</button>
             <button class="bond-btn" onclick="BOND.migrate()"
-                    title="Chạy MỘT LẦN: đọc tab KNQ cũ, chép tên tàu / STT chuyến / số tờ khai sang bảng này theo mã batch. Không đè lên ô đã có, không xoá dữ liệu cũ.">🔁 Lấy thông tin từ tab KNQ cũ</button>
+                    title="Run this ONCE: read the old KNQ tab and copy vessel name, voyage number and declaration numbers across, matched on batch code. Cells that already hold something are left alone, and nothing in the old tab is deleted.">🔁 Import from old KNQ tab</button>
           </div>
           <!-- ═══ THANH LỌC (v4.106) — như tab KNQ cũ, AND với nhau.
                ⚠ Thẻ thống kê vẫn tính trên TOÀN BỘ lô, không theo phần đang
                lọc — nếu không, lọc một cái là tổng tồn kho nhảy lung tung. -->
           <div class="bond-grp bond-filters">
-            <span class="bond-glab">Lọc</span>
-            <input class="bond-fq" id="bondFq" placeholder="🔎 mã batch · tàu · tờ khai · ghi chú"
+            <span class="bond-glab">Filter</span>
+            <input class="bond-fq" id="bondFq" placeholder="🔎 batch code · vessel · declaration · note"
                    oninput="BOND.onFilter()"
-                   title="Gõ bất kỳ phần nào của mã batch (260714X), tên tàu, số tờ khai hay ghi chú">
-            <select id="bondFMat" onchange="BOND.onFilter()" title="Lọc theo vật tư">
-              <option value="">Mat · tất cả</option>
+                   title="Type any part of a batch code (260714X), a vessel name, a declaration number or a note">
+            <select id="bondFMat" onchange="BOND.onFilter()" title="Filter by material">
+              <option value="">Mat · all</option>
               <option value="C3">C3 · Propane</option>
               <option value="C4">C4 · Butane</option>
             </select>
-            <select id="bondFLot" onchange="BOND.onFilter()" title="Lọc theo loại lô">
-              <option value="">Lô · tất cả</option>
+            <select id="bondFLot" onchange="BOND.onFilter()" title="Filter by lot type">
+              <option value="">Lot · all</option>
               <option value="D">D · Domestic</option>
               <option value="E">E · Export</option>
               <option value="P">P · Petchem</option>
               <option value="X">X · Export Petchem</option>
             </select>
-            <select id="bondFSt" onchange="BOND.onFilter()" title="Lọc theo tình trạng của lô">
-              <option value="">Tình trạng · tất cả</option>
-              <option value="pumping">▶ Đang bơm</option>
-              <option value="wait">○ Chờ tới lượt</option>
-              <option value="emptied">◍ Hết — chưa VASSCM</option>
-              <option value="zero">✓ Đã xong</option>
-              <option value="gone">⛔ SAP không còn</option>
-              <option value="new">✚ Lô mới nhập</option>
-              <option value="noinfo">✎ Thiếu thông tin</option>
+            <select id="bondFSt" onchange="BOND.onFilter()" title="Filter by the state of the batch">
+              <option value="">Status · all</option>
+              <option value="pumping">▶ Pumping</option>
+              <option value="wait">○ Not started</option>
+              <option value="emptied">◍ Empty — no VASSCM</option>
+              <option value="zero">✓ Done</option>
+              <option value="gone">⛔ Not in SAP</option>
+              <option value="new">✚ Newly received</option>
+              <option value="noinfo">✎ Missing details</option>
             </select>
             <button class="bond-btn" id="bondFClr" onclick="BOND.clearFilter()"
-                    style="display:none" title="Xoá mọi bộ lọc">✕</button>
+                    style="display:none" title="Clear every filter">✕</button>
           </div>
           <div class="spacer"></div>
           <div class="bond-grp">
-            <span class="bond-glab">Hiển thị</span>
+            <span class="bond-glab">View</span>
             <button class="bond-btn" id="bondCardsBtn" onclick="BOND.toggleCards()"
-                    title="Thu gọn dải thẻ thống kê để bảng cao thêm">⊟ Thu gọn</button>
+                    title="Collapse the summary cards to give the table more height">⊟ Collapse</button>
             <button class="bond-btn" id="bondSlimBtn" onclick="BOND.toggleSlim()"
-                    title="Ẩn bớt Init / GR / GI / Trs, chỉ giữ End Stock — bảng hẹp lại, đỡ phải cuộn ngang">⊟ Gọn cột SAP</button>
+                    title="Hide Init / GR / GI / Trs and keep only End Stock — a narrower table, less sideways scrolling">⊟ Fewer SAP columns</button>
             <span class="bond-count" id="bondCount"></span>
             <span class="bond-sync" id="bondSync"></span>
           </div>
@@ -1251,37 +1251,37 @@
       <div class="bond-modal" id="bondOl1">
         <div class="bond-modal-box">
           <div class="bond-modal-h">
-            <span>⛽ FEED OL1 — LƯỢNG DÙNG HẰNG NGÀY CỦA LÔ P VÀ X</span>
+            <span>⛽ FEED OL1 — DAILY USAGE DRIVING THE P AND X RUN-DOWN</span>
             <span class="spacer"></span>
-            <button onclick="BOND.closeOl1()" title="Đóng">✕</button>
+            <button onclick="BOND.closeOl1()" title="Close">✕</button>
           </div>
           <div class="bond-modal-c">
             <div class="bond-hint">
-              Bảng này là <b>nguồn trừ lùi FIFO</b> của mọi lô P và X: vào trước dùng trước, và mỗi lô
-              chỉ được rút <b>từ ngày nằm trong chính mã batch</b> trở đi (260714X001 ⇒ 14/07/2026).
-              Gõ <b>TỔNG P+X</b> và <b>X</b>; P tự suy ra = TỔNG − X. Ngày chưa gõ TỔNG sẽ chạy mức
-              tạm tính 2.000 T và được đếm riêng để cảnh báo.
+              This table is the <b>FIFO run-down source</b> for every P and X batch: first in, first out,
+              and each batch is only drawn down <b>from the date inside its own batch code</b> onward
+              (260714X001 ⇒ 14/07/2026). Key in <b>TOTAL P+X</b> and <b>X</b>; P is derived as TOTAL − X.
+              A day with no TOTAL runs on the assumed 2,000 T and is counted separately so you get warned.
             </div>
             <div class="bond-frow">
-              <label>Tháng</label>
+              <label>Month</label>
               <input type="month" id="bondOl1Month" onchange="BOND.onOl1Month()">
-              <label>Đơn vị</label>
+              <label>Unit</label>
               <select id="bondOl1Unit" onchange="BOND.onOl1Unit()">
-                <option value="T">Tấn (MT)</option>
+                <option value="T">Tonnes (MT)</option>
                 <option value="kg">kg</option>
               </select>
-              <button class="bond-btn" onclick="BOND.addUseRow()">➕ Thêm ngày</button>
-              <button class="bond-btn" onclick="BOND.fillMonth()">📅 Đổ cả tháng</button>
+              <button class="bond-btn" onclick="BOND.addUseRow()">➕ Add day</button>
+              <button class="bond-btn" onclick="BOND.fillMonth()">📅 Fill month</button>
             </div>
             <div class="bond-ol1-wrap">
               <table class="bond-ol1">
                 <thead>
                   <tr>
-                    <th style="width:110px">Ngày</th>
-                    <th>TỔNG P+X (<span id="bondOl1UnitH">MT</span>)</th>
+                    <th style="width:110px">Date</th>
+                    <th>TOTAL P+X (<span id="bondOl1UnitH">MT</span>)</th>
                     <th>X — Export Petchem</th>
-                    <th>P = TỔNG − X</th>
-                    <th>Ghi chú</th>
+                    <th>P = TOTAL − X</th>
+                    <th>Note</th>
                     <th style="width:44px"></th>
                   </tr>
                 </thead>
@@ -1291,7 +1291,7 @@
             <div class="bond-ol1-tot" id="bondOl1Tot"></div>
           </div>
           <div class="bond-modal-f">
-            <button class="bond-btn" onclick="BOND.closeOl1()">Đóng</button>
+            <button class="bond-btn" onclick="BOND.closeOl1()">Close</button>
           </div>
         </div>
       </div>

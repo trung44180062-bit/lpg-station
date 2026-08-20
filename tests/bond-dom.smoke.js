@@ -102,7 +102,7 @@ chk('ô STT vẽ ra số thứ tự + chip tình trạng',
 const nw=rowsNow.find(r=>r.isNew);
 const nwHtml=cStt.formatter({ getValue:()=>nw.st,
   getRow:()=>({ getData:()=>nw, getPosition:()=>2 }) });
-chk('lô mới có thêm dấu "✚ mới"', nwHtml.indexOf('✚ mới')>-1);
+chk('lô mới có thêm dấu "✚ new"', nwHtml.indexOf('✚ new')>-1);
 
 console.log('\n— THANH LỌC —');
 chk('markup có đủ ô lọc + nút xoá lọc',
@@ -113,7 +113,7 @@ document.getElementById('bondFLot').value='X'; BOND.onFilter();
 chk('lọc chạy trên lưới', TCFG.data.length>0 && TCFG.data.every(r=>r.letter==='X'),
     TCFG.data.length+' dòng');
 chk('bộ đếm nói rõ đang lọc bao nhiêu / tổng bao nhiêu',
-    /\d+\/\d+ lô/.test(String(CACHE['bondCount'].textContent)),
+    /\d+\/\d+ batches/.test(String(CACHE['bondCount'].textContent)),
     String(CACHE['bondCount'].textContent));
 chk('nút ✕ xoá lọc hiện ra khi đang lọc', CACHE['bondFClr'].style.display==='');
 BOND.clearFilter();
@@ -134,13 +134,13 @@ BOND.toggleCards();
 chk('bấm lại thì hiện lại', CACHE['bondCards'].style.display==='');
 
 console.log('\n— THẺ & CẢNH BÁO —');
-chk('thẻ TỒN KHO nói rõ kỳ đang xem', H('bondCards').indexOf('TỒN KHO NGOẠI QUAN')>-1 &&
+chk('thẻ TỒN KHO nói rõ kỳ đang xem', H('bondCards').indexOf('IN BONDED WAREHOUSE')>-1 &&
     H('bondCards').indexOf('2026-08')>-1);
-chk('thẻ SỐ SAP nói rõ đang dùng số ngày nào', H('bondCards').indexOf('SỐ SAP ĐANG DÙNG')>-1 &&
+chk('thẻ SỐ SAP nói rõ đang dùng số ngày nào', H('bondCards').indexOf('SAP FIGURES IN USE')>-1 &&
     H('bondCards').indexOf('18/08/26')>-1);
-chk('có thẻ CẦN XỬ LÝ khi còn lô chưa khai', H('bondCards').indexOf('CẦN XỬ LÝ')>-1);
+chk('có thẻ CẦN XỬ LÝ khi còn lô chưa khai', H('bondCards').indexOf('NEEDS ATTENTION')>-1);
 chk('dải cảnh báo mời điền thông tin cho lô mới',
-    H('bondAlerts').indexOf('chưa có thông tin')>-1);
+    H('bondAlerts').indexOf('have no details yet')>-1);
 S.INFO['C3_260714X999']={ vessel:'TÀU MA' };
 BOND.render();
 chk('⭐ lô mất khỏi SAP ⇒ cảnh báo ĐỎ nêu đích danh mã batch',
@@ -155,13 +155,13 @@ chk('có cột "Dự kiến hết", nằm trong nhóm app tính',
 chk('cột đó đứng ngay sau cột %', F.indexOf('eta')===F.indexOf('pct')+1);
 const pr=BOND._state.all().find(r=>r.projected);
 const eh=cEta.formatter({ getValue:()=>pr.eta, getRow:()=>({ getData:()=>pr }) });
-chk('ngày CHIẾU vẽ dấu ≈ kèm đếm ngược', eh.indexOf('≈')>-1 && /còn \d+ ngày|hôm nay/.test(eh),
+chk('ngày CHIẾU vẽ dấu ≈ kèm đếm ngược', eh.indexOf('≈')>-1 && /\d+ d left|today/.test(eh),
     eh.replace(/<[^>]+>/g,' ').trim());
 const dn=BOND._state.all().find(r=>r.eta && !r.projected);
 const dh=cEta.formatter({ getValue:()=>dn.eta, getRow:()=>({ getData:()=>dn }) });
-chk('ngày ĐÃ HẾT THẬT thì KHÔNG có dấu ≈', dh.indexOf('≈')<0 && dh.indexOf('đã hết')>-1);
+chk('ngày ĐÃ HẾT THẬT thì KHÔNG có dấu ≈', dh.indexOf('≈')<0 && dh.indexOf('empty')>-1);
 chk('thẻ SẮP HẾT TRƯỚC NHẤT nêu đúng lô và ngày',
-    H('bondCards').indexOf('SẮP HẾT TRƯỚC NHẤT')>-1);
+    H('bondCards').indexOf('RUNNING OUT FIRST')>-1);
 
 console.log('\n— MODAL FEED OL1 —');
 BOND.openOl1();
@@ -170,13 +170,13 @@ chk('bảng OL1 dựng đủ ngày của tháng', (H('bondOl1Body').match(/<tr/g
     (H('bondOl1Body').match(/<tr/g)||[]).length+' dòng');
 const ob=H('bondOl1Body');
 chk('⭐ ngày TƯƠNG LAI được đánh dấu riêng', ob.indexOf('bond-futrow')>-1 &&
-    ob.indexOf('dự kiến')>-1);
+    ob.indexOf('forecast')>-1);
 chk('⭐ ô TỔNG của ngày tương lai hiện MỨC TẠM TÍNH 2.000 (chữ mờ, để trống giá trị)',
-    ob.indexOf('placeholder="tạm 2,000"')>-1 && ob.indexOf('bond-asm')>-1);
+    ob.indexOf('placeholder="assumed 2,000"')>-1 && ob.indexOf('bond-asm')>-1);
 chk('⭐ cột P của ngày đó tính theo mức tạm tính chứ KHÔNG phải 0',
     /class="n bond-asm">(?!0<)[\d,.]+</.test(ob));
 chk('dòng tổng nói rõ bao nhiêu ngày tới đang chạy tạm tính',
-    H('bondOl1Tot').indexOf('chạy mức tạm tính')>-1,
+    H('bondOl1Tot').indexOf('on the assumed')>-1,
     H('bondOl1Tot').replace(/<[^>]+>/g,''));
 chk('đánh dấu ngày chốt số (D-1)', H('bondOl1Body').indexOf('bond-asof')>-1 ||
     S.asOf().slice(0,7)!=='2026-08');
@@ -199,6 +199,52 @@ chk('markup nối đủ nút vào BOND.*', true);
 chk('khung SAP thô được bọc lại để gạt qua lại', /id="spViewRaw"/.test(pane));
 chk('bảng SAP thô GIỮ NGUYÊN, không bị sửa gì',
     /id="spGrid"/.test(pane) && /id="spAnalysisWrap"/.test(pane) && /id="spTotBar"/.test(pane));
+
+/* ═══ GIAO DIỆN PHẢI LÀ TIẾNG ANH (v4.106) ═════════════════════════
+   Chốt của người dùng: sub-tab kho ngoại quan dùng TIẾNG ANH. Chú thích
+   trong mã vẫn tiếng Việt — chỉ chuỗi HIỂN THỊ mới bị soi. Khối "SAP thô"
+   nằm ngoài phạm vi, nên chỉ quét đúng khối #spViewKnq + nút gạt. */
+console.log('\n— GIAO DIỆN TIẾNG ANH —');
+const VN=/[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ]/;
+(function(){
+  /* ① mã nguồn bond.js — bỏ mọi comment rồi mới soi */
+  const JS=fs.readFileSync(path.join(ROOT,'js','features','bond.js'),'utf8').split('\n');
+  let blk=false; const badJs=[];
+  JS.forEach((l,i)=>{
+    const st=l.trim();
+    if(blk){ if(l.indexOf('*/')>-1) blk=false; return; }
+    if(st.indexOf('/*')===0){ if(l.indexOf('*/')<0) blk=true; return; }
+    if(st.indexOf('*')===0||st.indexOf('//')===0) return;
+    const code=l.replace(/\/\*.*?\*\//g,'').replace(/\/\/.*$/,'');
+    if(VN.test(code)) badJs.push((i+1)+': '+code.trim().slice(0,70));
+  });
+  chk('⭐ bond.js không còn chuỗi hiển thị tiếng Việt', badJs.length===0,
+      badJs.slice(0,4).join(' | '));
+
+  /* ② markup của khối KNQ — bỏ comment HTML rồi mới soi */
+  let inc=false; const badHtml=[];
+  pane.split('\n').forEach((l,i)=>{
+    const st=l.trim();
+    if(inc){ if(l.indexOf('-->')>-1) inc=false; return; }
+    if(st.indexOf('<!--')===0){ if(l.indexOf('-->')<0) inc=true; return; }
+    /* bỏ qua thanh công cụ SAP thô — ngoài phạm vi lần chuyển ngữ này */
+    if(/id="sp(Sloc|Batch|Bcode)Filter"|spResetFilters|sp-tot-/.test(l)) return;
+    if(VN.test(l)) badHtml.push(st.slice(0,80));
+  });
+  chk('⭐ markup khối KNQ không còn tiếng Việt', badHtml.length===0,
+      badHtml.slice(0,4).join(' | '));
+
+  /* ③ những chỗ người dùng nhìn nhiều nhất — kiểm tận nơi */
+  const heads=TCFG.columns.map(c=>c.title).join(' | ');
+  chk('tiêu đề cột đều tiếng Anh', !VN.test(heads), heads);
+  const tips=TCFG.columns.map(c=>c.headerTooltip||'').join(' ');
+  chk('tooltip tiêu đề cột đều tiếng Anh', !VN.test(tips));
+  chk('chip tình trạng tiếng Anh',
+      !VN.test(Object.values(BOND._state.ST_NAME).join(' ')),
+      Object.values(BOND._state.ST_NAME).join(' · '));
+  chk('thẻ + dải cảnh báo tiếng Anh', !VN.test(H('bondCards')+H('bondAlerts')));
+  chk('bảng FEED OL1 tiếng Anh', !VN.test(H('bondOl1Body')+H('bondOl1Tot')));
+})();
 
 console.log('\n— CSS —');
 const CSS=fs.readFileSync(path.join(ROOT,'css','bond.css'),'utf8');

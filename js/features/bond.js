@@ -72,6 +72,13 @@
  * ⚠ NÚT XOÁ DÒNG PHẢI GHIM TRÁI. Bảng 22 cột, để ✕ ở tận cùng bên phải là
  *    người dùng không bao giờ nhìn thấy (đã dính một lần).
  *
+ * ⚠ GIAO DIỆN LÀ TIẾNG ANH (chốt của người dùng, v4.106). Chú thích trong
+ *    mã vẫn tiếng Việt — chỉ CHUỖI HIỂN THỊ mới phải tiếng Anh: tiêu đề cột,
+ *    tooltip, chip tình trạng, thẻ, dải cảnh báo, toast, hộp xác nhận, modal
+ *    FEED OL1, tiêu đề file Excel. `tests/bond-dom.smoke.js` có mục soi lại
+ *    chuyện này, gõ tiếng Việt vào chuỗi hiển thị là test đỏ ngay.
+ *    Khối "📊 Raw SAP" nằm NGOÀI phạm vi — nó là bảng cũ, chưa chuyển ngữ.
+ *
  * ⚠ KHÔNG ĐƯỢC làm hai việc sau, đã cân nhắc kỹ:
  *    ① Thêm cột của KNQ vào chính node sap_ — alloc.js / cav.js / plan.js /
  *      mthr.js đều đang đọc SP.ROWS, và thông tin hải quan sẽ nằm trong tầm
@@ -112,8 +119,8 @@ const BOND = (function(){
   const INFO_FIELDS = ['vno','vessel','dIn','dOut','hqQty','vas','vasDate','note'];
   /* ⭐ VÒNG ĐỜI MỘT LÔ — mỗi lô đúng MỘT trạng thái, đọc từ trên xuống là
      thấy luôn trình tự rút hàng (đã sắp C3→C4, D→E→P→X, cũ trên mới dưới). */
-  const ST_NAME = { pumping:'Đang bơm', wait:'Chờ tới lượt', emptied:'Hết — chưa VASSCM',
-                    zero:'Đã xong', gone:'SAP không còn' };
+  const ST_NAME = { pumping:'Pumping', wait:'Not started', emptied:'Empty — no VASSCM',
+                    zero:'Done', gone:'Not in SAP' };
   const ST_ICON = { pumping:'▶', wait:'○', emptied:'◍', zero:'✓', gone:'⛔' };
 
   /* ── trạng thái ──────────────────────────────────────────── */
@@ -211,11 +218,11 @@ const BOND = (function(){
   function _mine(){ return _echo>0 && Date.now()<_echoUntil; }
   function _push(payload,reason){
     if(!Object.keys(payload||{}).length) return Promise.resolve(false);
-    if(typeof firebase==='undefined'){ _say('⚠ Offline — chưa đẩy được','warn'); return Promise.resolve(false); }
+    if(typeof firebase==='undefined'){ _say('⚠ Offline — nothing was pushed','warn'); return Promise.resolve(false); }
     _echo++; _echoUntil=Date.now()+1200;
     return _ref().ref().update(payload)
       .then(()=>{ if(reason) _syncTag('✓ '+reason,'ok'); return true; })
-      .catch(e=>{ console.warn('[BOND] push',e); _say('❌ Ghi Firebase hỏng','er'); return false; })
+      .catch(e=>{ console.warn('[BOND] push',e); _say('❌ Firebase write failed','er'); return false; })
       .finally(()=>setTimeout(()=>{ _echo--; },900));
   }
   function _syncTag(txt,cls){
@@ -470,7 +477,7 @@ const BOND = (function(){
           if(need>0.5){ short+=need; if(!shortDay) shortDay=d; }
         }
         if(short>0.5 && q.length){
-          q[q.length-1].warn='FEED OL1 đòi nhiều hơn tồn '+_K(short)+' kg (từ '+_dmy(shortDay)+')';
+          q[q.length-1].warn='FEED OL1 draws '+_K(short)+' kg more than the stock holds (from '+_dmy(shortDay)+')';
         }
         q.forEach(r=>{ r.left=Math.max(0,r.left); r.used=Math.max(0,r._open-r.left); });
         /* ⭐ LÔ ĐANG BƠM của P/X = phần tử ĐẦU hàng đợi FIFO còn hàng và đã
@@ -622,9 +629,9 @@ const BOND = (function(){
      GHI THÔNG TIN NGƯỜI DÙNG — một ô một lần
   ============================================================ */
   function setInfo(key,field,val){
-    if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
     if(INFO_FIELDS.indexOf(field)<0) return;
-    if(_arch){ _say('📜 Đang xem kỳ đã lưu — không sửa được','warn'); return; }
+    if(_arch){ _say('📜 Viewing a saved period — read-only','warn'); return; }
     let v=val;
     if(field==='hqQty'){ const n=_num(val); v=(n==null?'':Math.round(n)); }
     else if(field==='vas'){ v=!!val; }
@@ -640,7 +647,7 @@ const BOND = (function(){
     }
     pay[FB_INFO+'/'+key+'/lastBy']=_who();
     pay[FB_INFO+'/'+key+'/lastAt']=Date.now();
-    _push(pay,'lưu '+_stamp().slice(11));
+    _push(pay,'saved '+_stamp().slice(11));
     render();
   }
   /* xoá hẳn một lô khỏi bảng: bỏ bản ghi thông tin.
@@ -648,19 +655,19 @@ const BOND = (function(){
      sẽ hiện lại ngay ở dạng "chưa khai thông tin". Đúng như vậy: SAP mới là
      nơi quyết định lô còn hay hết. */
   function delRow(key){
-    if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
     const r=_rows.find(x=>x.key===key); if(!r) return;
     const still=r.inSap && _n(r.end)>0.5;
-    if(!confirm('XOÁ DÒNG '+r.bcode+' ('+r.mat+')\n\n'+
+    if(!confirm('DELETE ROW '+r.bcode+' ('+r.mat+')\n\n'+
       (still
-        ? '⚠ Mã batch này VẪN CÒN '+_K(r.end)+' kg trong SAP ngày '+_dmy(r.date)+'.\n'+
-          'Xoá ở đây chỉ xoá phần thông tin anh gõ (tàu, tờ khai, VASSCM…).\n'+
-          'Dòng sẽ hiện lại ngay, ở dạng "chưa khai thông tin".\n\n'
-        : 'Mã batch này không còn hàng trong SAP — xoá là dòng biến mất hẳn.\n\n')+
-      'Tiếp tục?')) return;
+        ? '⚠ This batch code STILL HOLDS '+_K(r.end)+' kg in the SAP data of '+_dmy(r.date)+'.\n'+
+          'Deleting here only removes what you typed (vessel, declarations, VASSCM…).\n'+
+          'The row comes straight back, flagged "no details yet".\n\n'
+        : 'This batch code holds no stock in SAP — deleting drops the row for good.\n\n')+
+      'Continue?')) return;
     delete INFO[key];
     const pay={}; pay[FB_INFO+'/'+key]=null;
-    _push(pay,'xoá '+r.bcode);
+    _push(pay,'deleted '+r.bcode);
     render();
   }
 
@@ -674,21 +681,21 @@ const BOND = (function(){
      Bấm lại là ĐÈ LÊN ảnh cũ của cùng kỳ.
   ============================================================ */
   function savePeriod(){
-    if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
-    if(_arch){ _say('📜 Đang xem kỳ đã lưu — bấm ✕ để quay lại rồi hẵng lưu','warn'); return; }
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
+    if(_arch){ _say('📜 Viewing a saved period — press ✕ to go back to live figures first','warn'); return; }
     const M=_month||_ym(_asOf());
     recalc();
     const rows=_all;                      /* ⚠ chụp TOÀN BỘ, không phải phần đang lọc */
-    if(!rows.length){ _say('⚠ Bảng đang trống, không có gì để lưu','warn'); return; }
+    if(!rows.length){ _say('⚠ The table is empty — nothing to save','warn'); return; }
     const had=PERIODS[M];
     const o=_ol1Sum();
-    if(!confirm('💾 LƯU KỲ '+M+'\n\n'+
-      rows.length+' lô · số SAP ngày '+_dmy(_sapDay)+'\n'+
-      'FEED OL1 đã dùng: TỔNG '+_T(o.t)+' T · X '+_T(o.x)+' T · P '+_T(o.p)+' T\n'+
-      (o.def?('⚠ '+o.def+' ngày chạy mức tạm tính '+_T(DEF_TOT_KG)+' T\n'):'')+
-      (o.miss.length?('⚠ '+o.miss.length+' ngày chưa có dòng FEED OL1\n'):'')+
-      '\n'+(had?('⚠ Kỳ này đã có ảnh chụp lưu ngày '+had.savedAt+' — sẽ ĐÈ LÊN.\n\n'):'')+
-      'Lưu lại để sau này gọi về xem?')) return;
+    if(!confirm('💾 SAVE PERIOD '+M+'\n\n'+
+      rows.length+' batch(es) · SAP figures of '+_dmy(_sapDay)+'\n'+
+      'FEED OL1 used: TOTAL '+_T(o.t)+' T · X '+_T(o.x)+' T · P '+_T(o.p)+' T\n'+
+      (o.def?('⚠ '+o.def+' day(s) running on the assumed '+_T(DEF_TOT_KG)+' T\n'):'')+
+      (o.miss.length?('⚠ '+o.miss.length+' day(s) have no FEED OL1 row\n'):'')+
+      '\n'+(had?('⚠ This period already has a snapshot saved '+had.savedAt+' — it will be OVERWRITTEN.\n\n'):'')+
+      'Save it so you can call it back later?')) return;
     const snap={};
     rows.forEach(r=>{
       snap[r.key]={ mat:r.mat, bcode:r.bcode, letter:r.letter||'', date:r.date||'',
@@ -704,22 +711,22 @@ const BOND = (function(){
                       n:o.n, def:o.def, miss:o.miss.length },
                 rows:snap };
     const pay={}; pay[FB_PER+'/'+M]=rec;
-    _push(pay,'lưu kỳ '+M).then(ok=>{
+    _push(pay,'saved period '+M).then(ok=>{
       if(!ok) return;
       PERIODS[M]={ savedAt:rec.savedAt, savedBy:rec.savedBy, sapDate:rec.sapDate, n:rows.length };
       _fillPeriodSel();
-      _say('💾 Đã lưu kỳ '+M+' — '+rows.length+' lô, số SAP ngày '+_dmy(_sapDay),'ok');
+      _say('💾 Period '+M+' saved — '+rows.length+' batch(es), SAP figures of '+_dmy(_sapDay),'ok');
       render();
     });
   }
   function openPeriod(M){
     M=M||(_el('bondPerSel')||{}).value;
-    if(!M){ _say('Chọn kỳ muốn xem','warn'); return; }
-    if(!PERIODS[M]){ _say('⚠ Kỳ '+M+' chưa có ảnh chụp nào','warn'); return; }
-    _say('📜 Đang mở kỳ '+M+'…','');
+    if(!M){ _say('Pick the period you want to open','warn'); return; }
+    if(!PERIODS[M]){ _say('⚠ Period '+M+' has no snapshot yet','warn'); return; }
+    _say('📜 Opening period '+M+'…','');
     _ref().ref(FB_PER+'/'+M).once('value').then(s=>{
       const v=s.val();
-      if(!v){ _say('❌ Không đọc được kỳ '+M,'er'); return; }
+      if(!v){ _say('❌ Could not read period '+M,'er'); return; }
       const rows=Object.keys(v.rows||{}).map(k=>{
         const r=v.rows[k];
         return Object.assign({ key:k, sloc:'1100', inSap:true, hasInfo:true,
@@ -731,27 +738,27 @@ const BOND = (function(){
       _arch={ M:M, rows:rows, meta:v };
       _archM=M;
       render();
-      _say('📜 Kỳ '+M+' — ảnh chụp lúc '+(v.savedAt||'?')+(v.savedBy?(' bởi '+v.savedBy):'')+
-           ' · số SAP ngày '+_dmy(v.sapDate||''),'ok');
-    }).catch(e=>{ console.warn('[BOND] openPeriod',e); _say('❌ Không đọc được kỳ','er'); });
+      _say('📜 Period '+M+' — snapshot taken '+(v.savedAt||'?')+(v.savedBy?(' by '+v.savedBy):'')+
+           ' · SAP figures of '+_dmy(v.sapDate||''),'ok');
+    }).catch(e=>{ console.warn('[BOND] openPeriod',e); _say('❌ Could not read that period','er'); });
   }
   function closePeriod(){ _arch=null; _archM=''; render(); }
   function delPeriod(){
     const M=(_el('bondPerSel')||{}).value;
-    if(!M||!PERIODS[M]){ _say('Chọn kỳ đã lưu muốn xoá','warn'); return; }
-    if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
+    if(!M||!PERIODS[M]){ _say('Pick the saved period you want to delete','warn'); return; }
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
     const p=PERIODS[M];
-    if(!confirm('🗑 XOÁ ẢNH CHỤP KỲ '+M+'\n\n'+
-      'Lưu lúc '+(p.savedAt||'?')+(p.savedBy?(' bởi '+p.savedBy):'')+' · '+(p.n||0)+' lô.\n\n'+
-      'Xoá để Firebase khỏi phình. Dữ liệu SAP và thông tin lô KHÔNG bị ảnh hưởng —\n'+
-      'chỉ mất bản chụp của kỳ này.\n\nXoá?')) return;
+    if(!confirm('🗑 DELETE THE SNAPSHOT OF '+M+'\n\n'+
+      'Saved '+(p.savedAt||'?')+(p.savedBy?(' by '+p.savedBy):'')+' · '+(p.n||0)+' batch(es).\n\n'+
+      'Deleting keeps Firebase small. SAP data and the batch details are NOT touched —\n'+
+      'only this period\'s snapshot is lost.\n\nDelete?')) return;
     const pay={}; pay[FB_PER+'/'+M]=null;
-    _push(pay,'xoá kỳ '+M).then(ok=>{
+    _push(pay,'deleted period '+M).then(ok=>{
       if(!ok) return;
       delete PERIODS[M];
       if(_archM===M) closePeriod();
       _fillPeriodSel();
-      _say('🗑 Đã xoá ảnh chụp kỳ '+M,'ok');
+      _say('🗑 Snapshot of '+M+' deleted','ok');
     });
   }
 
@@ -773,7 +780,7 @@ const BOND = (function(){
     const r=cell.getRow().getData(), v=_num(cell.getValue());
     if(v==null) return '<span class="bond-dim">—</span>';
     let h='<b class="bond-left">'+v.toLocaleString('en-US')+'</b>';
-    if(_isPX(r.letter)) h+='<span class="bond-sub">theo OL1</span>';
+    if(_isPX(r.letter)) h+='<span class="bond-sub">per OL1</span>';
     else                h+='<span class="bond-sub">SAP</span>';
     if(r.flag==='low')  h+='<span class="bond-tag low">⚠ '+Math.round(v/1000)+' T</span>';
     if(r.warn)          h+='<span class="bond-tag bad">'+_esc(r.warn)+'</span>';
@@ -787,14 +794,14 @@ const BOND = (function(){
     const r=cell.getRow().getData();
     if(!r.eta) return _isPX(r.letter)
       ? '<span class="bond-dim">—</span>'
-      : '<span class="bond-dim" title="Lô D/E lấy thẳng số SAP hằng ngày, không chiếu theo FEED OL1">—</span>';
+      : '<span class="bond-dim" title="D/E batches take their figure straight from SAP every day — no FEED OL1 projection">—</span>';
     if(!r.projected)
-      return '<span class="bond-eta done" title="Ngày lô này thực sự cạn theo FEED OL1 đã nhập">'+
-             _dmy(r.eta)+'</span><span class="bond-sub">đã hết</span>';
+      return '<span class="bond-eta done" title="The day this batch actually ran dry on the FEED OL1 figures entered">'+
+             _dmy(r.eta)+'</span><span class="bond-sub">empty</span>';
     const d=r.etaDays;
-    return '<span class="bond-eta'+(r.soon?' hot':'')+'" title="Dự kiến — chiếu tiếp bằng plan X trong file, '+
-      'ngày chưa gõ TỔNG P+X thì chạy mức tạm tính '+_K(DEF_TOT_KG)+' kg/ngày">≈ '+_dmy(r.eta)+'</span>'+
-      '<span class="bond-sub">'+(d==null?'':(d<=0?'hôm nay':('còn '+d+' ngày')))+'</span>';
+    return '<span class="bond-eta'+(r.soon?' hot':'')+'" title="Forecast — projected forward on the plan X in the '+
+      'file; a day with no TOTAL P+X keyed in runs on the assumed '+_K(DEF_TOT_KG)+' kg/day">≈ '+_dmy(r.eta)+'</span>'+
+      '<span class="bond-sub">'+(d==null?'':(d<=0?'today':(d+' d left')))+'</span>';
   }
   function _pctFmt(cell){
     const p=+cell.getValue()||0;
@@ -812,7 +819,7 @@ const BOND = (function(){
   }
   function _codeFmt(cell){
     const r=cell.getRow().getData(), v=String(cell.getValue()||'');
-    const bd=r.bdate?('<span class="bond-sub">từ '+_dmy(r.bdate)+'</span>'):'';
+    const bd=r.bdate?('<span class="bond-sub">from '+_dmy(r.bdate)+'</span>'):'';
     return '<span class="bond-code">'+_esc(v)+'</span>'+bd;
   }
   function _matFmt(cell){
@@ -825,22 +832,22 @@ const BOND = (function(){
   function _sttFmt(cell){
     const r=cell.getRow().getData();
     const st=r.st||'';
-    const tip={ pumping:'Đang được rút ra ngay lúc này'+
-                        (_isPX(r.letter)?' — đầu hàng đợi FIFO của loại lô này'
-                                        :' — SAP ghi nhận GI hoặc Trs âm ngày '+_dmy(r.date)),
-                wait:'Còn nguyên, chưa tới lượt rút',
-                emptied:'Đã hết hàng nhưng CHƯA tích VASSCM — còn việc phải làm',
-                zero:'Đã hết và đã khai VASSCM — xong hẳn',
-                gone:'SAP không còn mã batch này — kiểm tra rồi xoá dòng' }[st]||'';
+    const tip={ pumping:'Being drawn out right now'+
+                        (_isPX(r.letter)?' — head of the FIFO queue for this lot type'
+                                        :' — SAP booked a negative GI or Trs on '+_dmy(r.date)),
+                wait:'Untouched, not its turn yet',
+                emptied:'Empty but VASSCM NOT ticked yet — still something to do',
+                zero:'Empty and VASSCM filed — finished',
+                gone:'This batch code is no longer in SAP — check it, then delete the row' }[st]||'';
     let h='<div class="bond-stt">'+
       '<span class="bond-no">'+(cell.getRow().getPosition()||'')+'</span>'+
       '<span class="bond-chip c-'+st+'" title="'+_esc(tip)+'">'+
         (ST_ICON[st]||'')+' '+_esc(ST_NAME[st]||'')+'</span>';
     const mk=[];
-    if(r.isNew)  mk.push('<span class="bond-mk new" title="Vừa nhập kho — chưa có ở ảnh chụp SAP ngày '+
-                         _dmy(_prevDay)+(_n(r.gr)>0?(', cột GR +'+_K(r.gr)+' kg'):'')+'">✚ mới</span>');
-    if(r.noInfo) mk.push('<span class="bond-mk info" title="Chưa khai tàu / tờ khai — điền các cột bên trái">✎ thiếu TT</span>');
-    if(r.low)    mk.push('<span class="bond-mk low" title="Còn dưới '+_K(LOW_KG)+' kg">⚠ sắp cạn</span>');
+    if(r.isNew)  mk.push('<span class="bond-mk new" title="Just received — not in the SAP snapshot of '+
+                         _dmy(_prevDay)+(_n(r.gr)>0?(', GR column +'+_K(r.gr)+' kg'):'')+'">✚ new</span>');
+    if(r.noInfo) mk.push('<span class="bond-mk info" title="No vessel / declaration yet — fill the columns on the left">✎ no details</span>');
+    if(r.low)    mk.push('<span class="bond-mk low" title="Under '+_K(LOW_KG)+' kg left">⚠ low</span>');
     if(mk.length) h+='<span class="bond-mks">'+mk.join('')+'</span>';
     return h+'</div>';
   }
@@ -855,23 +862,23 @@ const BOND = (function(){
       /* ⭐ GHIM TRÁI — bảng rộng, cuộn ngang mấy cũng không mất chỗ này.
          Ô STT gánh luôn TÌNH TRẠNG lô (chốt của người dùng): số thứ tự,
          chip trạng thái, và hai dấu phụ "mới nhập" / "thiếu thông tin". */
-      { title:'STT · tình trạng', field:'st', width:132, headerSort:true, frozen:true,
+      { title:'No. · status', field:'st', width:132, headerSort:true, frozen:true,
         formatter:_sttFmt, cssClass:'bond-c-stt',
-        headerTooltip:'Thứ tự rút hàng (vào trước dùng trước) kèm tình trạng của lô' },
+        headerTooltip:'Draw-down order (first in, first out) together with the state of the batch' },
 
       /* ── TRÁI · nhận dạng, người dùng gõ ─────────────────── */
-      { title:'STT tàu', field:'vno', width:74, editor:ed, headerSort:true,
-        cssClass:'bond-c-user', headerTooltip:'Số hiệu chuyến tàu — anh tự gõ, SAP không có' },
-      { title:'Tên tàu', field:'vessel', width:150, editor:ed, headerSort:true,
-        cssClass:'bond-c-user', headerTooltip:'Tên tàu chở lô này — anh tự gõ, SAP không có' },
-      { title:'TK nhập khẩu', field:'dIn', width:124, editor:ed, headerSort:true,
-        cssClass:'bond-c-user mono', headerTooltip:'Số tờ khai nhập khẩu của chuyến tàu' },
-      { title:'TK get out', field:'dOut', width:124, editor:ed, headerSort:true,
-        cssClass:'bond-c-user mono', headerTooltip:'Số tờ khai xuất kho ngoại quan của lô này' },
+      { title:'Voyage no.', field:'vno', width:78, editor:ed, headerSort:true,
+        cssClass:'bond-c-user', headerTooltip:'Voyage number — you type this, SAP does not carry it' },
+      { title:'Vessel', field:'vessel', width:150, editor:ed, headerSort:true,
+        cssClass:'bond-c-user', headerTooltip:'Vessel that brought this batch — you type this, SAP does not carry it' },
+      { title:'Import decl.', field:'dIn', width:124, editor:ed, headerSort:true,
+        cssClass:'bond-c-user mono', headerTooltip:'Import declaration number of the voyage' },
+      { title:'Get-out decl.', field:'dOut', width:124, editor:ed, headerSort:true,
+        cssClass:'bond-c-user mono', headerTooltip:'Declaration number releasing this batch from the bonded warehouse' },
 
       /* ── GIỮA · nguyên văn SAP, chỉ đọc ──────────────────── */
       { title:'Date', field:'date', width:88, headerSort:true, formatter:_dateFmt,
-        cssClass:'bond-c-sap', headerTooltip:'Ngày của số SAP đang dùng (D-1)' },
+        cssClass:'bond-c-sap', headerTooltip:'Date of the SAP figures in use (D-1)' },
       { title:'SLoc', field:'sloc', width:64, hozAlign:'center', headerSort:false,
         cssClass:'bond-c-sap', formatter:()=>'<span class="bond-sloc">1100</span>' },
       { title:'Mat', field:'mat', width:52, hozAlign:'center', headerSort:true,
@@ -895,36 +902,36 @@ const BOND = (function(){
     }
     C.push({ title:'End (kg)', field:'end', width:110, hozAlign:'right', headerSort:true,
       formatter:_kgFmt, cssClass:'bond-c-sap bond-c-end',
-      headerTooltip:'End Stock của SAP — số gốc, không nắn' });
+      headerTooltip:'SAP End Stock — the raw figure, never adjusted' });
 
     /* ── PHẢI · phần làm việc ──────────────────────────────── */
     C.push(
       { title:'HQ approved', field:'hqQty', width:108, hozAlign:'right', editor:ed,
         headerSort:true, formatter:_kgFmt, cssClass:'bond-c-user',
-        headerTooltip:'Lượng Hải quan đồng ý cho get out — tham chiếu, không dùng để tính' },
-      { title:'Thực còn (kg)', field:'left', width:126, hozAlign:'right', headerSort:true,
+        headerTooltip:'Quantity Customs approved for get out — reference only, not used in any calculation' },
+      { title:'Actual left (kg)', field:'left', width:126, hozAlign:'right', headerSort:true,
         formatter:_leftFmt, cssClass:'bond-c-calc',
-        headerTooltip:'P/X = End Stock trừ lùi theo FEED OL1 của kỳ · D/E = lấy thẳng End Stock' },
+        headerTooltip:'P/X = End Stock run down on the period FEED OL1 · D/E = End Stock taken straight from SAP' },
       { title:'%', field:'pct', width:88, hozAlign:'right', headerSort:true,
         formatter:_pctFmt, cssClass:'bond-c-calc' },
-      { title:'Dự kiến hết', field:'eta', width:110, headerSort:true,
+      { title:'Empty by', field:'eta', width:112, headerSort:true,
         formatter:_etaFmt, cssClass:'bond-c-calc',
-        headerTooltip:'Ngày lô này cạn. Tới mốc SAP là số thật; từ đó trở đi chiếu tiếp bằng '+
-                      'FEED OL1 — plan X trong file, ngày chưa gõ TỔNG thì chạy mức tạm tính 2.000 T/ngày.' },
+        headerTooltip:'The day this batch runs dry. Real up to the SAP date, then projected forward on '+
+                      'FEED OL1 — plan X from the file, and 2,000 T/day assumed for any day with no TOTAL keyed in.' },
       { title:'VAS', field:'vas', width:48, hozAlign:'center', headerSort:true,
         formatter:_vasFmt, cssClass:'bond-c-user',
-        headerTooltip:'Đã khai VASSCM chưa — bấm để bật/tắt',
+        headerTooltip:'VASSCM declaration filed — click to toggle',
         cellClick:(e,cell)=>{ if(ro) return; const d=cell.getRow().getData();
           setInfo(d.key,'vas',!d.vas); } },
       { title:'VASSCM date', field:'vasDate', width:112, editor:ro?undefined:'date',
         headerSort:true, cssClass:'bond-c-user', formatter:_dateFmt },
-      { title:'Ghi chú', field:'note', width:190, editor:ed, headerSort:false,
+      { title:'Note', field:'note', width:190, editor:ed, headerSort:false,
         cssClass:'bond-c-user' }
     );
     /* nút xoá GHIM TRÁI luôn — để ở tận cùng bên phải thì bảng rộng thế này
        người dùng không bao giờ nhìn thấy (đã dính). */
     if(!ro) C.splice(1,0,{ title:'🗑', width:40, hozAlign:'center', headerSort:false,
-      frozen:true, formatter:()=>'<span class="bond-del" title="Xoá dòng này khỏi bảng KNQ">✕</span>',
+      frozen:true, formatter:()=>'<span class="bond-del" title="Remove this row from the bonded-warehouse table">✕</span>',
       cssClass:'bond-c-del',
       cellClick:(e,cell)=>delRow(cell.getRow().getData().key) });
     return C;
@@ -932,12 +939,12 @@ const BOND = (function(){
 
   function _build(){
     const host=_el('bondGrid'); if(!host) return;
-    if(typeof Tabulator==='undefined'){ host.innerHTML='<div class="bond-empty">Tabulator chưa nạp</div>'; return; }
+    if(typeof Tabulator==='undefined'){ host.innerHTML='<div class="bond-empty">Tabulator is not loaded</div>'; return; }
     if(_table){ try{ _table.destroy(); }catch(_){} _table=null; }
     _table=new Tabulator('#bondGrid',{
       data:_rows, layout:'fitDataStretch', height:'100%', index:'key',
       columns:_columns(),
-      placeholder:'Chưa có lô nào — dán ZMMFR022 ở chế độ “📊 SAP thô” rồi quay lại đây',
+      placeholder:'No batch yet — paste a ZMMFR022 export under “📊 Raw SAP”, then come back here',
       /* ⭐ MÀU DÒNG mang HAI tầng thông tin cùng lúc:
            · thanh rail bên trái = LOẠI LÔ (P chàm · X tím · D mòng két · E hổ phách)
            · nền dòng            = TÌNH TRẠNG (đang bơm nổi lên, đã xong mờ đi) */
@@ -983,10 +990,10 @@ const BOND = (function(){
       '<div class="bond-card '+cls+'"><div class="bond-ch">'+head+'</div>'+
       '<div class="bond-cb">'+big+'<u>'+unit+'</u></div><div class="bond-cs">'+sub+'</div></div>';
     box.innerHTML=
-      card('stock','🛢 TỒN KHO NGOẠI QUAN<span>'+M+'</span>',
+      card('stock','🛢 IN BONDED WAREHOUSE<span>'+M+'</span>',
         _T(byMat.C3+byMat.C4),'T',
-        'C3 '+_T(byMat.C3)+' T · C4 '+_T(byMat.C4)+' T · '+live.length+' lô còn hàng')+
-      card('split','⚖ P+X TRỪ LÙI OL1 · D+E SỐ SAP',
+        'C3 '+_T(byMat.C3)+' T · C4 '+_T(byMat.C4)+' T · '+live.length+' batch(es) still holding')+
+      card('split','⚖ P+X RUN DOWN ON OL1 · D+E FROM SAP',
         _T(px),'T',
         'P+X '+_T(px)+' T · D+E '+_T(de)+' T')+
       (function(){
@@ -997,25 +1004,25 @@ const BOND = (function(){
         const soon=q.filter(r=>r.etaDays<=WARN_DAYS);
         if(!q.length) return '';
         const f=q[0];
-        return card('eta'+(soon.length?' hot':''),'⏳ SẮP HẾT TRƯỚC NHẤT',
-          (f.etaDays<=0?'hôm nay':f.etaDays),(f.etaDays<=0?'':'ngày'),
+        return card('eta'+(soon.length?' hot':''),'⏳ RUNNING OUT FIRST',
+          (f.etaDays<=0?'today':f.etaDays),(f.etaDays<=0?'':'days'),
           f.mat+' '+f.letter+' '+_esc(f.bcode)+' · ≈ '+_dmy(f.eta)+
-          (soon.length>1?(' · '+soon.length+' lô hết trong '+WARN_DAYS+' ngày tới'):''));
+          (soon.length>1?(' · '+soon.length+' batch(es) empty within '+WARN_DAYS+' days'):''));
       })()+
-      card('ol1','⛽ FEED OL1 ĐÃ DÙNG<span>'+_dmy(M+'-01')+' → '+_dmy(_sapDay||_wantDay())+'</span>',
+      card('ol1','⛽ FEED OL1 USED<span>'+_dmy(M+'-01')+' → '+_dmy(_sapDay||_wantDay())+'</span>',
         _T(o.t),'T',
-        'P '+_T(o.p)+' T · X '+_T(o.x)+' T · '+o.n+' ngày'+
-        (o.def?(' · ⚠ '+o.def+' ngày tạm tính'):''))+
-      card('sap','🔗 SỐ SAP ĐANG DÙNG',
+        'P '+_T(o.p)+' T · X '+_T(o.x)+' T · '+o.n+' days'+
+        (o.def?(' · ⚠ '+o.def+' assumed'):''))+
+      card('sap','🔗 SAP FIGURES IN USE',
         _dmy(_sapDay)||'—','',
-        (_sapBehind?'⚠ chưa có số của '+_dmy(_wantDay())+' — đang tạm tính':'đúng mốc D-1')+
-        ' · '+_all.length+' lô')+
+        (_sapBehind?'⚠ nothing for '+_dmy(_wantDay())+' yet — using an older day':'on the D-1 mark')+
+        ' · '+_all.length+' batch(es)')+
       (nNew+nGone+nZero+nLow
-        ? card('flags','🚩 CẦN XỬ LÝ', String(nNew+nGone+nZero+nLow),'',
-            [nGone?('⛔ '+nGone+' mất khỏi SAP'):'',
-             nZero?('◍ '+nZero+' hết hàng, CHƯA VASSCM'):'',
-             nNew ?('✎ '+nNew+' chưa khai thông tin'):'',
-             nLow ?('⚠ '+nLow+' sắp cạn'):''].filter(Boolean).join(' · '))
+        ? card('flags','🚩 NEEDS ATTENTION', String(nNew+nGone+nZero+nLow),'',
+            [nGone?('⛔ '+nGone+' gone from SAP'):'',
+             nZero?('◍ '+nZero+' empty, no VASSCM'):'',
+             nNew ?('✎ '+nNew+' missing details'):'',
+             nLow ?('⚠ '+nLow+' running low'):''].filter(Boolean).join(' · '))
         : '');
   }
   function _renderAlerts(){
@@ -1024,57 +1031,59 @@ const BOND = (function(){
     const A=_asOf(), want=_wantDay();
     if(_arch){
       const m=_arch.meta||{};
-      out.push(['info','<b>📜 Đang xem ảnh chụp kỳ '+_arch.M+'</b> — lưu lúc '+_esc(m.savedAt||'?')+
-        (m.savedBy?(' bởi '+_esc(m.savedBy)):'')+', số SAP ngày '+_dmy(m.sapDate||'')+
-        '. Bảng ở chế độ chỉ đọc. '+
-        '<button class="bond-btn" onclick="BOND.closePeriod()">✕ Quay lại số sống</button>']);
+      out.push(['info','<b>📜 Viewing the saved snapshot of '+_arch.M+'</b> — taken '+_esc(m.savedAt||'?')+
+        (m.savedBy?(' by '+_esc(m.savedBy)):'')+', SAP figures of '+_dmy(m.sapDate||'')+
+        '. The table is read-only. '+
+        '<button class="bond-btn" onclick="BOND.closePeriod()">✕ Back to live figures</button>']);
       box.innerHTML=out.map(([c,h])=>'<div class="bond-al '+c+'">'+h+'</div>').join('');
       box.style.display=''; return;
     }
     if(!_sapDay){
-      out.push(['bad','<b>Tab SAP chưa có dòng SLoc 1100 nào.</b> Bật sang <b>📊 SAP thô</b>, '+
-        'bấm <b>📋 Paste from Excel</b> và dán bản kết xuất ZMMFR022 của ngày '+_dmy(want)+'.']);
+      out.push(['bad','<b>The SAP tab has no SLoc 1100 row at all.</b> Switch to <b>📊 Raw SAP</b>, '+
+        'click <b>📋 Paste from Excel</b> and paste the ZMMFR022 export covering '+_dmy(want)+'.']);
     }else if(_sapBehind){
-      out.push(['warn','<b>SAP chưa có số của '+_dmy(want)+'.</b> Đang tạm tính bằng số ngày '+
-        '<b>'+_dmy(_sapDay)+'</b> — số hiển thị vẫn dùng được nhưng chưa phải số chốt. '+
-        'Dán ZMMFR022 mới ở <b>📊 SAP thô</b> rồi quay lại.']);
+      out.push(['warn','<b>SAP has nothing for '+_dmy(want)+' yet.</b> Falling back on the figures of '+
+        '<b>'+_dmy(_sapDay)+'</b> — usable, but not the final number. '+
+        'Paste a fresh ZMMFR022 under <b>📊 Raw SAP</b> and come back.']);
     }
     const o=_ol1Sum();
     const M=_month||_ym(A);
     if(o.miss.length)
-      out.push(['warn','<b>'+o.miss.length+' ngày trong kỳ chưa có dòng FEED OL1</b> ('+
+      out.push(['warn','<b>'+o.miss.length+' day(s) in this period have no FEED OL1 row</b> ('+
         o.miss.slice(0,6).map(_dmy).join(', ')+(o.miss.length>6?(' …+'+(o.miss.length-6)):'')+
-        ') — những ngày đó KHÔNG trừ lùi gì cả, nên Thực còn của P/X đang cao hơn thực tế. '+
-        '<button class="bond-btn" onclick="BOND.openOl1()">⛽ Mở FEED OL1</button>']);
+        ') — nothing was drawn down on those days, so Actual left for P/X reads higher than it really is. '+
+        '<button class="bond-btn" onclick="BOND.openOl1()">⛽ Open FEED OL1</button>']);
     if(o.def)
-      out.push(['warn','<b>'+o.def+' ngày chưa gõ TỔNG P+X</b> — đang chạy mức tạm tính '+
-        _K(DEF_TOT_KG)+' kg/ngày, nên “đã dùng” của P/X là số ĐOÁN. '+
-        '<button class="bond-btn" onclick="BOND.openOl1()">⛽ Mở FEED OL1</button>']);
+      out.push(['warn','<b>'+o.def+' day(s) have no TOTAL P+X keyed in</b> — they run on the assumed '+
+        _K(DEF_TOT_KG)+' kg/day, so “used” for P/X is an estimate, not the real figure. '+
+        '<button class="bond-btn" onclick="BOND.openOl1()">⛽ Open FEED OL1</button>']);
     const soon=_all.filter(r=>r.soon).sort((a,b)=>a.etaDays-b.etaDays);
     if(soon.length)
-      out.push(['warn','<b>⏳ '+soon.length+' lô dự kiến hết trong '+WARN_DAYS+' ngày tới:</b> '+
+      out.push(['warn','<b>⏳ '+soon.length+' batch(es) forecast to run dry within '+WARN_DAYS+' days:</b> '+
         soon.slice(0,6).map(r=>_esc(r.bcode)+' ≈ '+_dmy(r.eta)+
-          ' ('+(r.etaDays<=0?'hôm nay':('còn '+r.etaDays+' ngày'))+')').join(' · ')+
-        (soon.length>6?'…':'')+'. Số này chiếu bằng plan X trong file; ngày chưa gõ TỔNG P+X '+
-        'chạy mức tạm tính '+_K(DEF_TOT_KG)+' kg/ngày.']);
+          ' ('+(r.etaDays<=0?'today':(r.etaDays+' d left'))+')').join(' · ')+
+        (soon.length>6?'…':'')+'. Projected on the plan X in the file; any day with no TOTAL P+X '+
+        'runs on the assumed '+_K(DEF_TOT_KG)+' kg/day.']);
     const gone=_all.filter(r=>r.st==='gone');
     if(gone.length)
-      out.push(['bad','<b>⛔ '+gone.length+' lô đã khai nhưng SAP ngày '+_dmy(_sapDay)+
-        ' KHÔNG CÒN mã batch:</b> '+gone.slice(0,6).map(r=>_esc(r.bcode)).join(', ')+
-        (gone.length>6?'…':'')+'. Hoặc gõ sai mã, hoặc lô đã ra hết kho — kiểm tra rồi bấm ✕ để xoá dòng.']);
+      out.push(['bad','<b>⛔ '+gone.length+' declared batch(es) are NOT in the SAP data of '+_dmy(_sapDay)+
+        ':</b> '+gone.slice(0,6).map(r=>_esc(r.bcode)).join(', ')+
+        (gone.length>6?'…':'')+'. Either the code is mistyped, or the batch has left the warehouse — '+
+        'check, then press ✕ to delete the row.']);
     const zero=_all.filter(r=>r.st==='emptied');
     if(zero.length)
-      out.push(['warn','<b>◍ '+zero.length+' lô đã hết hàng nhưng CHƯA TÍCH VASSCM:</b> '+
+      out.push(['warn','<b>◍ '+zero.length+' batch(es) are empty but VASSCM is NOT ticked:</b> '+
         zero.slice(0,6).map(r=>_esc(r.bcode)).join(', ')+(zero.length>6?'…':'')+
-        '. Bơm xong là phải khai VASSCM — tích cột VAS xong thì dòng tự mờ đi và hết nhắc.']);
+        '. Once pumped out the VASSCM declaration is due — tick the VAS column and the row dims down '+
+        'and stops nagging.']);
     const nw=_all.filter(r=>r.noInfo && r.inSap);
     if(nw.length)
-      out.push(['warn','<b>✎ '+nw.length+' lô mới trong SAP chưa có thông tin:</b> '+
+      out.push(['warn','<b>✎ '+nw.length+' batch(es) in SAP have no details yet:</b> '+
         nw.slice(0,8).map(r=>_esc(r.bcode)).join(', ')+(nw.length>8?'…':'')+
-        '. Điền STT tàu, tên tàu và số tờ khai vào các cột bên trái.']);
+        '. Fill in voyage number, vessel and declaration numbers in the columns on the left.']);
     if(!out.length)
-      out.push(['ok','✓ Số của ngày <b>'+_dmy(_sapDay)+'</b> · kỳ <b>'+M+'</b> · '+
-        _all.length+' lô · không có gì bất thường.']);
+      out.push(['ok','✓ Figures of <b>'+_dmy(_sapDay)+'</b> · period <b>'+M+'</b> · '+
+        _all.length+' batch(es) · nothing out of order.']);
     box.innerHTML=out.map(([c,h])=>'<div class="bond-al '+c+'">'+h+'</div>').join('');
     box.style.display='';
   }
@@ -1097,7 +1106,7 @@ const BOND = (function(){
   function _fromKg(v){ const n=_num(v); if(n==null) return ''; return _olUnit==='kg'?Math.round(n):(n/1000); }
 
   function setUse(d,f,val){
-    if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
     const u=Object.assign({},USE[d]||{});
     if(f==='note') u.note=String(val||'');
     else{
@@ -1111,15 +1120,15 @@ const BOND = (function(){
     _renderUse(); render();
   }
   function addUseRow(){
-    const M=_olM(); const d=prompt('Thêm ngày (YYYY-MM-DD)', M+'-01');
+    const M=_olM(); const d=prompt('Add a day (YYYY-MM-DD)', M+'-01');
     if(!d||!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
-    if(USE[d]){ _say('Ngày này đã có dòng',''); return; }
+    if(USE[d]){ _say('That day already has a row',''); return; }
     USE[d]={ t:'', x:'', note:'' };
     const pay={}; pay[FB_USE+'/'+d]=USE[d];
     _push(pay,'OL1 '+_dmy(d)); _renderUse();
   }
   function fillMonth(){
-    if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
     const M=_olM(), last=+_lastDay(M).slice(8);
     const pay={}; let n=0;
     for(let i=1;i<=last;i++){
@@ -1127,15 +1136,15 @@ const BOND = (function(){
       if(USE[d]) continue;
       USE[d]={ t:'', x:'', note:'' }; pay[FB_USE+'/'+d]=USE[d]; n++;
     }
-    if(!n){ _say('Tháng '+M+' đã đủ ngày',''); return; }
-    _push(pay,'OL1 +'+n+' ngày'); _renderUse();
-    _say('📅 Đã thêm '+n+' ngày trống cho '+M,'ok');
+    if(!n){ _say(M+' already has every day',''); return; }
+    _push(pay,'OL1 +'+n+' days'); _renderUse();
+    _say('📅 Added '+n+' empty day(s) to '+M,'ok');
   }
   function delUseRow(d){
-    if(!confirm('Xoá dòng FEED OL1 ngày '+_dmy(d)+'?')) return;
+    if(!confirm('Delete the FEED OL1 row for '+_dmy(d)+'?')) return;
     delete USE[d];
     const pay={}; pay[FB_USE+'/'+d]=null;
-    _push(pay,'xoá OL1 '+_dmy(d)); _renderUse(); render();
+    _push(pay,'deleted OL1 '+_dmy(d)); _renderUse(); render();
   }
   function _renderUse(){
     const tb=_el('bondOl1Body'); if(!tb) return;
@@ -1143,8 +1152,8 @@ const BOND = (function(){
     const uh=_el('bondOl1UnitH'); if(uh) uh.textContent=(_olUnit==='kg'?'kg':'MT');
     const days=Object.keys(USE).filter(d=>_ym(d)===M).sort();
     if(!days.length){
-      tb.innerHTML='<tr><td colspan="6" class="bond-empty">Tháng '+M+' chưa có ngày nào — '+
-        'bấm <b>📅 Đổ cả tháng</b>.</td></tr>';
+      tb.innerHTML='<tr><td colspan="6" class="bond-empty">'+M+' has no day yet — '+
+        'click <b>📅 Fill month</b>.</td></tr>';
       const f=_el('bondOl1Tot'); if(f) f.innerHTML=''; return;
     }
     /* ⭐ NGÀY TƯƠNG LAI CHẠY MỨC TẠM TÍNH — đây là thứ cho ra cột "Dự kiến
@@ -1167,12 +1176,12 @@ const BOND = (function(){
       const cls=(isA?'bond-asof':'')+(fut?' bond-futrow':'')+((dfl&&!fut)?' bond-defrow':'');
       return '<tr class="'+cls+'">'+
         '<td class="bond-od">'+_dmy(d)+
-          (isA?'<span class="bond-sub">chốt số</span>'
-              :(fut?'<span class="bond-sub">dự kiến</span>':''))+'</td>'+
+          (isA?'<span class="bond-sub">data as of</span>'
+              :(fut?'<span class="bond-sub">forecast</span>':''))+'</td>'+
         '<td><input class="bond-in n'+(dfl?' bond-asm':'')+'" inputmode="decimal" placeholder="'+
-          (dfl?('tạm '+_fromKgTxt(DEF_TOT_KG)):'')+'"'+
-          (dfl?(' title="Chưa gõ TỔNG P+X — đang chạy mức tạm tính '+_fromKgTxt(DEF_TOT_KG)+
-                ' để chiếu ra ngày hết hàng. Gõ số thật vào là đè lên ngay."'):'')+
+          (dfl?('assumed '+_fromKgTxt(DEF_TOT_KG)):'')+'"'+
+          (dfl?(' title="No TOTAL P+X keyed in — running on the assumed '+_fromKgTxt(DEF_TOT_KG)+
+                ' so the run-out date can still be projected. Type the real figure and it takes over."'):'')+
           ' value="'+_esc((raw==null||dfl)?'':_fromKg(raw))+'"'+
           ' onchange="BOND.setUse(\''+d+'\',\'t\',this.value)"></td>'+
         '<td><input class="bond-in n" inputmode="decimal" value="'+_esc(xTyped==null?'':_fromKg(xTyped))+'"'+
@@ -1184,10 +1193,10 @@ const BOND = (function(){
         '<td class="c"><span class="bond-del" onclick="BOND.delUseRow(\''+d+'\')">✕</span></td></tr>';
     }).join('');
     const f=_el('bondOl1Tot');
-    if(f) f.innerHTML='<b>Σ '+days.length+' ngày</b> · TỔNG '+_fromKgTxt(sT)+' · X '+_fromKgTxt(sX)+
+    if(f) f.innerHTML='<b>Σ '+days.length+' days</b> · TOTAL '+_fromKgTxt(sT)+' · X '+_fromKgTxt(sX)+
       ' · P '+_fromKgTxt(sP)+
-      (nDef?(' · <span class="bond-warnt">⚠ '+nDef+' ngày ĐÃ QUA chưa gõ TỔNG</span>'):'')+
-      (nFut?(' · <span class="bond-asmt">'+nFut+' ngày tới chạy mức tạm tính '+
+      (nDef?(' · <span class="bond-warnt">⚠ '+nDef+' PAST day(s) with no TOTAL</span>'):'')+
+      (nFut?(' · <span class="bond-asmt">'+nFut+' day(s) ahead on the assumed '+
              _fromKgTxt(DEF_TOT_KG)+'</span>'):'');
   }
   function _fromKgTxt(kg){
@@ -1212,11 +1221,11 @@ const BOND = (function(){
     }
   }
   function toggleCards(){ _cardsOpen=!_cardsOpen;
-    const b=_el('bondCardsBtn'); if(b) b.textContent=_cardsOpen?'⊟ Thu gọn':'⊞ Mở rộng';
+    const b=_el('bondCardsBtn'); if(b) b.textContent=_cardsOpen?'⊟ Collapse':'⊞ Expand';
     _renderCards(); }
   function toggleSlim(){ _slim=!_slim;
     const b=_el('bondSlimBtn');
-    if(b) b.textContent=_slim?'⊞ Hiện đủ cột SAP':'⊟ Gọn cột SAP';
+    if(b) b.textContent=_slim?'⊞ All SAP columns':'⊟ Fewer SAP columns';
     _build(); }
   function onMonth(){ const e=_el('bondMonth'); if(!e) return;
     _month=e.value||_ym(_asOf());
@@ -1225,8 +1234,8 @@ const BOND = (function(){
     const s=_el('bondPerSel'); if(!s) return;
     const cur=s.value;
     const ks=Object.keys(PERIODS).sort().reverse();
-    s.innerHTML='<option value="">Kỳ đã lưu…</option>'+
-      ks.map(k=>'<option value="'+k+'">'+k+' · '+(PERIODS[k].n||0)+' lô · '+
+    s.innerHTML='<option value="">Saved periods…</option>'+
+      ks.map(k=>'<option value="'+k+'">'+k+' · '+(PERIODS[k].n||0)+' batches · '+
         _esc(PERIODS[k].savedAt||'')+'</option>').join('');
     if(cur && PERIODS[cur]) s.value=cur;
   }
@@ -1240,8 +1249,8 @@ const BOND = (function(){
     _fillPeriodSel();
     const m=_el('bondMonth'); if(m && !m.value) m.value=_month||_ym(_asOf());
     const n=_el('bondCount');
-    if(n) n.textContent=(filterOn()?(_rows.length+'/'+_all.length):(_all.length))+' lô'+
-      (_arch?(' · kỳ '+_arch.M):'');
+    if(n) n.textContent=(filterOn()?(_rows.length+'/'+_all.length):(_all.length))+' batches'+
+      (_arch?(' · period '+_arch.M):'');
     const c=_el('bondFClr'); if(c) c.style.display=filterOn()?'':'none';
   }
 
@@ -1261,13 +1270,13 @@ const BOND = (function(){
      📤 XUẤT EXCEL — bản chốt của kỳ, đem lưu ngoài app
   ============================================================ */
   function exportXlsx(){
-    if(typeof XLSX==='undefined'){ _say('❌ Thư viện XLSX chưa nạp','er'); return; }
+    if(typeof XLSX==='undefined'){ _say('❌ The XLSX library is not loaded','er'); return; }
     recalc();
     const M=_month||_ym(_asOf());
-    const H=['STT tàu','Tên tàu','TK nhập khẩu','TK get out',
+    const H=['Voyage no.','Vessel','Import decl.','Get-out decl.',
              'Date','SLoc','Mat','Batch','Batch code','Init (kg)','GR','GI','Trs','End (kg)',
-             'HQ approved (kg)','Thực còn (kg)','%','Dự kiến hết','Còn (ngày)',
-             'VASSCM','VASSCM date','Ghi chú','Tình trạng','Lô mới','Thiếu thông tin'];
+             'HQ approved (kg)','Actual left (kg)','%','Empty by','Days left',
+             'VASSCM','VASSCM date','Note','Status','New batch','Missing details'];
 
     const A=[H].concat(_all.map(r=>[
       r.vno||'', r.vessel||'', r.dIn||'', r.dOut||'',
@@ -1276,17 +1285,17 @@ const BOND = (function(){
       _n(r.hqQty), _n(r.left), +(r.pct*100).toFixed(1),
       (r.eta?((r.projected?'≈ ':'')+_dmy(r.eta)):''), (r.projected&&r.etaDays!=null?r.etaDays:''),
       r.vas?'x':'', _dmy(r.vasDate), r.note||'',
-      ST_NAME[r.st]||'', (r.isNew?'mới':''), (r.noInfo?'chưa khai':'')
+      ST_NAME[r.st]||'', (r.isNew?'new':''), (r.noInfo?'missing':'')
     ]));
     const o=_ol1Sum();
     A.push([]);
-    A.push(['FEED OL1 '+M,'','','','từ',_dmy(M+'-01'),'đến',_dmy(_sapDay||_wantDay()),
-            'TỔNG (kg)',Math.round(o.t),'P',Math.round(o.p),'X',Math.round(o.x),
-            'ngày',o.n,'tạm tính',o.def]);
+    A.push(['FEED OL1 '+M,'','','','from',_dmy(M+'-01'),'to',_dmy(_sapDay||_wantDay()),
+            'TOTAL (kg)',Math.round(o.t),'P',Math.round(o.p),'X',Math.round(o.x),
+            'days',o.n,'assumed',o.def]);
     const wb=XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(A),'KNQ '+M);
     XLSX.writeFile(wb,'KNQ_'+M+'_SAP'+(_sapDay||'').replace(/-/g,'')+'.xlsx');
-    _say('📤 Đã xuất bảng kỳ '+M+' — cất file này lại làm bản chốt','ok');
+    _say('📤 Period '+M+' exported — keep this file as the signed-off record','ok');
   }
 
   /* ============================================================
@@ -1297,8 +1306,8 @@ const BOND = (function(){
      KHÔNG đè lên ô đã có số ở knq_info — chạy lại nhiều lần vẫn an toàn.
   ============================================================ */
   function migrate(){
-    if(!_canWrite()){ _say('⛔ Tài khoản không có quyền ghi','er'); return; }
-    _say('🔁 Đang đọc dữ liệu tab KNQ cũ…','');
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
+    _say('🔁 Reading the old KNQ tab…','');
     const R=_ref();
     Promise.all([
       R.ref('knq_bonded/gi').once('value').then(s=>s.val()||{}),
@@ -1332,16 +1341,16 @@ const BOND = (function(){
         if(Object.keys(pay).length>before) list.push(mat+' '+bcode);
         else skip++;
       });
-      if(!list.length){ _say('✓ Không có gì để chuyển — knq_info đã đầy đủ','ok'); return; }
-      if(!confirm('🔁 CHUYỂN THÔNG TIN TỪ TAB KNQ CŨ\n\n'+
-        list.length+' lô sẽ được điền thông tin:\n'+
+      if(!list.length){ _say('✓ Nothing to carry over — every batch already has its details','ok'); return; }
+      if(!confirm('🔁 CARRY DETAILS OVER FROM THE OLD KNQ TAB\n\n'+
+        list.length+' batch(es) will be filled in:\n'+
         list.slice(0,12).map(s=>'   '+s).join('\n')+(list.length>12?('\n   …+'+(list.length-12)):'')+
-        '\n\n'+(skip?(skip+' lô đã có thông tin — giữ nguyên, không đè.\n\n'):'')+
-        'Dữ liệu tab KNQ cũ KHÔNG bị xoá. Tiếp tục?')) return;
-      _push(pay,'chuyển '+list.length+' lô').then(ok=>{
-        if(ok){ _say('🔁 Đã chuyển thông tin của '+list.length+' lô sang bảng mới','ok'); render(); }
+        '\n\n'+(skip?(skip+' batch(es) already have details — left untouched.\n\n'):'')+
+        'Nothing in the old KNQ tab is deleted. Continue?')) return;
+      _push(pay,'carried over '+list.length+' batches').then(ok=>{
+        if(ok){ _say('🔁 Details of '+list.length+' batch(es) carried over','ok'); render(); }
       });
-    }).catch(e=>{ console.warn('[BOND] migrate',e); _say('❌ Không đọc được dữ liệu tab KNQ cũ','er'); });
+    }).catch(e=>{ console.warn('[BOND] migrate',e); _say('❌ Could not read the old KNQ data','er'); });
   }
 
   return {
