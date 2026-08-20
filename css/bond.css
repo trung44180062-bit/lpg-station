@@ -1,0 +1,323 @@
+/* ============================================================
+   bond.css — KHO NGOẠI QUAN GỘP VÀO TAB SAP  (v4.106)
+   ------------------------------------------------------------
+   Đi kèm js/features/bond.js. Chỉ dùng trong #sub-sap.
+   ⭐ QUY ƯỚC MÀU CỘT — đây là thứ giúp đọc bảng rộng không lạc:
+       TRÁI  (bond-c-user) nền vàng nhạt  = anh gõ vào
+       GIỮA  (bond-c-sap)  nền trắng      = nguyên văn SAP, chỉ đọc
+       PHẢI  (bond-c-calc) nền xanh nhạt  = app tính ra
+   ============================================================ */
+
+/* ── NÚT GẠT HAI KHUNG NHÌN ─────────────────────────────────── */
+.bond-mode{
+  display:flex;align-items:center;gap:6px;flex:0 0 auto;
+  padding:7px 10px;border-bottom:1px solid var(--line);background:var(--panel-2);
+}
+.bond-mbtn{
+  display:inline-flex;align-items:center;gap:6px;cursor:pointer;
+  padding:5px 14px;border:1px solid var(--line);border-radius:7px;
+  background:var(--panel);color:var(--ink-2);
+  font-size:12px;font-weight:700;letter-spacing:.01em;white-space:nowrap;
+}
+.bond-mbtn:hover{ border-color:#8aa6c8;color:var(--ink); }
+.bond-mbtn.on{ background:var(--navy,#123a63);border-color:var(--navy,#123a63);color:#fff; }
+.bond-mnote{ font-size:10.5px;color:var(--ink-3);margin-left:6px;line-height:1.4; }
+
+/* ── THANH CÔNG CỤ ──────────────────────────────────────────── */
+.bond-bar{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex:0 0 auto;
+  padding:8px 10px;border-bottom:1px solid var(--line);background:var(--panel);
+}
+.bond-bar .spacer{ flex:1; }
+.bond-grp{
+  display:flex;align-items:center;gap:5px;
+  padding:3px 9px 3px 7px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);
+}
+.bond-glab{
+  font-size:8.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);padding-right:3px;white-space:nowrap;
+}
+.bond-btn{
+  cursor:pointer;padding:4px 10px;border:1px solid var(--line);border-radius:6px;
+  background:var(--panel);color:var(--ink);
+  font-size:11.5px;font-weight:700;white-space:nowrap;line-height:1.5;
+}
+.bond-btn:hover{ border-color:#8aa6c8;background:var(--panel-2); }
+.bond-btn.accent{ background:#eef6ff;border-color:#9cc0e8;color:#123a63; }
+.bond-btn.accent:hover{ background:#dcecfd; }
+.bond-btn.danger{ background:#fff2f1;border-color:#e6b4b0;color:#9c2a20; }
+.bond-btn.danger:hover{ background:#ffe3e0; }
+.bond-bar input[type="month"],.bond-bar select{
+  padding:3px 6px;border:1px solid var(--line);border-radius:6px;
+  background:var(--panel);color:var(--ink);font-size:11.5px;font-family:inherit;
+}
+.bond-bar select{ max-width:230px; }
+.bond-count{ font-size:11.5px;font-weight:800;color:var(--ink);white-space:nowrap; }
+.bond-sync{ font-size:10.5px;color:var(--ink-3);min-width:74px;white-space:nowrap; }
+.bond-sync.ok{ color:#157a40;font-weight:700; }
+
+/* ── THANH LỌC ──────────────────────────────────────────────── */
+.bond-filters .bond-fq{
+  width:210px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;
+  background:var(--panel);color:var(--ink);font-size:11.5px;font-family:inherit;
+}
+.bond-filters .bond-fq:focus{ outline:2px solid #9cc0e8;outline-offset:-1px;border-color:#9cc0e8; }
+.bond-filters select{ max-width:auto;font-size:11px; }
+
+/* ── THẺ THỐNG KÊ ───────────────────────────────────────────── */
+.bond-cards{
+  display:flex;gap:9px;flex-wrap:wrap;flex:0 0 auto;
+  padding:9px 10px;border-bottom:1px solid var(--line);background:var(--panel-2);
+}
+.bond-card{
+  flex:1 1 190px;min-width:180px;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line-2,#bcc8d5);
+  border-radius:8px;padding:8px 11px;
+}
+.bond-card.stock{ border-left-color:#123a63; }
+.bond-card.split{ border-left-color:#6b21a8; }
+.bond-card.ol1  { border-left-color:#2f9e63; }
+.bond-card.sap  { border-left-color:#2f6fd0; }
+.bond-card.flags{ border-left-color:#c2410c; }
+.bond-card.eta  { border-left-color:#0d9488; }
+.bond-card.eta.hot{ border-left-color:#d97706;background:#fffaf2; }
+.bond-card.eta.hot .bond-cb{ color:#8a4b00; }
+.bond-ch{
+  display:flex;align-items:center;gap:6px;
+  font-size:8.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
+}
+.bond-ch span{
+  margin-left:auto;font-size:9px;font-weight:700;letter-spacing:0;text-transform:none;
+  color:var(--ink-2);background:var(--panel-2);border:1px solid var(--line);
+  border-radius:20px;padding:0 6px;white-space:nowrap;
+}
+.bond-cb{
+  font-size:21px;font-weight:900;line-height:1.15;color:var(--ink);margin-top:2px;
+  font-variant-numeric:tabular-nums;
+}
+.bond-cb u{ text-decoration:none;font-size:10px;font-weight:700;color:var(--ink-3);margin-left:3px; }
+.bond-cs{ font-size:10px;color:var(--ink-2);line-height:1.45;margin-top:2px; }
+
+/* ── DẢI CẢNH BÁO ───────────────────────────────────────────── */
+.bond-alerts{ flex:0 0 auto;display:flex;flex-direction:column;gap:5px;padding:8px 10px;background:var(--panel); }
+.bond-alerts:empty{ display:none; }
+.bond-al{
+  font-size:11.5px;line-height:1.55;padding:6px 11px;border-radius:7px;
+  border:1px solid var(--line);background:var(--panel-2);color:var(--ink-2);
+}
+.bond-al b{ color:var(--ink); }
+.bond-al.ok  { background:#f0f9f3;border-color:#bfe3cc;color:#14663a; }
+.bond-al.ok b{ color:#0f5730; }
+.bond-al.info{ background:#f1f6fd;border-color:#c3daf3;color:#1d4b7e; }
+.bond-al.info b{ color:#123a63; }
+.bond-al.warn{ background:#fdf4e6;border-color:#eccfa0;color:#8a4b00; }
+.bond-al.warn b{ color:#6b3a00; }
+.bond-al.bad { background:#fdf0ee;border-color:#eebab3;color:#9c2a20; }
+.bond-al.bad b{ color:#7d1d15; }
+.bond-al .bond-btn{ margin-left:6px;vertical-align:baseline;padding:2px 8px;font-size:10.5px; }
+
+/* ── BẢNG ───────────────────────────────────────────────────── */
+.bond-table-full{ flex:1 1 auto;min-height:0;display:flex;flex-direction:column;padding:0 10px 10px; }
+.bond-grid{ flex:1 1 auto;min-height:220px; }
+.bond-empty{ text-align:center;padding:22px;color:var(--ink-3);font-style:italic; }
+
+/* nền theo NHÓM cột — chỗ dựa để mắt không lạc trên bảng rộng.
+   Khối GIỮA cố ý để trắng trơn: đó là nguyên văn SAP, không ai chạm vào. */
+.bond-grid .tabulator-cell.bond-c-sap { background:var(--panel); }
+.bond-grid .tabulator-col.bond-c-sap  { background:var(--navy,#123a63); }
+.bond-c-del { padding-left:0;padding-right:0; }
+.bond-grid .tabulator-cell.bond-c-user{ background:#fffdf4; }
+.bond-grid .tabulator-cell.bond-c-calc{ background:#f2f8fd; }
+.bond-grid .tabulator-cell.bond-c-end { font-weight:800; }
+.bond-grid .tabulator-col.bond-c-user{ background:#f6f0d8; }
+.bond-grid .tabulator-col.bond-c-calc{ background:#dcebf8; }
+.bond-grid .tabulator-cell{ font-size:11.5px; }
+.bond-grid .tabulator-cell.mono,
+.bond-grid .bond-code{ font-family:ui-monospace,'SFMono-Regular',Menlo,monospace; }
+
+/* ô có thể sửa — gợi ý bằng gạch chân mờ, không viền nặng */
+.bond-grid .tabulator-cell.bond-c-user.tabulator-editable:hover{
+  background:#fff8dc;box-shadow:inset 0 -2px 0 #d8b44a;
+}
+
+.bond-pos{ color:var(--ink); }
+.bond-neg{ color:#b3261e; }
+.bond-zero{ color:var(--ink-3); }
+.bond-dim { color:var(--ink-3); }
+.bond-sub{ display:block;font-size:8.5px;color:var(--ink-3);line-height:1.25;font-weight:600; }
+.bond-left{ font-size:12.5px;font-weight:900; }
+.bond-date{ font-variant-numeric:tabular-nums; }
+.bond-sloc{ font-size:10px;font-weight:700;color:var(--ink-3); }
+
+.bond-mat{ font-size:10px;font-weight:800;padding:1px 5px;border-radius:4px; }
+.bond-mat.m-c3{ background:#e5efff;color:#1c4f96; }
+.bond-mat.m-c4{ background:#fdf0dd;color:#96560d; }
+
+.bond-bat{ font-size:10px;font-weight:900;padding:1px 6px;border-radius:4px; }
+.bond-bat.b-p{ background:#e8e7ff;color:#3730a3; }
+.bond-bat.b-x{ background:#f4e6fb;color:#6b21a8; }
+.bond-bat.b-d{ background:#dcf2ef;color:#0f6b60; }
+.bond-bat.b-e{ background:#fdeed6;color:#96560d; }
+
+.bond-code{ font-size:11px;font-weight:800;letter-spacing:.01em; }
+
+/* thanh % */
+.bond-pw{ height:5px;border-radius:3px;background:var(--line);overflow:hidden;margin-bottom:2px; }
+.bond-pw i{ display:block;height:100%;background:#2f9e63;border-radius:3px; }
+.bond-pt{ font-size:9.5px;color:var(--ink-2);font-variant-numeric:tabular-nums; }
+
+.bond-tag{
+  display:block;font-size:8.5px;font-weight:800;line-height:1.3;margin-top:1px;
+}
+.bond-tag.low{ color:#9a4a00; }
+.bond-tag.bad{ color:#b3261e;font-weight:700; }
+
+.bond-vas{ color:var(--ink-3);cursor:pointer;font-size:13px; }
+.bond-vas.on{ color:#2f9e63;font-weight:900; }
+.bond-del{ color:#b3261e;cursor:pointer;font-weight:800; }
+.bond-del:hover{ color:#7d1d15; }
+
+/* ── Ô STT + TÌNH TRẠNG (ghim trái) ─────────────────────────── */
+.bond-c-stt{ padding-top:3px!important;padding-bottom:3px!important; }
+.bond-stt{ display:flex;flex-direction:column;gap:1px;line-height:1.25; }
+.bond-no{ font-size:11px;font-weight:900;color:var(--ink-3);font-variant-numeric:tabular-nums; }
+.bond-chip{
+  display:inline-block;align-self:flex-start;cursor:help;
+  font-size:9px;font-weight:800;letter-spacing:.01em;line-height:1.5;
+  padding:0 5px;border-radius:4px;border:1px solid transparent;white-space:nowrap;
+}
+.bond-chip.c-pumping{ background:#e2f5ea;border-color:#8fcfab;color:#12663a; }
+.bond-chip.c-wait   { background:var(--panel-2);border-color:var(--line);color:var(--ink-3); }
+.bond-chip.c-emptied{ background:#fdeee0;border-color:#e8b98a;color:#8a4b00; }
+.bond-chip.c-zero   { background:var(--panel-2);border-color:var(--line);color:var(--ink-3); }
+.bond-chip.c-gone   { background:#fce3e0;border-color:#e3a9a2;color:#9c2a20; }
+.bond-mks{ display:flex;flex-wrap:wrap;gap:2px; }
+.bond-mk{
+  font-size:8px;font-weight:800;line-height:1.5;padding:0 4px;border-radius:3px;
+  cursor:help;white-space:nowrap;
+}
+.bond-mk.new { background:#dbeafe;color:#1a4f96; }
+.bond-mk.info{ background:#f6efd8;color:#8a4b00; }
+.bond-mk.low { background:#fde4d2;color:#9a4a00; }
+
+/* ── DỰ KIẾN HẾT ────────────────────────────────────────────── */
+.bond-eta{ font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap; }
+.bond-eta.done{ color:var(--ink-3);font-weight:600; }
+.bond-eta.hot { color:#a8530a; }
+
+/* ── MÀU DÒNG — hai tầng chồng lên nhau ──────────────────────
+   ① thanh rail bên trái = LOẠI LÔ  ② nền dòng = TÌNH TRẠNG        */
+.bond-grid .tabulator-row.bond-lot-p .tabulator-cell:first-child{ box-shadow:inset 3px 0 0 #4f46e5; }
+.bond-grid .tabulator-row.bond-lot-x .tabulator-cell:first-child{ box-shadow:inset 3px 0 0 #9333ea; }
+.bond-grid .tabulator-row.bond-lot-d .tabulator-cell:first-child{ box-shadow:inset 3px 0 0 #0d9488; }
+.bond-grid .tabulator-row.bond-lot-e .tabulator-cell:first-child{ box-shadow:inset 3px 0 0 #d97706; }
+.bond-grid .tabulator-row.bond-lot-none .tabulator-cell:first-child{ box-shadow:inset 3px 0 0 var(--line-2,#bcc8d5); }
+
+/* ĐANG BƠM — nổi hẳn lên: nền xanh, chữ đậm, viền trên dưới */
+.bond-grid .tabulator-row.bond-r-pumping{
+  background:#eafaf1;font-weight:700;
+  border-top:1px solid #b7e3c9;border-bottom:1px solid #b7e3c9;
+}
+.bond-grid .tabulator-row.bond-r-pumping .tabulator-cell.bond-c-sap { background:#f4fdf7; }
+.bond-grid .tabulator-row.bond-r-pumping .tabulator-cell.bond-c-calc{ background:#e4f7ec; }
+.bond-grid .tabulator-row.bond-r-pumping .bond-left{ color:#0f6b3a; }
+
+/* HẾT MÀ CHƯA VASSCM — màu khác hẳn, KHÔNG làm mờ vì còn việc phải làm */
+.bond-grid .tabulator-row.bond-r-emptied{ background:#fff5ea; }
+.bond-grid .tabulator-row.bond-r-emptied .tabulator-cell.bond-c-sap { background:#fffaf3; }
+.bond-grid .tabulator-row.bond-r-emptied .tabulator-cell.bond-c-calc{ background:#fdeedd; }
+
+/* ĐÃ XONG — làm mờ đi cho khỏi choán mắt */
+.bond-grid .tabulator-row.bond-r-zero{ opacity:.46; }
+.bond-grid .tabulator-row.bond-r-zero:hover{ opacity:1; }
+
+/* SAP KHÔNG CÒN — gạch ngang phần số, giữ nguyên phần chữ để còn đọc mà xoá */
+.bond-grid .tabulator-row.bond-r-gone{ background:#fdf0ee; }
+.bond-grid .tabulator-row.bond-r-gone .tabulator-cell.bond-c-sap{ text-decoration:line-through;text-decoration-color:#e3a9a2; }
+
+/* SẮP HẾT theo dự kiến — viền phải cam, không đổi nền kẻo đè mất trạng thái */
+.bond-grid .tabulator-row.bond-r-soon .tabulator-cell:last-child{ box-shadow:inset -3px 0 0 #e08a2e; }
+
+/* CHỜ TỚI LƯỢT — để trơn, không tô gì */
+.bond-grid .tabulator-row.bond-r-wait{ background:transparent; }
+/* lô mới nhập — chấm xanh nhỏ ở mép phải ô STT */
+.bond-grid .tabulator-row.bond-r-isnew .tabulator-cell.bond-c-stt{ background:#f4f9ff; }
+.bond-grid .tabulator-row.bond-r-noinfo .tabulator-cell.bond-c-user{ background:#fffaea; }
+
+/* cột xoá ghim trái */
+.bond-grid .tabulator-cell.bond-c-del{ background:var(--panel-2); }
+.bond-grid .tabulator-cell.bond-c-del:hover{ background:#fde8e6; }
+
+/* ── MODAL FEED OL1 ─────────────────────────────────────────── */
+.bond-modal{
+  display:none;position:fixed;inset:0;z-index:9000;
+  background:rgba(12,26,42,.5);align-items:center;justify-content:center;padding:24px;
+}
+.bond-modal.on{ display:flex; }
+.bond-modal-box{
+  width:min(880px,100%);max-height:88vh;display:flex;flex-direction:column;
+  background:var(--panel);border-radius:12px;overflow:hidden;
+  box-shadow:0 18px 60px -18px rgba(0,0,0,.5);
+}
+.bond-modal-h{
+  display:flex;align-items:center;gap:8px;padding:11px 18px;
+  background:var(--navy,#123a63);color:#fff;font-size:12.5px;font-weight:800;letter-spacing:.02em;
+}
+.bond-modal-h .spacer{ flex:1; }
+.bond-modal-h button{ background:transparent;border:none;color:#fff;font-size:19px;cursor:pointer;line-height:1; }
+.bond-modal-c{ padding:14px 18px;display:flex;flex-direction:column;gap:10px;overflow-y:auto; }
+.bond-modal-f{
+  padding:11px 18px;border-top:1px solid var(--line);
+  display:flex;gap:8px;justify-content:flex-end;
+}
+.bond-hint{
+  font-size:11.5px;color:var(--ink-2);line-height:1.6;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:9px 12px;
+}
+.bond-frow{ display:flex;align-items:center;gap:8px;flex-wrap:wrap; }
+.bond-frow label{ font-size:10.5px;font-weight:800;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em; }
+.bond-frow input,.bond-frow select{
+  padding:4px 7px;border:1px solid var(--line);border-radius:6px;
+  background:var(--panel);color:var(--ink);font-size:12px;font-family:inherit;
+}
+.bond-ol1-wrap{ max-height:46vh;overflow:auto;border:1px solid var(--line);border-radius:8px; }
+.bond-ol1{ width:100%;border-collapse:collapse;font-size:11.5px; }
+.bond-ol1 th{
+  position:sticky;top:0;z-index:2;background:var(--navy,#123a63);color:#fff;
+  padding:6px 8px;font-size:9.5px;font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;text-align:left;white-space:nowrap;
+}
+.bond-ol1 td{ padding:3px 8px;border-bottom:1px solid var(--line);vertical-align:middle; }
+.bond-ol1 td.n{ text-align:right;font-variant-numeric:tabular-nums; }
+.bond-ol1 td.c{ text-align:center; }
+.bond-ol1 tr:hover{ background:var(--panel-2); }
+.bond-ol1 tr.bond-asof{ background:#eef6ff; }
+.bond-ol1 tr.bond-asof .bond-od{ font-weight:800;color:#123a63; }
+.bond-ol1 tr.bond-defrow td{ background:#fdf9ee; }
+/* ngày TƯƠNG LAI — số đang chạy mức tạm tính, phải nhìn ra ngay là số chiếu */
+.bond-ol1 tr.bond-futrow td{ background:#fafbfd; }
+.bond-ol1 tr.bond-futrow .bond-od{ color:var(--ink-3); }
+.bond-in.bond-asm{ background:#f6f8fb;color:var(--ink-3);font-style:italic; }
+.bond-in.bond-asm::placeholder{ color:#8fa3b8;font-style:italic;opacity:1; }
+td.bond-asm{ color:#7b8b9c;font-style:italic; }
+.bond-asmt{ color:#1d4b7e;font-weight:700; }
+.bond-od{ white-space:nowrap;font-variant-numeric:tabular-nums; }
+.bond-in{
+  width:100%;padding:3px 6px;border:1px solid var(--line);border-radius:5px;
+  background:var(--panel);color:var(--ink);font-size:11.5px;font-family:inherit;
+}
+.bond-in.n{ text-align:right;font-variant-numeric:tabular-nums; }
+.bond-in:focus{ outline:2px solid #9cc0e8;outline-offset:-1px;border-color:#9cc0e8; }
+.bond-ol1-tot{
+  font-size:11.5px;color:var(--ink-2);padding:7px 11px;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:8px;
+}
+.bond-ol1-tot b{ color:var(--ink); }
+.bond-warnt{ color:#8a4b00;font-weight:800; }
+
+/* ── màn hẹp ────────────────────────────────────────────────── */
+@media (max-width:900px){
+  .bond-mnote{ display:none; }
+  .bond-cards{ padding:7px 8px; }
+  .bond-card{ flex:1 1 140px;min-width:140px; }
+}

@@ -354,6 +354,55 @@ console.log('\n— v4.103 QUÉT SAP CÓ DẤU THỜI GIAN · TỔNG OL1 NGOÀI M
   KNQ.delUseRow(A); KNQ._state.setMonth('2026-08');
 })();
 
+/* ═══ v4.105 — ♻ mở khoá · ☑ auto run-down · ⚖ đối chiếu SAP ═══ */
+(function(){
+  KNQ._state.setMonth('2026-08');
+  /* ♻ nút mở khoá phải hiện đúng trên dòng mang cờ đóng bền */
+  const first=Object.values(KNQ._state.GO).find(r=>r.batch);
+  first.pxDone=true; first.hqDone=true;
+  KNQ.render();
+  const all=Object.values(CACHE).map(e=>String(e.innerHTML)).join('');
+  chk('♻ nút mở khoá hiện trên dòng đang mang cờ DONE',
+      all.indexOf('knq-reop')>-1 && all.indexOf('KNQ.reopen(')>-1);
+  chk('dải cảnh báo nói rõ lô bị khoá + nút ♻ Re-open hàng loạt',
+      H('knq-alerts').indexOf('KNQ.reopenAll()')>-1 &&
+      H('knq-alerts').indexOf('still carry the DONE flag')>-1);
+  first.pxDone=false; first.hqDone=false;
+
+  /* ☑ auto run-down — ô tích và dòng "assumed" dưới ô SAP qty */
+  chk('thanh công cụ có ô tích ☑ Auto run-down nối đúng vào KNQ.setRdAll',
+      /id="knq-rdall"/.test(pane) && /KNQ\.setRdAll\(this\)/.test(pane));
+  const gid=Object.keys(KNQ._state.GI)[0];
+  KNQ.addGo(gid);
+  const nid=Object.keys(KNQ._state.GO).pop();
+  KNQ.setGo(nid,'batch','260805X555'); KNQ.setGo(nid,'hqQty','4750');
+  KNQ._state.setRdAllRaw(false); KNQ.render();
+  chk('TẮT: lô thiếu SAP qty được dải cảnh báo mời bật ô tích',
+      H('knq-alerts').indexOf('Auto run-down')>-1);
+  KNQ._state.setRdAllRaw(true); KNQ.render();
+  const all2=Object.values(CACHE).map(e=>String(e.innerHTML)).join('');
+  chk('BẬT: ô SAP qty ghi rõ số đang dùng là số SUY RA ("assumed")',
+      all2.indexOf('assumed')>-1 && all2.indexOf('HQ get-out')>-1);
+  KNQ._state.setRdAllRaw(false);
+  KNQ.delGo(nid);
+
+  /* ⚖ bảng đối chiếu — dựng và soi HTML */
+  KNQ.pullSap(true);
+  KNQ.openCmp();
+  const b=H('knq-cmp-body');
+  chk('⚖ bảng đối chiếu dựng đủ 3 nhóm',
+      b.indexOf('Figures differ')>-1 && b.indexOf('In SAP, not declared in KNQ')>-1 &&
+      b.indexOf('In KNQ, not in SAP')>-1);
+  chk('…nói rõ SỐ SAP LÀ SỐ ĐÚNG', b.indexOf('SAP figure is the correct one')>-1);
+  chk('…có ô tick từng dòng + ☑ Select all', b.indexOf('KNQ.cmpSel(')>-1 && b.indexOf('KNQ.cmpAll(')>-1);
+  chk('nút ⇐ Apply selected đếm số dòng đang tick',
+      /Apply selected \(\d+\)/.test(String(CACHE['knq-cmp-apply'].textContent||'')),
+      String(CACHE['knq-cmp-apply'].textContent||''));
+  chk('markup có modal #knq-cmp nối đúng vào KNQ.cmpApply',
+      /id="knq-cmp"/.test(pane) && /KNQ\.cmpApply\(\)/.test(pane) && /KNQ\.openCmp\(\)/.test(pane));
+  KNQ.closeCmp();
+})();
+
 console.log('\n— CSS —');
 const CSS=fs.readFileSync(path.join(ROOT,'css','knq.css'),'utf8');
 /* ⚠ bỏ khối @keyframes trước khi soi trùng: hai animation khác nhau đương

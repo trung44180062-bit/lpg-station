@@ -15,7 +15,8 @@
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
 <link rel="stylesheet" href="css/alloc.css?v=468"><!-- Allocation planner (LPG Sales) — link ACTIVE -->
-<link rel="stylesheet" href="css/knq.css?v=4104"><!-- KNQ XNK kho ngoại quan (Reports) — link ACTIVE -->
+<link rel="stylesheet" href="css/knq.css?v=4105"><!-- KNQ XNK kho ngoại quan (Reports) — link ACTIVE -->
+<link rel="stylesheet" href="css/bond.css?v=4106"><!-- v4.106 — kho ngoại quan GỘP vào tab SAP (BOND) — link ACTIVE -->
 <!-- ⚠ BẪY: khối dưới đây là COMMENT — mọi <link> trong nó KHÔNG được nạp.
      Toàn bộ app CSS thực sự nằm trong core.css. Khi thêm style mới thì viết
      vào core.css, ĐỪNG thêm link ở đây rồi tưởng là đã nạp (v4.82 dính đúng
@@ -1059,6 +1060,20 @@
 
     <!-- SAP sub-pane -->
     <div class="sub-pane" id="sub-sap">
+
+      <!-- ═══ NÚT GẠT (v4.106) — MỘT TAB, HAI CÁCH NHÌN ═══════════════
+           Kho ngoại quan KHÔNG còn sổ riêng: số lấy thẳng từ chính dữ liệu
+           ZMMFR022 vừa dán ở khung "SAP thô". Đổi khung là đổi cách nhìn,
+           không phải đổi nguồn số. ═══ -->
+      <div class="bond-mode">
+        <button class="bond-mbtn on" id="bondModeRaw" onclick="BOND.setMode('raw')"
+                title="Bảng ZMMFR022 nguyên bản — mọi SLoc, mọi ngày">📊 SAP thô</button>
+        <button class="bond-mbtn" id="bondModeKnq" onclick="BOND.setMode('knq')"
+                title="Kho ngoại quan: lọc SLoc 1100, gộp theo mã batch, thêm cột tàu / tờ khai và cột Thực còn trừ lùi theo FEED OL1">🛃 Kho ngoại quan (KNQ)</button>
+        <span class="bond-mnote">Cùng một lần dán dữ liệu · số của kho ngoại quan lấy thẳng từ SAP</span>
+      </div>
+
+      <div id="spViewRaw">
       <div class="sp-analysis" id="spAnalysisWrap">
         <div class="sp-analysis-hdr">
           <span class="sp-analysis-title">SAP STOCK SUMMARY (ZMMFR022)</span>
@@ -1145,6 +1160,142 @@
           <span class="right"><b id="spCntShown">0</b> shown / <b id="spCntTotal">0</b> total</span>
         </div>
       </div>
+      </div><!-- /spViewRaw -->
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           KHUNG KHO NGOẠI QUAN (v4.106)
+           ---------------------------------------------------------------
+           KHÔNG có sổ riêng. Số đọc sống từ SP.ROWS (SLoc 1100 tại D-1);
+           app chỉ giữ phần CHỮ mà SAP không có (tàu, tờ khai, VASSCM) ở
+           node knq_info, và FEED OL1 ở knq_bonded/use.
+           Bố cục cột: TRÁI = nhận dạng · GIỮA = nguyên văn SAP · PHẢI =
+           phần làm việc. Khối giữa cố ý giống hệt bảng SAP thô để đối
+           chiếu bằng mắt không phải dịch cột.
+           ═══════════════════════════════════════════════════════════════ -->
+      <div id="spViewKnq" style="display:none">
+
+        <div class="bond-bar">
+          <div class="bond-grp">
+            <span class="bond-glab">Kỳ</span>
+            <input type="month" id="bondMonth" onchange="BOND.onMonth()"
+                   title="Kỳ trừ lùi — tháng nào thì dùng FEED OL1 của tháng đó. Ảnh chụp SAP luôn là ngày D-1 (hoặc ngày cuối kỳ nếu xem kỳ đã qua).">
+            <button class="bond-btn" onclick="BOND.savePeriod()"
+                    title="Chụp lại cả bảng đúng như đang hiện — số SAP, số trừ lùi, thông tin đã gõ — để sau này gọi về xem. KHÔNG khoá gì, không đổi gì; bấm lại là đè lên ảnh cũ của cùng kỳ.">💾 Lưu kỳ</button>
+            <select id="bondPerSel" title="Các kỳ đã có ảnh chụp"><option value="">Kỳ đã lưu…</option></select>
+            <button class="bond-btn" onclick="BOND.openPeriod()" title="Mở ảnh chụp của kỳ đã chọn (chỉ đọc)">📜 Xem</button>
+            <button class="bond-btn danger" onclick="BOND.delPeriod()" title="Xoá ảnh chụp của kỳ đã chọn để Firebase khỏi phình. Không ảnh hưởng dữ liệu SAP hay thông tin lô.">🗑 Xoá kỳ</button>
+          </div>
+          <div class="bond-grp">
+            <span class="bond-glab">Dữ liệu</span>
+            <button class="bond-btn accent" onclick="BOND.openOl1()"
+                    title="Bảng lượng dùng OL1 hằng ngày — nguồn trừ lùi của toàn bộ lô P và X">⛽ FEED OL1</button>
+            <button class="bond-btn" onclick="BOND.exportXlsx()"
+                    title="Xuất cả bảng ra Excel. Cất file này lại — đó là bản chốt của kỳ.">📤 Xuất Excel</button>
+            <button class="bond-btn" onclick="BOND.migrate()"
+                    title="Chạy MỘT LẦN: đọc tab KNQ cũ, chép tên tàu / STT chuyến / số tờ khai sang bảng này theo mã batch. Không đè lên ô đã có, không xoá dữ liệu cũ.">🔁 Lấy thông tin từ tab KNQ cũ</button>
+          </div>
+          <!-- ═══ THANH LỌC (v4.106) — như tab KNQ cũ, AND với nhau.
+               ⚠ Thẻ thống kê vẫn tính trên TOÀN BỘ lô, không theo phần đang
+               lọc — nếu không, lọc một cái là tổng tồn kho nhảy lung tung. -->
+          <div class="bond-grp bond-filters">
+            <span class="bond-glab">Lọc</span>
+            <input class="bond-fq" id="bondFq" placeholder="🔎 mã batch · tàu · tờ khai · ghi chú"
+                   oninput="BOND.onFilter()"
+                   title="Gõ bất kỳ phần nào của mã batch (260714X), tên tàu, số tờ khai hay ghi chú">
+            <select id="bondFMat" onchange="BOND.onFilter()" title="Lọc theo vật tư">
+              <option value="">Mat · tất cả</option>
+              <option value="C3">C3 · Propane</option>
+              <option value="C4">C4 · Butane</option>
+            </select>
+            <select id="bondFLot" onchange="BOND.onFilter()" title="Lọc theo loại lô">
+              <option value="">Lô · tất cả</option>
+              <option value="D">D · Domestic</option>
+              <option value="E">E · Export</option>
+              <option value="P">P · Petchem</option>
+              <option value="X">X · Export Petchem</option>
+            </select>
+            <select id="bondFSt" onchange="BOND.onFilter()" title="Lọc theo tình trạng của lô">
+              <option value="">Tình trạng · tất cả</option>
+              <option value="pumping">▶ Đang bơm</option>
+              <option value="wait">○ Chờ tới lượt</option>
+              <option value="emptied">◍ Hết — chưa VASSCM</option>
+              <option value="zero">✓ Đã xong</option>
+              <option value="gone">⛔ SAP không còn</option>
+              <option value="new">✚ Lô mới nhập</option>
+              <option value="noinfo">✎ Thiếu thông tin</option>
+            </select>
+            <button class="bond-btn" id="bondFClr" onclick="BOND.clearFilter()"
+                    style="display:none" title="Xoá mọi bộ lọc">✕</button>
+          </div>
+          <div class="spacer"></div>
+          <div class="bond-grp">
+            <span class="bond-glab">Hiển thị</span>
+            <button class="bond-btn" id="bondCardsBtn" onclick="BOND.toggleCards()"
+                    title="Thu gọn dải thẻ thống kê để bảng cao thêm">⊟ Thu gọn</button>
+            <button class="bond-btn" id="bondSlimBtn" onclick="BOND.toggleSlim()"
+                    title="Ẩn bớt Init / GR / GI / Trs, chỉ giữ End Stock — bảng hẹp lại, đỡ phải cuộn ngang">⊟ Gọn cột SAP</button>
+            <span class="bond-count" id="bondCount"></span>
+            <span class="bond-sync" id="bondSync"></span>
+          </div>
+        </div>
+
+        <div class="bond-cards" id="bondCards"></div>
+        <div class="bond-alerts" id="bondAlerts"></div>
+
+        <div class="bond-table-full">
+          <div class="bond-grid" id="bondGrid"></div>
+        </div>
+      </div><!-- /spViewKnq -->
+
+      <!-- ═══ MODAL — ⛽ FEED OL1 (dùng chung node với tab KNQ cũ) ═══ -->
+      <div class="bond-modal" id="bondOl1">
+        <div class="bond-modal-box">
+          <div class="bond-modal-h">
+            <span>⛽ FEED OL1 — LƯỢNG DÙNG HẰNG NGÀY CỦA LÔ P VÀ X</span>
+            <span class="spacer"></span>
+            <button onclick="BOND.closeOl1()" title="Đóng">✕</button>
+          </div>
+          <div class="bond-modal-c">
+            <div class="bond-hint">
+              Bảng này là <b>nguồn trừ lùi FIFO</b> của mọi lô P và X: vào trước dùng trước, và mỗi lô
+              chỉ được rút <b>từ ngày nằm trong chính mã batch</b> trở đi (260714X001 ⇒ 14/07/2026).
+              Gõ <b>TỔNG P+X</b> và <b>X</b>; P tự suy ra = TỔNG − X. Ngày chưa gõ TỔNG sẽ chạy mức
+              tạm tính 2.000 T và được đếm riêng để cảnh báo.
+            </div>
+            <div class="bond-frow">
+              <label>Tháng</label>
+              <input type="month" id="bondOl1Month" onchange="BOND.onOl1Month()">
+              <label>Đơn vị</label>
+              <select id="bondOl1Unit" onchange="BOND.onOl1Unit()">
+                <option value="T">Tấn (MT)</option>
+                <option value="kg">kg</option>
+              </select>
+              <button class="bond-btn" onclick="BOND.addUseRow()">➕ Thêm ngày</button>
+              <button class="bond-btn" onclick="BOND.fillMonth()">📅 Đổ cả tháng</button>
+            </div>
+            <div class="bond-ol1-wrap">
+              <table class="bond-ol1">
+                <thead>
+                  <tr>
+                    <th style="width:110px">Ngày</th>
+                    <th>TỔNG P+X (<span id="bondOl1UnitH">MT</span>)</th>
+                    <th>X — Export Petchem</th>
+                    <th>P = TỔNG − X</th>
+                    <th>Ghi chú</th>
+                    <th style="width:44px"></th>
+                  </tr>
+                </thead>
+                <tbody id="bondOl1Body"></tbody>
+              </table>
+            </div>
+            <div class="bond-ol1-tot" id="bondOl1Tot"></div>
+          </div>
+          <div class="bond-modal-f">
+            <button class="bond-btn" onclick="BOND.closeOl1()">Đóng</button>
+          </div>
+        </div>
+      </div>
+
     </div><!-- /sub-sap -->
 
     <!-- Customer sub-pane -->
@@ -3461,11 +3612,23 @@
           <button class="knq-btn primary" onclick="KNQ.addGi('C3')" title="Declare a new C3 vessel (Get In row)">➕ C3</button>
           <button class="knq-btn primary" onclick="KNQ.addGi('C4')" title="Declare a new C4 vessel (Get In row)">➕ C4</button>
           <button class="knq-btn accent" onclick="KNQ.openOl1()" title="Open the daily OL1 feed table — the source of the whole P and X run-down">⛽ FEED OL1</button>
+          <!-- v4.105 — ☑ TỰ TRỪ LÙI MỌI LÔ CHƯA TICK DONE.
+               Ô SAP qty trống ⇒ tồn đầu kỳ = null ⇒ lô không lọt vào hàng đợi
+               FIFO, bảng đứng số 0 (đúng cảnh xoá hết rồi nhập lại). Bật ô này
+               thì lấy tồn đầu kỳ dự phòng (HQ get-out → End Stock SAP → KL tờ khai)
+               để vẫn trừ lùi được theo FEED OL1. Lưu ở meta/rdAll, chung mọi máy. -->
+          <label class="knq-ckbox" title="Run every batch that is NOT ticked DONE down on the FEED OL1 usage of the open period. A batch whose SAP qty cell is empty starts from its HQ approved get-out figure (or the SAP End Stock of the same batch code), so a freshly re-typed table computes straight away instead of standing at zero. Shared with every machine.">
+            <input type="checkbox" id="knq-rdall" onchange="KNQ.setRdAll(this)">
+            <span>☑ Auto run-down</span>
+          </label>
         </div>
         <div class="knq-grp">
           <span class="knq-glab">SAP</span>
           <button class="knq-btn primary" id="knq-sap-btn" onclick="KNQ.pullSap()">⬇ Sync SAP</button>
           <button class="knq-btn" onclick="KNQ.fillSapQty()" title="Fill the SAP qty column from the SAP End Stock of yesterday, matched on batch code. Empty cells are filled automatically; a cell that already holds a different figure is only overwritten if you confirm.">⇐ SAP qty</button>
+          <!-- v4.105 — ⚖ ĐỐI CHIẾU SAP ↔ KNQ. Tự bật sau khi bấm ⬇ Sync SAP;
+               nút này để mở lại bảng mà không phải quét lại từ đầu. -->
+          <button class="knq-btn" onclick="KNQ.openCmp()" title="Compare every batch code against the SAP SLoc 1100 data just pulled in: in SAP but not declared here, declared here but not in SAP, and figures that differ. SAP is the correct figure — you pick which lines to pull across.">⚖ SAP check</button>
         </div>
         <div class="spacer"></div>
         <div class="knq-grp">
@@ -3473,6 +3636,10 @@
           <span class="knq-sync" id="knq-sync"></span>
           <button class="knq-btn" id="knq-save" onclick="KNQ.save()" title="Push straight away. Every change is pushed to Firebase automatically about 1.5 s after you stop typing and lands on the other machines, so this button is only a “send it now”.">💾 Save</button>
           <button class="knq-btn" onclick="KNQ.loadOld()" title="Also load the rows already closed, so you can review them">📂 Closed rows</button>
+          <!-- v4.105 — ♻ MỞ KHOÁ. Cờ đóng lô (pxDone / hqDone) nằm trên Firebase:
+               xoá sạch bảng rồi khai lại KHÔNG gỡ được nó, nên lô vẫn "bị khoá"
+               và đứng ngoài bộ trừ lùi. Đây là đường duy nhất gỡ bằng tay. -->
+          <button class="knq-btn" onclick="KNQ.reopenAll()" title="Re-open every batch that still carries a DONE flag, so it goes back into the run-down of the open period. Deleting the rows and typing them again does NOT clear that flag — it lives on Firebase. Batches inside an already-closed period are left alone.">♻ Re-open</button>
           <button class="knq-btn success" onclick="KNQ.exportXlsx()">📤 Export</button>
         </div>
       </div>
@@ -3594,6 +3761,27 @@
            Kỳ đã đóng vẫn nằm nguyên trên Firebase (knq_bonded/periods/<kỳ>)
            nhưng KHÔNG còn được tải về / đồng bộ về máy. Hộp này đọc thẳng
            node đó một lần khi người dùng chọn kỳ. ═══ -->
+      <!-- ═══ MODAL — ⚖ ĐỐI CHIẾU SAP ↔ KNQ (v4.105) ═══════════════
+           Nguyên tắc: SỐ CỦA SAP LÀ SỐ ĐÚNG. Bảng chỉ bày ra chỗ lệch và để
+           người dùng TỰ CHỌN dòng nào kéo từ SAP sang KNQ — không tự ý sửa.
+           Ba nhóm: lệch số · SAP có mà KNQ chưa khai · KNQ có mà SAP không có. ═══ -->
+      <div class="knq-modal" id="knq-cmp">
+        <div class="knq-modal-box wide">
+          <div class="knq-modal-h">
+            <span>⚖ SAP ↔ KNQ RECONCILIATION — SAP IS THE CORRECT FIGURE</span>
+            <span class="spacer"></span>
+            <button onclick="KNQ.closeCmp()" title="Close">✕</button>
+          </div>
+          <div class="knq-modal-c">
+            <div id="knq-cmp-body"></div>
+          </div>
+          <div class="knq-modal-f">
+            <button class="knq-btn" onclick="KNQ.closeCmp()">Close</button>
+            <button class="knq-btn primary" id="knq-cmp-apply" onclick="KNQ.cmpApply()">⇐ Apply selected</button>
+          </div>
+        </div>
+      </div>
+
       <div class="knq-modal" id="knq-arch">
         <div class="knq-modal-box wide">
           <div class="knq-modal-h">
@@ -4562,7 +4750,8 @@
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>
 <script src="js/features/mthr.js"></script>
-<script src="js/features/knq.js?v=4104"></script><!-- v4.104 — ⭐ SỬA LỖI NẶNG: tick ✔ Done trên lô P/X từng đóng lô + ép Actual left=0 + không tải về nữa dù SAP còn hàng (5 lô, 13.695.432 kg bị mất khỏi bộ trừ lùi) — nay P/X KHOÁ ô tick, chỉ 📌 Close period đóng được khi End Stock SAP ngày cuối kỳ = 0; _rescuePX() kéo lại lô bị đóng nhầm; D/E lưu sapH theo ngày để biết lô nào ĐANG bơm ra + cảnh báo dưới 200 T; giao diện gom thành 4 thẻ #knq-cards, thanh công cụ chia nhóm · v4.103 — TỔNG FEED OL1 (thực tới D-1 + cả kỳ kèm plan) ra ngoài màn hình chính #knq-ol1sum, dòng TOTAL của modal OL1 chuyển lên đầu bảng; GỠ cảnh báo "P/X không khớp SAP" (SAP khai P/X 1 tháng/lần nên lệch là đương nhiên) — chỉ D/E mới đối chiếu; D/E tự quét lại SAP khi mở tab nếu chưa có số D-1; dấu thời gian quét SAP lưu ở meta/sapSync, hiện trên thanh công cụ · v4.102 — KNQ đồng bộ THẬT nhiều máy: gi/go/use gắn listener realtime + tự đẩy sau 1,5s (💾 Save chỉ là đẩy ngay); con trỏ kỳ knq_bonded/meta/curPeriod dùng chung, kỳ đã đóng lưu ở periods/<YYYY-MM> và NGỪNG đồng bộ về máy (xem bằng 📜 Archive); 📌 Close period đọc End Stock SAP tại NGÀY CUỐI KỲ (không phải D-1, vì SAP lô P/X chậm vài ngày) và đè vào tồn đầu kỳ mới cho cả 4 loại lô; quá hạn đóng kỳ thì banner đỏ + vẫn trừ lùi tiếp bằng OL1 tháng mới -->
+<script src="js/features/knq.js?v=4105"></script><!-- v4.105 — ♻ MỞ KHOÁ TRẠNG THÁI LÔ: cờ đóng (pxDone / hqDone) nằm trên Firebase nên xoá bảng rồi khai lại KHÔNG gỡ được, lô vẫn "bị khoá" và đứng ngoài bộ trừ lùi — nay có nút ♻ trên từng dòng + ♻ Re-open hàng loạt (kỳ đã chốt sổ thì không đụng); ☑ AUTO RUN-DOWN (meta/rdAll, chung mọi máy): mọi lô chưa tick Done đều được trừ lùi theo FEED OL1, ô SAP qty trống thì lấy tồn đầu kỳ dự phòng HQ get-out → End Stock SAP → KL tờ khai và nói rõ "assumed" dưới ô; ⚖ SAP CHECK: quét SAP xong tự mở bảng đối chiếu 3 nhóm (lệch số · SAP có mà KNQ chưa khai · KNQ có mà SAP không có), tick dòng nào thì kéo số SAP sang dòng đó — P/X ghi vào SAP qty, D/E ghi vào Actual left, lô SAP chưa khai được tạo dòng get-out trên chuyến giữ chỗ "— from SAP —", dòng KNQ thừa CHỈ đóng dấu ghi chú chứ không bao giờ tự xoá · v4.104 — ⭐ SỬA LỖI NẶNG: tick ✔ Done trên lô P/X từng đóng lô + ép Actual left=0 + không tải về nữa dù SAP còn hàng (5 lô, 13.695.432 kg bị mất khỏi bộ trừ lùi) — nay P/X KHOÁ ô tick, chỉ 📌 Close period đóng được khi End Stock SAP ngày cuối kỳ = 0; _rescuePX() kéo lại lô bị đóng nhầm; D/E lưu sapH theo ngày để biết lô nào ĐANG bơm ra + cảnh báo dưới 200 T; giao diện gom thành 4 thẻ #knq-cards, thanh công cụ chia nhóm · v4.103 — TỔNG FEED OL1 (thực tới D-1 + cả kỳ kèm plan) ra ngoài màn hình chính #knq-ol1sum, dòng TOTAL của modal OL1 chuyển lên đầu bảng; GỠ cảnh báo "P/X không khớp SAP" (SAP khai P/X 1 tháng/lần nên lệch là đương nhiên) — chỉ D/E mới đối chiếu; D/E tự quét lại SAP khi mở tab nếu chưa có số D-1; dấu thời gian quét SAP lưu ở meta/sapSync, hiện trên thanh công cụ · v4.102 — KNQ đồng bộ THẬT nhiều máy: gi/go/use gắn listener realtime + tự đẩy sau 1,5s (💾 Save chỉ là đẩy ngay); con trỏ kỳ knq_bonded/meta/curPeriod dùng chung, kỳ đã đóng lưu ở periods/<YYYY-MM> và NGỪNG đồng bộ về máy (xem bằng 📜 Archive); 📌 Close period đọc End Stock SAP tại NGÀY CUỐI KỲ (không phải D-1, vì SAP lô P/X chậm vài ngày) và đè vào tồn đầu kỳ mới cho cả 4 loại lô; quá hạn đóng kỳ thì banner đỏ + vẫn trừ lùi tiếp bằng OL1 tháng mới -->
+<script src="js/features/bond.js?v=4106"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
 <script src="js/features/inv.js?v=4.75"></script>
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
