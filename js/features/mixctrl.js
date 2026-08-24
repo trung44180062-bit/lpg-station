@@ -609,17 +609,13 @@ const MC = (function(){
     _set0('spp-norm', '55');            // v4.101 — tỉ lệ thường mặc định 55 %
     _set0('spp-fail', '12');            // dự phòng mix hỏng (gợi ý)
     _set0('spp-max',  String(MC_TARGET));// mức mix thường ngày (KHÔNG phải trần)
-    /* v4.101 — TUẦN HOÀN ĐƯỜNG ỐNG: mặc định CÓ. Chỉ bỏ tick sẵn khi panel
-       đang chạy một chế độ đã tắt hẳn tuần hoàn (CHỈ BƠM + bỏ tick circulate,
-       hoặc ★ MIX TỈ LỆ ĐẶC BIỆT với pipe = 0). Ô này CHỈ dùng cho planner —
-       không đụng tới cấu hình mix ở panel. */
+    /* v4.107 — TUẦN HOÀN ĐƯỜNG ỐNG: MẶC ĐỊNH KHÔNG.
+       Trước (v4.101) planner tự tick sẵn và trừ luôn 74 m³ đường ống, làm
+       MAX SAFE MIX nhỏ đi mà người dùng không chủ động chọn. Nay mở planner
+       là bỏ tick — ai chạy tuần hoàn thật thì tự tick. Ô này CHỈ dùng cho
+       planner — không đụng tới cấu hình mix ở panel. */
     const _ck = _gid('spp-circ');
-    if(_ck){
-      let on = true;
-      if(FILL[n])         on = !!FILL_CIRC[n];
-      else if(SP[n])      on = _gnum('mc-spvpipe'+n) > 0;
-      _ck.checked = on;
-    }
+    if(_ck) _ck.checked = false;
     const _vpEl = _gid('spp-vpipe');
     if(_vpEl){
       const vpPanel = FILL[n] ? _gnum('mc-fcpipe'+n)
@@ -693,7 +689,7 @@ const MC = (function(){
     const cNote = _gid('spp-circ-note');
     if(cNote){
       cNote.innerHTML = !circOn
-        ? '⚠ Tính KHÔNG tuần hoàn — chỉ chỉnh phần hàng trong bồn'
+        ? 'Tính KHÔNG tuần hoàn (mặc định) — chỉ chỉnh phần hàng trong bồn. Tick ô trên nếu mẻ này chạy tuần hoàn qua ống.'
         : (same ? 'Tỉ lệ đặc biệt = tỉ lệ thường → tuần hoàn không đổi kết quả'
                 : 'Trộn xong, ống giữ '+_fmt(Vp,0)+' m³ @ '+(s*100).toFixed(0)+'% — cũng phải kéo về '+(t*100).toFixed(1)+'% → '
                   + 'tốn thêm <b>'+_fmt(pipeCost,1)+'</b> m³ chỗ trong bồn'

@@ -10,7 +10,7 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=4101">
+<link rel="stylesheet" href="css/core.css?v=4108">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
@@ -1871,11 +1871,17 @@
             <th style="width:52px">Init Vol</th>
             <th style="width:44px;color:var(--blue)">I.%C3</th>
             <th style="width:44px;color:var(--orange)">I.%C4</th>
-            <th style="width:66px;color:var(--blue);background:#e8f4fd">Filled C3</th>
-            <th style="width:66px;color:var(--orange);background:#fff5eb">Filled C4</th>
-            <th style="width:66px;color:var(--red);background:#fef0f1">Filled LPG</th>
-            <th style="width:66px;color:#b45309;background:#fffbeb" title="OFFICIAL — Filled C3 from the COQ mass balance: FINAL VOL × COQ density × %wt C3, minus INIT VOL × previous COQ density × previous %wt C3">C3 ◈COQ</th>
-            <th style="width:66px;color:#b45309;background:#fffbeb" title="OFFICIAL — Filled C4 from the COQ mass balance">C4 ◈COQ</th>
+            <th style="width:66px;color:#8798a8;font-weight:500" title="Tham chiếu — Filled C3 theo GC. Con số chính thức nay là cột C3 ◈COQ.">Filled C3 <i style="font-style:normal;font-size:8px">(GC)</i></th>
+            <th style="width:66px;color:#8798a8;font-weight:500" title="Tham chiếu — Filled C4 theo GC. Con số chính thức nay là cột C4 ◈COQ.">Filled C4 <i style="font-style:normal;font-size:8px">(GC)</i></th>
+            <th style="width:66px;color:var(--red);background:#fef0f1" title="Σ Filled LPG = C3 ◈COQ + C4 ◈COQ. Lot nào chưa có kết quả COQ thì tạm lấy Filled C3 + Filled C4 theo GC (ô hiện xám, có dấu ᴳᶜ).">Filled LPG</th>
+            <!-- v4.108 — tồn ĐẦU thực tế (đo được) kẹp bên trái cặp Filled COQ -->
+            <th style="width:64px;color:#7fa39d;background:#f7fbfa;font-weight:500" title="Reference — ACTUAL opening stock in the tank, C3 part = INIT VOL (measured) × opening COQ density × opening %wt C3. Computed on this machine — not stored.">Open C3 ◈</th>
+            <th style="width:64px;color:#7fa39d;background:#f7fbfa;font-weight:500" title="Reference — ACTUAL opening stock in the tank, C4 part = INIT VOL (measured) × opening COQ density × (1 − opening %wt C3).">Open C4 ◈</th>
+            <th class="th-cq2" style="width:70px;color:#8a4708;background:#fdf0d0;font-size:10px" title="OFFICIAL — the figure sent to the Check Booth. Filled C3 from the COQ mass balance: FINAL VOL × COQ density × %wt C3, minus INIT VOL × previous COQ density × previous %wt C3">C3 ◈COQ</th>
+            <th class="th-cq2-r" style="width:70px;color:#8a4708;background:#fdf0d0;font-size:10px" title="OFFICIAL — the figure sent to the Check Booth. Filled C4 from the COQ mass balance">C4 ◈COQ</th>
+            <!-- … và tồn CUỐI thực tế kẹp bên phải: Open + Filled = End -->
+            <th style="width:64px;color:#9d93b5;background:#faf8fd;font-weight:500" title="Reference — ACTUAL closing stock in the tank, C3 part = FINAL VOL (measured) × COQ density of this lot × %wt C3. Open C3 + C3 ◈COQ = End C3.">End C3 ◈</th>
+            <th style="width:64px;color:#9d93b5;background:#faf8fd;font-weight:500" title="Reference — ACTUAL closing stock in the tank, C4 part = FINAL VOL (measured) × COQ density of this lot × (1 − %wt C3). Open C4 + C4 ◈COQ = End C4.">End C4 ◈</th>
             <th style="width:46px" title="Which Filled C3/C4 figures get sent to Scale for the Check Booth — click the cell to change">⇒Scale</th>
             <th style="width:38px;color:var(--green);background:#eef8f2" title="Đã stock transfer trên WMS. Lot chưa tick sẽ được Allocation cộng thêm vào bồn.">ST</th>
             <th style="width:56px">Vol (m³)</th>
@@ -2498,13 +2504,12 @@
           </div>
           <div class="spp-body">
             <!-- v4.101 — TUẦN HOÀN ĐƯỜNG ỐNG (tỉ lệ cũ).
-                 Mặc định BẬT: sau mẻ đặc biệt, 74 m³ trong đường ống cũng mang
-                 tỉ lệ đặc biệt, nên khi đưa bồn về tỉ lệ thường phải chỉnh CẢ
-                 phần hàng trong ống → tốn thêm chỗ trong bồn. Bỏ tick = tính
-                 như cũ (chỉ chỉnh phần hàng còn lại trong bồn). -->
+                 v4.107 — MẶC ĐỊNH TẮT: planner không còn tự trừ 74 m³ đường ống.
+                 Ai thực sự chạy tuần hoàn thì tự tick để cộng phần hàng tỉ lệ cũ
+                 trong ống vào bài toán đưa bồn về tỉ lệ thường. -->
             <div class="spp-circ">
-              <label class="spp-circ-chk" title="Mẻ trộn theo plan này có chạy tuần hoàn qua đường ống hay không.&#10;CÓ (mặc định): phần hàng tỉ lệ cũ/đặc biệt trong ống cũng phải được chỉnh về tỉ lệ thường → MAX SAFE MIX nhỏ hơn (an toàn hơn).&#10;KHÔNG: chỉ chỉnh phần hàng trong bồn.">
-                <input type="checkbox" id="spp-circ" checked onchange="MC.spPlanCalc()">
+              <label class="spp-circ-chk" title="Mẻ trộn theo plan này có chạy tuần hoàn qua đường ống hay không.&#10;MẶC ĐỊNH KHÔNG (v4.107): chỉ chỉnh phần hàng trong bồn.&#10;Tick CÓ: phần hàng tỉ lệ cũ/đặc biệt trong ống cũng phải được chỉnh về tỉ lệ thường → MAX SAFE MIX nhỏ hơn (an toàn hơn).">
+                <input type="checkbox" id="spp-circ" onchange="MC.spPlanCalc()">
                 <span>🔁 CÓ TUẦN HOÀN ĐƯỜNG ỐNG (hàng tỉ lệ cũ trong ống)</span>
               </label>
               <div class="spp-circ-fld">
@@ -4282,6 +4287,90 @@
   </div>
 </div>
 
+<!-- ══ v4.108 — ⚖ STOCK-TRANSFER RECONCILIATION (nút 📏 trên thẻ tank) ══
+     INIT/FINAL VOL là số ĐO ĐƯỢC; nhân với nền COQ ra tồn C3/C4 THỰC TẾ ở
+     hai mốc đầu/cuối mẻ. Đặt cạnh tồn hệ thống (SAP End Stock hoặc gõ tay)
+     để ra con số chuyển kho ĐÃ ĐIỀU CHỈNH, giúp tồn cuối của hệ thống khớp
+     tồn cuối thực tế. Bảng CHỈ GỢI Ý — không ghi Firebase, không sửa thông
+     báo đang gửi cho Check Booth. Giao diện tiếng Anh. -->
+<div class="modal-bg" id="stxModal">
+  <div class="modal stx-modal">
+    <div class="modal-hdr">
+      <h3>⚖ Stock-transfer reconciliation — actual vs system</h3>
+      <button class="modal-close" onclick="INV.closeAll()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="stx-grid" id="stxGrid">
+
+        <div class="stx-pane p-3501" id="stxPane2100">
+          <div class="stx-hdr">
+            <span class="nm">TK-3501</span><span class="sl">SLoc 2100</span>
+            <span class="lot">
+              <label for="stxLot2100">LOT</label>
+              <input type="text" id="stxLot2100" maxlength="20" placeholder="auto"
+                     autocomplete="off" onchange="INV.stxLotChange('2100')">
+            </span>
+            <span class="stx-lotsrc" id="stxLotSrc2100"></span>
+          </div>
+          <div class="stx-meta" id="stxMeta2100"></div>
+          <div class="stx-body" id="stxBody2100"></div>
+          <div class="stx-src s-na" id="stxSrc2100"></div>
+          <div class="stx-foot" id="stxFoot2100"></div>
+        </div>
+
+        <div class="stx-pane p-3502" id="stxPane2101">
+          <div class="stx-hdr">
+            <span class="nm">TK-3502</span><span class="sl">SLoc 2101</span>
+            <span class="lot">
+              <label for="stxLot2101">LOT</label>
+              <input type="text" id="stxLot2101" maxlength="20" placeholder="auto"
+                     autocomplete="off" onchange="INV.stxLotChange('2101')">
+            </span>
+            <span class="stx-lotsrc" id="stxLotSrc2101"></span>
+          </div>
+          <div class="stx-meta" id="stxMeta2101"></div>
+          <div class="stx-body" id="stxBody2101"></div>
+          <div class="stx-src s-na" id="stxSrc2101"></div>
+          <div class="stx-foot" id="stxFoot2101"></div>
+        </div>
+
+      </div>
+
+      <!-- Ô nhập System opening sống ở đây và được CHUYỂN vào đúng ô của bảng
+           mỗi lần vẽ lại, nên gõ liên tục không bị mất con trỏ. -->
+      <div class="stx-inp-pool" aria-hidden="true">
+        <input type="number" step="any" id="stxSys32100" class="stx-inp c3" placeholder="C3 kg" oninput="INV.stxSysEdit('2100')">
+        <input type="number" step="any" id="stxSys42100" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxSysEdit('2100')">
+        <input type="number" step="any" id="stxSys32101" class="stx-inp c3" placeholder="C3 kg" oninput="INV.stxSysEdit('2101')">
+        <input type="number" step="any" id="stxSys42101" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxSysEdit('2101')">
+      </div>
+
+      <div class="stx-legend">
+        <b>How the suggested figure is built.</b>
+        <code>Actual = measured volume × COQ density × %wt C3</code> ·
+        <code>Suggested transfer = actual closing − system opening</code>.
+        Posting that quantity makes the system end stock land exactly on the measured end stock,
+        so the opening gap is cleared in the same posting instead of carrying forward.
+        <span class="rule"><b>System opening</b> is auto-filled from <b>SAP End Stock</b> only when mixing
+        finished <b>outside 08:00–19:00</b> (no loading in between, so the day's End Stock is the balance
+        right before this transfer): finish after 19:00 → same day; finish before 08:00 → previous day.
+        Inside operating hours the figure must be typed in. You can always overwrite it.</span>
+        <span class="rule">The source line under <b>System opening</b> names <b>which SAP day</b> the figure belongs to
+        and <b>when that SAP data was pasted</b>, and by whom. A tank's End Stock pasted last week looks identical to one
+        pasted this morning — only the fresh one reflects the postings this transfer sits on, so check that line before
+        trusting the suggested quantity.</span>
+        <span class="rule">All figures in <b>kg</b>, the same unit as SAP and the Check Booth notification.
+        Nothing here is written to the database and the notification is left untouched — this table only suggests.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="INV.closeAll()">Close</button>
+      <button class="btn" onclick="INV.renderStx(true)" title="Re-read the Tank Log, the SAP tab and the pending notifications">⟳ Refresh</button>
+      <button class="btn btn-green" onclick="INV.copyStx()">Copy both tanks</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- TODAY PLAN: PASTE MODAL -->
@@ -4744,7 +4833,8 @@
 <script src="js/data/tlxk.js?v=486"></script><!-- v4.86 — TL Data → sheet "Detail" của PHIẾU XUẤT KHO (.xlsm) -->
 <script src="js/data/wg.js"></script>
 <script src="js/data/ws.js"></script>
-<script src="js/data/sp.js?v=499"></script><!-- v4.99 — SLoc 1100 LUÔN tách theo mã batch (mã lạ vẫn giữ dòng, chỉ cảnh báo), tìm/sắp theo mã batch; dòng gộp cũ dọn ngay trong bảng xác nhận khi dán -->
+<script src="js/data/sp.js?v=4108"></script><!-- v4.108 — SP.tankEnd(sloc,date): End Stock của một bồn tại một ngày, tách C3/C4, cho bảng đối chiếu chuyển kho -->
+<!-- v4.99 — SLoc 1100 LUÔN tách theo mã batch (mã lạ vẫn giữ dòng, chỉ cảnh báo), tìm/sắp theo mã batch; dòng gộp cũ dọn ngay trong bảng xác nhận khi dán -->
 <script src="js/data/ct.js"></script>
 <script src="js/data/pp.js"></script>
 <!-- checks -->
@@ -4755,23 +4845,25 @@
 <script src="js/features/plan.js?v=484"></script>
 <script src="js/features/scale.js?v=485"></script>
 <script src="js/features/fnote.js?v=484"></script><!-- Sổ ghi chú xe/tài xế — lazy, không tự đọc Firebase -->
-<script src="js/features/eng.js?v=4101"></script><!-- v4.101 — Density (cột 33) & ρ COQ đầu (cột 63) giữ ĐỦ 4 số thập phân ở ô sửa dòng + bảng Tank Log + bản in -->
+<script src="js/features/eng.js?v=4108"></script><!-- v4.107 — cột Filled LPG = ΣCOQ (lùi GC khi lot chưa có COQ), hai cột Filled C3/C4 (GC) hạ nổi bật · v4.108 — thêm 4 cột Open/End C3/C4 THỰC TẾ (INIT/FINAL VOL đo được × nền COQ), chỉ tính trên máy -->
+<!-- v4.101 — Density (cột 33) & ρ COQ đầu (cột 63) giữ ĐỦ 4 số thập phân ở ô sửa dòng + bảng Tank Log + bản in -->
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js"></script>
 <script src="js/features/mthr.js"></script>
 <script src="js/features/knq.js?v=4105"></script><!-- v4.105 — ♻ MỞ KHOÁ TRẠNG THÁI LÔ: cờ đóng (pxDone / hqDone) nằm trên Firebase nên xoá bảng rồi khai lại KHÔNG gỡ được, lô vẫn "bị khoá" và đứng ngoài bộ trừ lùi — nay có nút ♻ trên từng dòng + ♻ Re-open hàng loạt (kỳ đã chốt sổ thì không đụng); ☑ AUTO RUN-DOWN (meta/rdAll, chung mọi máy): mọi lô chưa tick Done đều được trừ lùi theo FEED OL1, ô SAP qty trống thì lấy tồn đầu kỳ dự phòng HQ get-out → End Stock SAP → KL tờ khai và nói rõ "assumed" dưới ô; ⚖ SAP CHECK: quét SAP xong tự mở bảng đối chiếu 3 nhóm (lệch số · SAP có mà KNQ chưa khai · KNQ có mà SAP không có), tick dòng nào thì kéo số SAP sang dòng đó — P/X ghi vào SAP qty, D/E ghi vào Actual left, lô SAP chưa khai được tạo dòng get-out trên chuyến giữ chỗ "— from SAP —", dòng KNQ thừa CHỈ đóng dấu ghi chú chứ không bao giờ tự xoá · v4.104 — ⭐ SỬA LỖI NẶNG: tick ✔ Done trên lô P/X từng đóng lô + ép Actual left=0 + không tải về nữa dù SAP còn hàng (5 lô, 13.695.432 kg bị mất khỏi bộ trừ lùi) — nay P/X KHOÁ ô tick, chỉ 📌 Close period đóng được khi End Stock SAP ngày cuối kỳ = 0; _rescuePX() kéo lại lô bị đóng nhầm; D/E lưu sapH theo ngày để biết lô nào ĐANG bơm ra + cảnh báo dưới 200 T; giao diện gom thành 4 thẻ #knq-cards, thanh công cụ chia nhóm · v4.103 — TỔNG FEED OL1 (thực tới D-1 + cả kỳ kèm plan) ra ngoài màn hình chính #knq-ol1sum, dòng TOTAL của modal OL1 chuyển lên đầu bảng; GỠ cảnh báo "P/X không khớp SAP" (SAP khai P/X 1 tháng/lần nên lệch là đương nhiên) — chỉ D/E mới đối chiếu; D/E tự quét lại SAP khi mở tab nếu chưa có số D-1; dấu thời gian quét SAP lưu ở meta/sapSync, hiện trên thanh công cụ · v4.102 — KNQ đồng bộ THẬT nhiều máy: gi/go/use gắn listener realtime + tự đẩy sau 1,5s (💾 Save chỉ là đẩy ngay); con trỏ kỳ knq_bonded/meta/curPeriod dùng chung, kỳ đã đóng lưu ở periods/<YYYY-MM> và NGỪNG đồng bộ về máy (xem bằng 📜 Archive); 📌 Close period đọc End Stock SAP tại NGÀY CUỐI KỲ (không phải D-1, vì SAP lô P/X chậm vài ngày) và đè vào tồn đầu kỳ mới cho cả 4 loại lô; quá hạn đóng kỳ thì banner đỏ + vẫn trừ lùi tiếp bằng OL1 tháng mới -->
 <script src="js/features/bond.js?v=4108"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
-<script src="js/features/inv.js?v=4.75"></script>
+<script src="js/features/inv.js?v=4108"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh -->
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
 <script src="js/features/plog.js"></script>
 <script src="js/features/staff.js"></script>
-<script src="js/features/mixctrl.js?v=4101"></script><!-- v4.101 — ★ MIX PLANNER: chọn CÓ/KHÔNG tuần hoàn đường ống (mặc định CÓ) + ô PIPE VOL; hàng tỉ lệ cũ trong ống được tính vào phần phải đưa về tỉ lệ thường -->
+<script src="js/features/mixctrl.js?v=4108"></script><!-- v4.107 — MIX PLANNER: ô tuần hoàn đường ống MẶC ĐỊNH TẮT (trước là bật sẵn và tự trừ 74 m³) -->
+<!-- v4.101 — ★ MIX PLANNER: chọn CÓ/KHÔNG tuần hoàn đường ống (mặc định CÓ) + ô PIPE VOL; hàng tỉ lệ cũ trong ống được tính vào phần phải đưa về tỉ lệ thường -->
 <script src="js/features/vmix.js"></script>
 <script src="js/features/mixnotify.js"></script>
 <script src="js/features/cav.js"></script>
 <script src="js/features/vs.js"></script>
-<script src="js/features/scx2.js"></script>
+<script src="js/features/scx2.js?v=4108"></script><!-- v4.108 — nút 📏 trên thẻ tank mở bảng đối chiếu chuyển kho -->
 <script src="js/features/alloc.js?v=4681"></script>
 <!-- integrations -->
 <script src="js/integrations/ptt-early.js?v=487"></script><!-- v4.87 — chọn kỹ sư cho phiếu KTPTVC khi in early/today -->

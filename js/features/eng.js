@@ -83,6 +83,27 @@ const ENG = (function(){
     return { method:k, c3: c3 === null ? 0 : c3, c4: c4 === null ? 0 : c4, ok: c3 !== null || c4 !== null };
   }
 
+  /* ── v4.107 — CỘT "Filled LPG" ĐỔI NỀN SỐ ─────────────────────────────
+     Từ khi con số gửi sang Scale lấy theo COQ, cột LPG cũng phải là tổng
+     của HAI CỘT COQ chứ không còn là ô [15] (tổng theo GC) nữa:
+         LPG = C3 ◈COQ [66] + C4 ◈COQ [67]
+     Lot nào CHƯA có kết quả COQ (cả 2 ô trống) thì tạm lùi về số GC —
+     ưu tiên ô [15] đã lưu, nếu [15] trống thì cộng [13]+[14] — và ô được
+     đánh dấu `lpg-gc` để nhìn là biết đang đọc số cũ.
+     CHỈ đổi cách HIỂN THỊ / cộng tổng; ô [15] trong dữ liệu giữ nguyên để
+     không phá các module đang đọc thẳng cột đó (odorant, report, ALLOC…). */
+  function _lpgOf(r){
+    if(!r) return { v:null, src:'gc' };
+    const q3 = _num(r[A_QC3]), q4 = _num(r[A_QC4]);
+    if(q3 !== null || q4 !== null)
+      return { v: (q3 === null ? 0 : q3) + (q4 === null ? 0 : q4), src:'coq' };
+    const g = _num(r[15]);
+    if(g !== null) return { v:g, src:'gc' };
+    const a = _num(r[13]), b = _num(r[14]);
+    if(a === null && b === null) return { v:null, src:'gc' };
+    return { v:(a === null ? 0 : a) + (b === null ? 0 : b), src:'gc' };
+  }
+
   /* ROWS — display-ordered array of 34-col row arrays. Each row also
      carries a non-enumerable `_rid` (base36 random) used as Firebase key.
      RID_MAP[rid] points at the SAME row object, so all reads share state.
@@ -319,6 +340,7 @@ const ENG = (function(){
       const st = _fmtTime(c[4]);
       const fi = _fmtTime(c[5]);
       const overnight = (st && fi && fi < st);
+      const spl = _actualSplit(c);          /* v4.108 — tách C3/C4 đầu & cuối */
       const realIdx = ROWS.indexOf(r);
       return '<tr class="'+(isPending?'row-pending':'')+'" onclick="ENG.editRow('+realIdx+',event)">' +
         '<td class="td-del" onclick="event.stopPropagation();ENG.deleteRow('+realIdx+')" title="Delete">✕</td>' +
@@ -333,11 +355,20 @@ const ENG = (function(){
         '<td class="td-r td-c4">'+_fmtPct(c[12])+'</td>' +
         '<td class="td-r td-fill-c3">'+_fmtNum(c[13],3)+'</td>' +
         '<td class="td-r td-fill-c4">'+_fmtNum(c[14],3)+'</td>' +
-        '<td class="td-r td-fill-lpg">'+_fmtNum(c[15],3)+'</td>' +
+        (function(){ const L = _lpgOf(c);
+          return '<td class="td-r td-fill-lpg'+(L.src==='gc'?' lpg-gc':'')+'" title="'+
+            (L.src==='coq' ? 'C3 ◈COQ + C4 ◈COQ'
+                           : 'Lot này chưa có kết quả COQ — tạm lấy Filled C3 + Filled C4 theo GC')+
+            '">'+_fmtNum(L.v,3)+'</td>'; })() +
         /* v4.86 — kết quả theo COQ + phương pháp gửi Scale.
            v4.87 — lot đã Pass mà cột COQ còn trống thì gắn cờ ⚠ ngay trên
            bảng, hover ra đích danh ô còn thiếu (COQ sắp là số chính thức). */
-        _coqTd(c, A_QC3, true) + _coqTd(c, A_QC4, false) +
+        /* v4.108 — tách C3/C4 THỰC TẾ ở hai mốc đo, kẹp quanh cặp Filled COQ:
+           Open C3/C4  →  Filled C3/C4 ◈COQ  →  End C3/C4
+           Đọc trái sang phải là ra đúng câu chuyện tồn đầu → nạp → tồn cuối. */
+        _splitTd(spl, 'openC3') + _splitTd(spl, 'openC4') +
+        _coqTd(c, A_QC3, true, 'l') + _coqTd(c, A_QC4, false, 'r') +
+        _splitTd(spl, 'endC3') + _splitTd(spl, 'endC4') +
         '<td class="td-c" onclick="event.stopPropagation();ENG.cycleMethod('+realIdx+')" '+
           'title="Con số Filled C3/C4 sẽ gửi sang Scale cho Check Booth — bấm để đổi phương pháp">'+
           _mthBadge(c)+'</td>' +
@@ -397,8 +428,12 @@ const ENG = (function(){
           '<td class="td-r td-fill-c3">'+_fmtNum(T.fc3,3)+'</td>' +
           '<td class="td-r td-fill-c4">'+_fmtNum(T.fc4,3)+'</td>' +
           '<td class="td-r td-fill-lpg">'+_fmtNum(T.flpg,3)+'</td>' +
-          '<td class="td-r td-cq2">'+_fmtNum(T.qc3,3)+'</td>' +
-          '<td class="td-r td-cq2">'+_fmtNum(T.qc4,3)+'</td>' +
+          /* v4.108 — Open/End là số TỒN TẠI MỘT MỐC của từng lot, cộng dồn
+             nhiều lot là vô nghĩa (giống Init/End bên tab SAP) ⇒ để "—". */
+          _totNoSum('td-split td-split-o') + _totNoSum('td-split td-split-o') +
+          '<td class="td-r td-cq2 cq-l">'+_fmtNum(T.qc3,3)+'</td>' +
+          '<td class="td-r td-cq2 cq-r">'+_fmtNum(T.qc4,3)+'</td>' +
+          _totNoSum('td-split td-split-e') + _totNoSum('td-split td-split-e') +
           '<td></td>' +
           '<td class="td-c" style="font-size:9px;color:var(--green)">'+T.stOn+'/'+filtered.length+'</td>' +
           '<td class="td-r">'+_fmtNum(T.vol,3)+'</td>' +
@@ -411,8 +446,10 @@ const ENG = (function(){
 
     if(stats){
       let html = '<b>'+filtered.length+'</b> / '+ROWS.length+' rows';
-      html += ' <span class="eng-tot-chip" title="Tổng cộng trên tập đang hiển thị">'
-        + 'ΣC3 <b>'+_fmtNum(T.fc3,3)+'</b> · ΣC4 <b>'+_fmtNum(T.fc4,3)+'</b> · ΣLPG <b>'+_fmtNum(T.flpg,3)+'</b> MT'
+      html += ' <span class="eng-tot-chip" title="Tổng cộng trên tập đang hiển thị — C3/C4/LPG lấy theo COQ, lot nào chưa có COQ thì lùi về GC'
+        + (T.nGc ? (' (' + T.nGc + ' lot đang lùi về GC)') : '') + '">'
+        + 'ΣC3 <b>'+_fmtNum(T.oc3,3)+'</b> · ΣC4 <b>'+_fmtNum(T.oc4,3)+'</b> · ΣLPG <b>'+_fmtNum(T.flpg,3)+'</b> MT'
+        + (T.nGc ? ' <i style="font-style:normal;color:#b45309">· '+T.nGc+' lot ᴳᶜ</i>' : '')
         + ' · ΣQty <b>'+_fmtNum(T.qty,2)+'</b> T · ΣOdo <b>'+_fmtNum(T.odo,2)+'</b> kg</span>';
       if(qMonth){
         const s = _monthSummary(qMonth);
@@ -545,16 +582,45 @@ const ENG = (function(){
   }
 
   /* v4.87 — ô kết quả COQ; trống + Quality=Pass → cờ ⚠ kèm tooltip đích danh */
-  function _coqTd(c, col, flag){
+  /* v4.108.1 — `edge` = 'l' | 'r': viền dày ở mép trái/phải của CẶP ◈COQ,
+     để hai cột số chính thức đọc thành một khối giữa Open ▸ ◈COQ ▸ End. */
+  function _coqTd(c, col, flag, edge){
+    const cls = 'td-r td-cq2' + (edge === 'l' ? ' cq-l' : edge === 'r' ? ' cq-r' : '');
     const v = _num(c[col]);
-    if(v !== null) return '<td class="td-r td-cq2">' + _fmtNum(c[col], 3) + '</td>';
+    if(v !== null) return '<td class="' + cls + '">' + _fmtNum(c[col], 3) + '</td>';
     const ql = String(c[27] || '').trim().toLowerCase();
-    if(!flag || ql !== 'pass') return '<td class="td-r td-cq2"></td>';
+    if(!flag || ql !== 'pass') return '<td class="' + cls + '"></td>';
     let tip = '';
     try{ tip = _coqProblems(c).join('\n').replace(/•\s*/g, '· '); }catch(_){}
-    return '<td class="td-r td-cq2 td-cq-miss" title="' +
+    return '<td class="' + cls + ' td-cq-miss" title="' +
       _esc('CHƯA CÓ SỐ THEO COQ — lot đã Pass.\n' + (tip || 'Mở dòng rồi bấm ◈ CALC COQ.')) +
       '">⚠</td>';
+  }
+
+  /* v4.108 — ô của 4 cột tách C3/C4 thực tế. Không có nền COQ ⇒ để TRỐNG kèm
+     tooltip nói đích danh thiếu gì, KHÔNG in số 0 (0 tấn và "chưa tính được"
+     là hai chuyện khác nhau). */
+  function _splitTd(spl, key){
+    const isOpen = key.indexOf('open') === 0;
+    const cls = 'td-r td-split ' + (isOpen ? 'td-split-o' : 'td-split-e')
+              + (key.slice(-2) === 'C3' ? ' k3' : ' k4');
+    const v = spl ? spl[key] : null;
+    if(v !== null && v !== undefined)
+      return '<td class="' + cls + '" title="' + _esc(
+        (isOpen ? 'Opening stock actually in the tank: INIT VOL ' + _fmtNum(spl.ivol,3) + ' m³ × ρ '
+                  + _fmtNum(spl.iDen,4) + ' × ' + (spl.iW3 == null ? '—' : (spl.iW3*100).toFixed(2) + ' %wt C3')
+                : 'Closing stock actually in the tank: FINAL VOL ' + _fmtNum(spl.fvol,3) + ' m³ × ρ '
+                  + _fmtNum(spl.fDen,4) + ' × ' + (spl.fW3 == null ? '—' : (spl.fW3*100).toFixed(2) + ' %wt C3'))
+      ) + '">' + _fmtNum(v, 3) + '</td>';
+    const why = (spl && spl.miss.length) ? spl.miss.join(' · ') : 'no COQ basis yet';
+    return '<td class="' + cls + ' td-split-na" title="' +
+      _esc('Cannot be computed — missing: ' + why + '.\nRun ◈ COQ audit or open the row and press ◈ CALC COQ.') +
+      '">·</td>';
+  }
+
+  function _totNoSum(cls){
+    return '<td class="td-r ' + cls + '" style="color:#c4cfda" ' +
+      'title="Stock level at one point in time — adding it up across lots is meaningless, so no total is shown.">—</td>';
   }
 
   /* v4.85 — chip phương pháp trên bảng. Mờ đi nếu phương pháp đó chưa có số. */
@@ -605,16 +671,91 @@ const ENG = (function(){
     try{ logAudit('eng:tank_log:notify_method', row._rid, 'notifyMethod', prev, next, 'change notify method'); }catch(_){}
   }
 
+  /* ══ v4.108 — TÁCH C3/C4 THỰC TẾ CỦA TRẠNG THÁI ĐẦU VÀ CUỐI ══════════
+     INIT VOL và FINAL VOL là số ĐO ĐƯỢC trên thiết bị, nên nhân với nền COQ
+     (ρ và %wt C3) là ra khối lượng C3/C4 THỰC SỰ nằm trong bồn ở hai mốc:
+
+       Open C3 = INIT VOL  × ρ_COQ(lô trước) × %wt C3(lô trước)
+       Open C4 = INIT VOL  × ρ_COQ(lô trước) × (1 − %wt C3 lô trước)
+       End  C3 = FINAL VOL × ρ_COQ(lô này)   × %wt C3(lô này)
+       End  C4 = FINAL VOL × ρ_COQ(lô này)   × (1 − %wt C3 lô này)
+
+     Theo đúng định nghĩa: End − Open = Filled COQ = cột [66]/[67].
+     Đây là số TÍNH TRÊN MÁY, KHÔNG ghi Firebase, không thêm cột schema —
+     ROW_W vẫn 69. Đọc thẳng [63]/[64] (trạng thái đầu đã lưu) chứ KHÔNG tự
+     dò lô trước ở đây: bảng vẽ hàng trăm dòng, dò lô trước cho từng dòng là
+     O(n²); và đúng nguyên tắc [[v4-coq-data-gate]] — thiếu ô nào thì để
+     TRỐNG và nói ra, không đoán. (Nút ◈ COQ audit vốn đã back-fill [63]–[65].)
+     Đơn vị trả về: TẤN, y như mọi cột khối lượng khác của Tank Log. */
+  function _w3Of(v){
+    try{ if(typeof MC !== 'undefined' && MC.parseW3Any) return MC.parseW3Any(v); }catch(_){}
+    const x = parseFloat(String(v == null ? '' : v).replace(/,/g,''));
+    if(!isFinite(x) || x <= 0) return null;
+    return x > 1.5 ? x/100 : x;
+  }
+  function _actualSplit(r){
+    const out = { ivol:null, fvol:null, iDen:null, iW3:null, fDen:null, fW3:null,
+                  openC3:null, openC4:null, openLpg:null,
+                  endC3:null, endC4:null, endLpg:null,
+                  fillC3:null, fillC4:null, fillLpg:null,
+                  openOk:false, endOk:false, miss:[] };
+    if(!r) return out;
+    out.ivol = _num(r[10]); out.fvol = _num(r[6]);
+    out.iDen = _num(r[A_IDEN]); out.iW3 = _w3Of(r[A_IW3]);
+    out.fDen = _num(r[33]);     out.fW3 = _w3Of(r[45]);
+    /* ── trạng thái ĐẦU ──
+       INIT VOL = 0 là hợp lệ và có nghĩa: bồn rỗng ⇒ tồn đầu đúng bằng 0,
+       không cần ρ/%wt nào cả. Chỉ khi có thể tích mới đòi nền COQ. */
+    if(out.ivol !== null && out.ivol === 0){
+      out.openC3 = 0; out.openC4 = 0; out.openLpg = 0; out.openOk = true;
+    } else if(out.ivol !== null && out.ivol > 0 && out.iDen > 0 && out.iW3 != null){
+      const m = out.ivol * out.iDen;
+      out.openC3 = m * out.iW3; out.openC4 = m - out.openC3;
+      out.openLpg = m; out.openOk = true;
+    } else {
+      if(out.ivol === null)                       out.miss.push('INIT VOL (m³)');
+      else if(!(out.iDen > 0))                    out.miss.push('opening COQ density [63]');
+      if(out.ivol !== null && out.ivol > 0 && out.iW3 == null) out.miss.push('opening %wt C3 [64]');
+    }
+    /* ── trạng thái CUỐI ── */
+    if(out.fvol !== null && out.fvol > 0 && out.fDen > 0 && out.fW3 != null){
+      const m = out.fvol * out.fDen;
+      out.endC3 = m * out.fW3; out.endC4 = m - out.endC3;
+      out.endLpg = m; out.endOk = true;
+    } else {
+      if(!(out.fvol > 0))      out.miss.push('FINAL VOL (m³)');
+      else if(!(out.fDen > 0)) out.miss.push('COQ density [33]');
+      else if(out.fW3 == null) out.miss.push('COQ Pro/Bu %Wt [45]');
+    }
+    if(out.openOk && out.endOk){
+      out.fillC3 = out.endC3 - out.openC3;
+      out.fillC4 = out.endC4 - out.openC4;
+      out.fillLpg = out.fillC3 + out.fillC4;
+    }
+    return out;
+  }
+
+  /* v4.107 — cặp C3/C4 "chính thức" của một dòng: COQ nếu có, không thì GC */
+  function _offC3C4(r){
+    const q3 = _num(r[A_QC3]), q4 = _num(r[A_QC4]);
+    if(q3 !== null || q4 !== null)
+      return { c3:(q3===null?0:q3), c4:(q4===null?0:q4), src:'coq' };
+    const a = _num(r[13]), b = _num(r[14]);
+    return { c3:(a===null?0:a), c4:(b===null?0:b), src:'gc' };
+  }
   function _sumRows(list){
     const T = { fc3:0, fc4:0, flpg:0, vol:0, qty:0, odo:0, stOn:0, n:0,
-                qc3:0, qc4:0 };
+                qc3:0, qc4:0, oc3:0, oc4:0, nGc:0 };
     (list||[]).forEach(r=>{
       T.n++;
       const a = _num(r[13]); if(a !== null) T.fc3  += a;
       const b = _num(r[14]); if(b !== null) T.fc4  += b;
-      const c = _num(r[15]); if(c !== null) T.flpg += c;
+      /* v4.107 — Σ LPG cộng theo ĐÚNG con số đang hiện trên cột (COQ, lùi GC) */
+      const c = _lpgOf(r).v; if(c !== null) T.flpg += c;
       const i = _num(r[A_QC3]); if(i !== null) T.qc3 += i;
       const j = _num(r[A_QC4]); if(j !== null) T.qc4 += j;
+      const o = _offC3C4(r); T.oc3 += o.c3; T.oc4 += o.c4;
+      if(o.src === 'gc') T.nGc++;
       const d = _num(r[6]);  if(d !== null) T.vol  += d;
       const e = _num(r[7]);  if(e !== null) T.qty  += e;
       const f = _num(r[26]); if(f !== null) T.odo  += f;
@@ -3009,6 +3150,10 @@ const ENG = (function(){
     ST_COL: C_ST, ST_TS_COL: C_ST_TS, ST_BY_COL: C_ST_BY,
     /* v4.85 — phương pháp lấy số Filled C3/C4 gửi sang Scale */
     cycleMethod, pickMethod, methodOf: _mthOf, filledBy: _filledBy,
+    /* v4.107 — cột LPG = ΣCOQ (lùi GC khi lot chưa có COQ) */
+    lpgOf: _lpgOf, officialC3C4: _offC3C4,
+    /* v4.108 — tách C3/C4 thực tế của trạng thái đầu & cuối (tấn, tính trên máy) */
+    actualSplit: _actualSplit, parseW3: _w3Of,
     /* v4.86 — rà soát & back-fill kết quả theo COQ */
     coqAudit, closeCoqAudit, coqBackfill, coqAuditCsv, coqNeed: _coqNeed, coqScan: _coqScan,
     calcCoqOnly,      /* v4.86.1 — nút ◈ CALC COQ trong modal sửa dòng */

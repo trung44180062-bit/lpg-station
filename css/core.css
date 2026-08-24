@@ -2152,9 +2152,26 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .eng-tbl .td-tk-3502{color:var(--orange);font-weight:700;}
 .eng-tbl .td-c3{color:var(--blue);}
 .eng-tbl .td-c4{color:var(--orange);}
-.eng-tbl .td-fill-c3{background:#e8f4fd;color:var(--blue);font-weight:700;}
-.eng-tbl .td-fill-c4{background:#fff5eb;color:var(--orange);font-weight:700;}
+/* v4.107 — Filled C3/C4 theo GC KHÔNG còn là số chính thức (COQ mới là).
+   Hai cột này hạ xuống vai trò tham chiếu: bỏ nền màu, bỏ in đậm, chữ xám.
+   Cột LPG giữ nổi bật vì nay là Σ (C3 COQ + C4 COQ). */
+.eng-tbl .td-fill-c3{background:transparent;color:#8798a8;font-weight:400;}
+.eng-tbl .td-fill-c4{background:transparent;color:#8798a8;font-weight:400;}
 .eng-tbl .td-fill-lpg{background:#fef0f1;color:var(--red);font-weight:700;}
+/* v4.108 — 4 cột tách C3/C4 THỰC TẾ ở hai mốc đo (Open ▸ Filled ▸ End).
+   Xanh mòng két = tồn ĐẦU, tím = tồn CUỐI, để mắt tách ngay khỏi cặp
+   Filled ◈COQ màu hổ phách nằm ở giữa. */
+/* v4.108.1 — THỨ BẬC ĐỌC: cặp C3/C4 ◈COQ là SỐ CHÍNH THỨC nên phải bật
+   nhất trong cả bảng; Open/End chỉ là số phụ trợ để đối chiếu nên dịu hẳn
+   xuống (chữ mảnh, màu nhạt, nền gần như trắng) — vẫn giữ chút sắc mòng
+   két / tím để phân biệt đầu với cuối, nhưng không tranh mắt với ◈COQ. */
+.eng-tbl .td-split{font-weight:400;}
+.eng-tbl .td-split-o{background:#f7fbfa;color:#6f918c;}
+.eng-tbl .td-split-e{background:#faf8fd;color:#9084ab;}
+.eng-tbl .td-split-na{color:#d3dbe3;font-weight:400;text-align:center;cursor:help;}
+/* dòng LPG đang phải lùi về số GC vì lot chưa có kết quả COQ */
+.eng-tbl .td-fill-lpg.lpg-gc{background:#f4f6f9;color:#6b7f92;font-weight:600;}
+.eng-tbl .td-fill-lpg.lpg-gc::after{content:'ᴳᶜ';font-size:8px;color:#a3b2c1;margin-left:2px;}
 .eng-tbl .td-density{color:#7b2d8e;font-weight:600;}
 .eng-tbl .td-target{color:#d97706;font-weight:600;}
 .eng-tbl .td-qual-pass{color:var(--green);font-weight:700;}
@@ -3262,6 +3279,145 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .scx2-tkx-acts{display:flex;gap:4px;flex-wrap:wrap;}
 .scx2-tkx-acts button{flex:1;min-width:30px;height:26px;border-radius:7px;border:1px solid #dfe6ee;background:#f7fafd;font-size:12px;cursor:pointer;padding:0;line-height:1;}
 .scx2-tkx-acts button:hover{border-color:#1565c0;background:#eaf3fd;}
+/* v4.107 — nút 📏 kiểm tra tồn thực tế theo thể tích đo */
+.scx2-tkx-acts button.scx2-tkx-vc{border-color:#c7dbf0;background:#eef6ff;}
+.scx2-tkx-acts button.scx2-tkx-vc:hover{border-color:#0d47a1;background:#dcebfb;}
+
+/* ═══ v4.108 — ⚖ STOCK-TRANSFER RECONCILIATION ═══════════════════════
+   Ba khối số dùng ba màu cố định để mắt tách ngay:
+     ACTUAL (đo được)  = xanh mòng két   #0f766e
+     SYSTEM (SAP)      = chàm            #1d4ed8
+     GAP / suggested   = hổ phách / xanh-đỏ theo dấu                     */
+.stx-modal{width:min(1280px,97vw);}
+.stx-modal .modal-body{max-height:calc(100vh - 190px);overflow:auto;}
+.stx-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start;}
+@media (max-width:1080px){ .stx-grid{grid-template-columns:1fr;} }
+.stx-pane{border:1px solid #e2e9f1;border-radius:11px;background:#fbfdff;
+  display:flex;flex-direction:column;min-width:0;overflow:hidden;}
+.stx-pane.p-3501{border-top:3px solid var(--blue,#1565c0);}
+.stx-pane.p-3502{border-top:3px solid var(--orange,#ef6c00);}
+
+/* ── đầu vùng ── */
+.stx-hdr{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 11px 7px;}
+.stx-hdr .nm{font-family:'Oswald',sans-serif;font-size:16px;font-weight:700;letter-spacing:.5px;}
+.p-3501 .stx-hdr .nm{color:var(--blue,#1565c0);}
+.p-3502 .stx-hdr .nm{color:var(--orange,#ef6c00);}
+.stx-hdr .sl{font-size:10px;color:#a3b2c1;letter-spacing:.6px;}
+.stx-hdr .lot{display:inline-flex;align-items:center;gap:5px;margin-left:auto;}
+.stx-hdr .lot label{font-family:'Oswald',sans-serif;font-size:9px;font-weight:700;letter-spacing:1px;color:#a3b2c1;}
+.stx-hdr .lot input{width:82px;height:26px;border:1px solid #cfdbe6;border-radius:7px;padding:0 8px;
+  font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700;text-align:center;color:#12324d;}
+.stx-hdr .lot input:focus{outline:none;border-color:#1565c0;box-shadow:0 0 0 3px rgba(21,101,192,.12);}
+.stx-lotsrc{font-size:9px;font-weight:700;letter-spacing:.4px;padding:2px 7px;border-radius:20px;
+  border:1px solid transparent;white-space:nowrap;}
+.stx-lotsrc.s-notify{background:#e6f6ec;color:#1b7f3b;border-color:#bfe4cd;}
+.stx-lotsrc.s-scale {background:#eaf3fd;color:#1565c0;border-color:#c7dbf0;}
+.stx-lotsrc.s-latest{background:#f3f5f8;color:#6b7f92;border-color:#dfe6ee;}
+.stx-lotsrc.s-typed {background:#fdf1e3;color:#b45309;border-color:#f0d6b4;}
+.stx-lotsrc.s-none  {background:#fbeaea;color:#b3261e;border-color:#f0c7c4;}
+
+/* ── dải thông tin nguồn ── */
+.stx-meta{display:flex;flex-wrap:wrap;gap:3px 9px;align-items:baseline;padding:7px 11px;
+  margin:0 11px 9px;background:#f2f7fc;border-radius:8px;
+  font-family:'JetBrains Mono',monospace;font-size:11px;color:#3c5064;}
+.stx-meta .k{font-family:'Oswald',sans-serif;font-size:8px;font-weight:700;letter-spacing:1px;color:#a3b2c1;}
+/* .sub là dòng width:100% nên gap của flex cha KHÔNG áp vào bên trong nó —
+   không có margin này thì chữ dính liền: "OPENING BASISρ 0.5640". */
+.stx-meta .sub .k{margin-right:6px;}
+.stx-meta b{font-weight:700;}
+.stx-meta .w{color:#b3261e;font-family:inherit;}
+.stx-meta .tag.ov{background:#f3e8fb;color:#7b2d8e;border-radius:20px;padding:1px 6px;font-size:9px;font-weight:700;}
+.stx-meta .sub{width:100%;font-size:10px;color:#6b7f92;padding-top:3px;border-top:1px dashed #dbe6f0;margin-top:2px;}
+.stx-meta .sub.notify{color:#1b7f3b;}
+.stx-meta .sub.notify.differs{color:#b45309;}
+
+/* ── bảng số ── */
+.stx-body{padding:0 11px;min-height:60px;}
+.stx-tbl{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed;}
+.stx-tbl th{font-family:'Oswald',sans-serif;font-size:8.5px;font-weight:700;letter-spacing:1px;
+  color:#a3b2c1;padding:2px 5px;border-bottom:1px solid #e2e9f1;text-align:right;}
+.stx-tbl th.lbl{text-align:left;width:37%;}
+.stx-tbl th.n{width:15%;} .stx-tbl th.tot{width:18%;}
+.stx-tbl td{padding:4px 5px;border-bottom:1px solid #eef3f8;vertical-align:middle;}
+.stx-tbl td.lbl{font-size:11px;color:#3c5064;line-height:1.3;}
+.stx-tbl td.lbl i{display:block;font-style:normal;font-size:9px;color:#a3b2c1;}
+.stx-tbl td.n{text-align:right;font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;}
+.stx-tbl td.vol{font-size:10px;color:#8798a8;}
+.stx-tbl td.tot{font-weight:700;}
+.stx-tbl tr.grp td{font-family:'Oswald',sans-serif;font-size:9px;font-weight:700;letter-spacing:1.1px;
+  color:#7d8fa0;background:#f4f7fa;padding:4px 6px;border-bottom:none;}
+.stx-tbl tr.a td{background:#f4fbf9;color:#0f766e;}
+.stx-tbl tr.a td.lbl{color:#0f5f59;}
+.stx-tbl tr.f td{background:#fffbeb;color:#b45309;font-weight:700;}
+.stx-tbl tr.s td{background:#f5f8ff;color:#1d4ed8;}
+.stx-tbl tr.s td.lbl{color:#1e3a8a;}
+.stx-tbl tr.g td{background:#fcfdfe;font-weight:700;}
+.stx-tbl tr.g td.n span.p{color:#2e7d32;}
+.stx-tbl tr.g td.n span.m{color:#c62828;}
+.stx-tbl tr.g td.n span.z{color:#8798a8;}
+
+/* ── ô nhập System opening ── */
+.stx-inp-pool{position:absolute;left:-9999px;top:0;}
+.stx-inp-slot{display:block;}
+input.stx-inp{width:100%;max-width:110px;height:27px;border:1.5px solid #b9cdf0;border-radius:7px;
+  padding:0 7px;font-family:'JetBrains Mono',monospace;font-size:12.5px;font-weight:700;
+  text-align:right;color:#1d4ed8;background:#fff;}
+input.stx-inp:focus{outline:none;border-color:#1d4ed8;box-shadow:0 0 0 3px rgba(29,78,216,.14);}
+input.stx-inp::placeholder{font-weight:400;color:#b9c6d3;}
+
+/* ── nhãn nguồn của System opening ── */
+.stx-src{margin:8px 11px 0;padding:6px 9px;border-radius:7px;font-size:10.5px;line-height:1.55;
+  border:1px solid transparent;}
+.stx-src:empty{display:none;}
+.stx-src b{font-weight:700;}
+.stx-src .why{display:block;font-size:9.5px;opacity:.8;margin-top:1px;}
+/* mốc "số SAP này được dán lúc nào" — tách hẳn dòng, chữ nhỏ, có gạch trên */
+.stx-src .stamp{display:block;font-size:9.5px;margin-top:3px;padding-top:3px;
+  border-top:1px dotted currentColor;opacity:.72;font-family:'JetBrains Mono',monospace;}
+.stx-src .stamp.warn{opacity:1;font-weight:600;}
+.stx-src.s-sap {background:#eef5ff;color:#1e3a8a;border-color:#cddffa;}
+.stx-src.s-man {background:#fdf1e3;color:#8a4b09;border-color:#f0d6b4;}
+.stx-src.s-miss{background:#fff8e6;color:#8a5a09;border-color:#f2dfb0;}
+.stx-src.s-need{background:#fbeaea;color:#8a2019;border-color:#f0c7c4;}
+.stx-src.s-na  {background:#f4f6f9;color:#7d8fa0;border-color:#e2e9f1;}
+.stx-mini{border:1px solid currentColor;background:transparent;color:inherit;border-radius:6px;
+  font-size:9.5px;padding:1px 6px;cursor:pointer;margin-left:6px;opacity:.75;}
+.stx-mini:hover{opacity:1;}
+
+/* ── khối kết luận ── */
+.stx-foot{padding:9px 11px 11px;}
+.stx-sug{border:1.5px solid #bfe4cd;background:linear-gradient(180deg,#f1faf4 0%,#e9f6ee 100%);
+  border-radius:10px;padding:9px 11px;}
+.stx-sug-off{border-color:#e2e9f1;background:#f7fafd;color:#8798a8;font-size:11px;font-style:italic;
+  text-align:center;padding:14px 10px;}
+.stx-sug-hd{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  font-family:'Oswald',sans-serif;font-size:10.5px;font-weight:700;letter-spacing:.9px;color:#1b7f3b;}
+.stx-sug-hd span{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:400;
+  letter-spacing:0;color:#6b8299;text-transform:none;}
+.stx-sug-vals{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:7px;}
+.stx-sug-vals .v{background:#fff;border:1px solid #d6eade;border-radius:8px;padding:5px 7px;text-align:right;}
+.stx-sug-vals .k{display:block;font-family:'Oswald',sans-serif;font-size:8px;font-weight:700;
+  letter-spacing:1px;color:#a3b2c1;text-align:left;}
+.stx-sug-vals b{font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;line-height:1.15;}
+.stx-sug-vals i{font-style:normal;font-size:9px;color:#8798a8;margin-left:3px;}
+.stx-sug-vals .c3 b{color:var(--blue,#1565c0);}
+.stx-sug-vals .c4 b{color:var(--orange,#ef6c00);}
+.stx-sug-vals .lpg b{color:#1b7f3b;}
+.stx-sug-t{margin-top:5px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#6b8299;text-align:right;}
+.stx-sug-vs{margin-top:6px;padding-top:6px;border-top:1px dashed #cbe3d5;font-size:10.5px;color:#43566a;line-height:1.55;}
+.stx-sug-vs b.p{color:#2e7d32;} .stx-sug-vs b.m{color:#c62828;} .stx-sug-vs b.z{color:#6b7f92;}
+.stx-sug-vs .warn{display:block;margin-top:4px;color:#b3261e;font-weight:600;}
+
+.stx-empty{font-size:11.5px;color:#8798a8;font-style:italic;padding:18px 6px;text-align:center;line-height:1.6;}
+.stx-empty .miss{color:#b45309;font-style:normal;}
+
+.stx-legend{margin-top:14px;padding:9px 12px;background:#f7fafd;border:1px solid #e6edf4;border-radius:9px;
+  font-size:10.5px;color:#5b6f83;line-height:1.65;}
+.stx-legend b{color:#3c5064;}
+.stx-legend code{font-family:'JetBrains Mono',monospace;font-size:10px;background:#fff;
+  border:1px solid #e2e9f1;border-radius:5px;padding:1px 5px;color:#1e3a8a;}
+.stx-legend .rule{display:block;margin-top:5px;padding-top:5px;border-top:1px dashed #dbe6f0;}
+
 /* ── yard ── */
 .scx2-yard{border:1px solid #dfe6ee;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:12px;min-width:0;
   background:radial-gradient(ellipse at 10% 0%,rgba(21,101,192,.045),transparent 55%),#fbfcfe;box-shadow:0 1px 4px rgba(16,40,80,.05);}
@@ -3362,7 +3518,14 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 
 /* ── Tank Log: cột phương pháp + cột kết quả 2 cách mới ── */
 .eng-tbl td.td-dens{background:#faf5ff;color:#7b2d8e;}
-.eng-tbl td.td-cq2{background:#fffbeb;color:#b45309;}
+/* v4.108.1 — cặp ◈COQ: nền đậm hơn, chữ đậm hơn, to hơn nửa điểm và có
+   viền hai bên để đọc thành MỘT KHỐI giữa Open ▸ ◈COQ ▸ End. */
+.eng-tbl td.td-cq2{background:#fdf0d0;color:#8a4708;font-weight:800;font-size:11px;
+  border-right-color:#f0dcae;}
+.eng-tbl thead th.th-cq2,
+.eng-tbl td.td-cq2.cq-l{border-left:2px solid #e8c98a;}
+.eng-tbl thead th.th-cq2-r,
+.eng-tbl td.td-cq2.cq-r{border-right:2px solid #e8c98a;}
 .eng-mth{display:inline-block;min-width:34px;padding:1px 5px;border-radius:9px;font-size:9px;
   font-weight:800;letter-spacing:.5px;cursor:pointer;border:1px solid transparent;line-height:1.5;}
 .eng-mth-gc{background:#dcfce7;color:#166534;border-color:#86efac;}
@@ -3501,6 +3664,6 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .eng-cqi .cqi-warn{margin-top:5px;font-weight:700;}
 
 /* ═══ v4.87 — cờ ⚠ khi lot Pass chưa có số theo COQ ═══ */
-.eng-tbl td.td-cq-miss{background:#fff7ed;color:#b45309;font-weight:800;text-align:center;cursor:help;}
+.eng-tbl td.td-cq-miss{background:#fdf0d0;color:#8a4708;font-weight:800;text-align:center;cursor:help;}
 .eng-cqi .cqi-list{margin:6px 0 4px;padding:7px 9px;border-radius:6px;
   background:rgba(255,255,255,.6);font-size:11.5px;line-height:1.75;}

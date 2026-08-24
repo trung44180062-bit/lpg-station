@@ -40,18 +40,19 @@ const $  = id => w.document.getElementById(id);
 const set = (id, v)=>{ const e = $(id); if(!e) throw new Error('thiếu #' + id); e.value = v; };
 const v0 = ()=> parseFloat($('spp-res').dataset.v0);
 
-console.log('\n── 1. Ô chọn tuần hoàn có mặt và MẶC ĐỊNH BẬT ──');
+console.log('\n── 1. Ô chọn tuần hoàn có mặt và MẶC ĐỊNH TẮT (v4.107) ──');
 ok('có checkbox #spp-circ',  !!$('spp-circ'));
 ok('có ô #spp-vpipe',        !!$('spp-vpipe'));
 set('mc-tr1', '30');                   // FINAL TARGET C3 % = 30 (lệch tỉ lệ)
 w.MC.spPlanOpen('1');
 ok('modal mở',               $('spp-modal').classList.contains('on'));
-ok('tuần hoàn mặc định BẬT', $('spp-circ').checked === true);
+ok('tuần hoàn mặc định TẮT', $('spp-circ').checked === false);
 ok('PIPE VOL mặc định 74',   parseFloat($('spp-vpipe').value) === 74);
 ok('tỉ lệ đặc biệt lấy từ panel = 30', parseFloat($('spp-special').value) === 30);
 
 console.log('\n── 2. Có / không tuần hoàn cho hai con số khác nhau ──');
 set('spp-sell', '100');
+$('spp-circ').checked = true;          // v4.107 — phải TỰ TICK, không còn mặc định
 w.MC.spPlanCalc();
 const withCirc = v0();
 ok('có ra MAX SAFE MIX', withCirc > 0);
@@ -84,7 +85,7 @@ set('mc-spvpipe1', '80');
 w.MC.toggleSP('1');            // bật ★ MIX TỈ LỆ ĐẶC BIỆT trên panel
 w.MC.spPlanOpen('1');
 ok('PIPE VOL lấy theo panel = 80', parseFloat($('spp-vpipe').value) === 80);
-ok('vẫn mặc định có tuần hoàn', $('spp-circ').checked === true);
+ok('vẫn mặc định TẮT dù panel có tuần hoàn', $('spp-circ').checked === false);
 w.MC.spPlanClose();
 
 console.log('\n── 6. Density trong modal sửa dòng Tank Log giữ 4 số ──');

@@ -4,6 +4,25 @@ Phần mềm quản lý trạm LPG (đội xe & chứng chỉ, kế hoạch giao
 tồn kho cavern, đối soát SAP/WMS, báo cáo). Dữ liệu lưu trên **Firebase Realtime
 Database**. Bản này tách từ file đơn `lpg-station-v4_54_0` ra nhiều module để dễ bảo trì.
 
+## ⭐ NGÔN NGỮ: GIAO DIỆN LÀ **TIẾNG ANH**
+
+Chốt của người dùng, áp cho **toàn bộ V4** — không riêng tab nào.
+
+**Phải tiếng Anh** — mọi chuỗi người dùng đọc được: tiêu đề tab/cột/thẻ, nhãn ô nhập,
+placeholder, chữ trên nút, tooltip (`title=`), chip trạng thái, dải cảnh báo, `toast()`,
+hộp `confirm()`/`alert()`, thông báo lỗi, tiêu đề file Excel/CSV xuất ra, nội dung modal.
+
+**Vẫn tiếng Việt** — những thứ người dùng KHÔNG đọc trong giao diện: chú thích trong mã,
+tên biến/hàm, thông điệp commit, tài liệu trong `docs/`, tên và mô tả các bài test.
+Lý do giữ tiếng Việt: chú thích ghi lại *vì sao* làm thế, người bảo trì đọc bằng tiếng Việt
+nhanh và chính xác hơn.
+
+**Ngoại lệ đang tồn tại** (mã cũ, chưa chuyển): các tab dựng trước v4.106 vẫn còn chuỗi
+tiếng Việt lẫn trong giao diện — sửa tới đâu chuyển tới đó, đừng viết THÊM chuỗi tiếng Việt mới.
+Phần đã chuyển và **có test canh**: tab SAP/kho ngoại quan (`tests/bond-dom.smoke.js`) và
+bảng ⚖ Stock-transfer reconciliation (`tests/stx-recon-dom.smoke.js`) — cả hai đều có mục
+quét dấu tiếng Việt trong chuỗi hiển thị, gõ tiếng Việt vào là test đỏ ngay.
+
 ## Chạy / xuất bản
 
 Đây là web tĩnh, **không cần build**. Đẩy repo lên GitHub rồi bật **Settings → Pages**

@@ -52,6 +52,11 @@ const SCX2 = (function(){
       +   '<button onclick="'+stop+'INV.view(\''+sloc+'\');INV.openHistory()" title="Stock history">📜</button>'
       +   '<button onclick="'+stop+'INV.view(\''+sloc+'\');INV.openExport()"  title="Export C3/C4 split">📤</button>'
       +   '<button onclick="'+stop+'INV.view(\''+sloc+'\');INV.openSplit()"   title="Tách LPG → C3/C4 theo %wt C3">🧮</button>'
+      /* v4.108 — ⚖ đối chiếu chuyển kho: tồn C3/C4 THỰC TẾ (INIT/FINAL VOL đo
+         được × nền COQ) đặt cạnh tồn hệ thống, ra số chuyển kho đã điều chỉnh.
+         Bảng luôn hiện cả hai bồn. */
+      +   '<button class="scx2-tkx-vc" onclick="'+stop+'INV.view(\''+sloc+'\');INV.openStx('+n+')"'
+      +     ' title="Stock-transfer reconciliation — actual C3/C4 from the measured volumes vs the system stock, giving the adjusted transfer quantity">📏</button>'
       + '</div>';
       main.appendChild(box);
     });

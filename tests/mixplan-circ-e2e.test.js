@@ -53,14 +53,18 @@ set('mc-spvpipe1', VP);
 w.MC.toggleSP('1');                       // bật ★ MIX TỈ LỆ ĐẶC BIỆT
 set('mc-tr1', S);                         // = tỉ lệ C3 CUỐI CÙNG sau tuần hoàn
 
-console.log('\n── ① Planner có nhận trạng thái tuần hoàn của panel không? ──');
+console.log('\n── ① Planner mở ra ở trạng thái nào? ──');
 w.MC.spPlanOpen('1');
-ok('tick tuần hoàn tự BẬT theo panel',      $('spp-circ').checked === true);
-near('PIPE VOL lấy đúng số của panel',      num('spp-vpipe'), VP, 0);
+/* v4.107 — mặc định KHÔNG tuần hoàn, kể cả khi panel đang chạy tuần hoàn.
+   Planner không tự trừ 74 m³ nữa; kỹ sư tự tick nếu mẻ này chạy tuần hoàn. */
+ok('tick tuần hoàn MẶC ĐỊNH TẮT (v4.107)', $('spp-circ').checked === false);
+near('PIPE VOL vẫn gợi ý theo panel',       num('spp-vpipe'), VP, 0);
 near('tỉ lệ đặc biệt lấy đúng từ panel',    num('spp-special'), S, 0);
 near('tỉ lệ thường mặc định',               num('spp-norm'), 55, 0);
 
 console.log('\n── ② Panel + plan có tính tuần hoàn 2 lần không? ──');
+/* phần còn lại của bài kiểm tra nói về mẻ CÓ tuần hoàn → tự tick lên */
+$('spp-circ').checked = true;
 set('spp-sell', SELL); set('spp-norm', T); set('spp-fail', 0); set('spp-resv', 0); set('spp-max', M);
 w.MC.spPlanCalc();
 const V0 = parseFloat($('spp-res').dataset.v0);

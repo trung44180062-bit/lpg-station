@@ -621,6 +621,52 @@ const SP = (function(){
       });
       return { rows, legacy, legacyRows, dates:Object.keys(dates).sort() };
     },
+
+    /* ── v4.108 — API cho bảng STOCK-TRANSFER RECONCILIATION (INV) ──────
+       End Stock của MỘT BỒN tại MỘT NGÀY, tách theo cấu tử.
+         sloc    '2100' (TK-3501) | '2101' (TK-3502)
+         isoDate 'YYYY-MM-DD' — đúng khuôn r.date đang lưu
+       Trả { has, c3, c4, lpg, rows, batches[] } — số là KG, y như SAP.
+       CHỈ CỘNG, không suy diễn: ngày không có dòng nào ⇒ has=false và
+       c3=c4=0, để phía gọi biết là "SAP chưa có số" chứ không phải "tồn 0".
+       Cộng MỌI mã batch của bồn (thực tế chỉ có D/E) và trả danh sách batch
+       để bảng nói rõ số này gộp từ đâu. */
+    tankEnd(sloc, isoDate){
+      const sl = String(sloc||'').trim(), d = String(isoDate||'').trim();
+      const out = { has:false, c3:0, c4:0, lpg:0, rows:0, batches:[], lastAt:0, lastBy:'' };
+      if(!sl || !d) return out;
+      const seen = Object.create(null);
+      Object.values(ROWS).forEach(r=>{
+        if(!r) return;
+        if(String(r.sloc||'') !== sl) return;
+        if(String(r.date||'') !== d) return;
+        const mat = String(r.mat||'').toUpperCase();
+        if(mat !== 'C3' && mat !== 'C4') return;
+        out.has = true; out.rows++;
+        out[mat === 'C3' ? 'c3' : 'c4'] += (+r.end || 0);
+        const b = String(r.batch||'').toUpperCase(); if(b && !seen[b]){ seen[b]=1; out.batches.push(b); }
+        /* lastAt/lastBy do applyAndPush ghi cho MỌI đường vào — dán SAP
+           (confirmDiff) lẫn sửa tay từng ô. Lấy mốc MỚI NHẤT trong nhóm
+           dòng đang cộng, để bảng đối chiếu nói được số này được dán/tạo
+           lúc nào — số SAP cũ vài ngày nhìn giống hệt số vừa dán. */
+        const t = +r.lastAt || 0;
+        if(t > out.lastAt){ out.lastAt = t; out.lastBy = String(r.lastBy||''); }
+      });
+      out.lpg = out.c3 + out.c4;
+      out.batches.sort();
+      return out;
+    },
+    /* Mọi ngày SAP đang có số cho một bồn — để bảng gợi ý ngày gần nhất
+       khi ngày cần tra chưa được dán vào. */
+    tankEndDates(sloc){
+      const sl = String(sloc||'').trim(), s = {};
+      Object.values(ROWS).forEach(r=>{
+        if(!r || String(r.sloc||'') !== sl || !r.date) return;
+        const mat = String(r.mat||'').toUpperCase();
+        if(mat === 'C3' || mat === 'C4') s[r.date] = 1;
+      });
+      return Object.keys(s).sort();
+    },
     /* hook cho test (tests/sp-bcode.test.js) — không dùng trong app */
     _parseSap:parseSapSheet, _compKey:compKey, _findLegacy1100:findLegacy1100,
     _isBcode:isBcode, _allLegacy1100:allLegacy1100,
