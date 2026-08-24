@@ -40,7 +40,12 @@
  * ⭐ TÌNH TRẠNG LÔ — Ô "STT · TÌNH TRẠNG" GHIM TRÁI
  *    Mỗi lô đúng MỘT trạng thái, cộng hai dấu phụ độc lập (✚ mới · ✎ thiếu TT).
  *      ▶ pumping — ĐANG BƠM. Nhận diện KHÁC NHAU theo loại lô:
- *          D/E · cột GI hoặc Trs ÂM ⇒ bằng chứng trực tiếp từ SAP
+ *          D/E · HAI dấu hiệu, dính một cái là đủ:
+ *                ① cột GI hoặc Trs ÂM ⇒ bằng chứng trực tiếp từ SAP
+ *                ② End Stock < HQ approved (người dùng gõ) ⇒ đã có hàng ra
+ *                   khỏi lô. Bắt được cả những NGÀY GIỮA của một lô bơm dài,
+ *                   lúc SAP không ghi bút toán nên GI/Trs đều bằng 0.
+ *                   ⚠ Ô HQ approved TRỐNG hoặc 0 ⇒ BỎ QUA ②, chỉ dùng ①.
  *          P/X · SAP đứng yên cả tháng nên phải suy từ hàng đợi FIFO:
  *                đầu hàng còn hàng và đã tới ngày dùng. Mỗi (Mat × lô) đúng MỘT.
  *      ○ wait    — còn nguyên, chưa tới lượt rút
@@ -454,7 +459,7 @@ const BOND = (function(){
         hqQty:(inf.hqQty==null?'':inf.hqQty), vas:!!inf.vas, vasDate:inf.vasDate||'',
         note:inf.note||'',
         /* tính ra */
-        left:null, used:null, pct:0, flag:'', st:'', pumping:false, isNew:false,
+        left:null, used:null, pct:0, flag:'', st:'', pumping:false, pumpWhy:'', isNew:false,
         noInfo:false, low:false, eta:'', etaDays:null, projected:false,
         inSap:true, hasInfo:_hasInfo(inf)
       });
@@ -473,7 +478,7 @@ const BOND = (function(){
         vno:inf.vno||'', vessel:inf.vessel||'', dIn:inf.dIn||'', dOut:inf.dOut||'',
         hqQty:(inf.hqQty==null?'':inf.hqQty), vas:!!inf.vas, vasDate:inf.vasDate||'',
         note:inf.note||'',
-        left:null, used:null, pct:0, flag:'gone', st:'gone', pumping:false,
+        left:null, used:null, pct:0, flag:'gone', st:'gone', pumping:false, pumpWhy:'',
         isNew:false, noInfo:false, low:false, eta:'', etaDays:null, projected:false,
         inSap:false, hasInfo:true
       });
@@ -525,7 +530,7 @@ const BOND = (function(){
            HÔM NAY chứ không phải D-1: lô đã tới ngày thì hôm nay đang chảy. */
         const T=_today();
         const head=q.find(r=>r.left>0.5 && (!r.bdate || r.bdate<=T));
-        if(head) head.pumping=true;
+        if(head){ head.pumping=true; head.pumpWhy='fifo'; }
 
         /* ═══ LƯỢT 2 · CHIẾU TỚI TƯƠNG LAI ⇒ DỰ KIẾN NGÀY HẾT ═══════
            Chạy lại từ đầu kỳ trên MỘT BỘ SỐ RIÊNG — tuyệt đối KHÔNG ghi
@@ -584,7 +589,29 @@ const BOND = (function(){
         (!!_prevSet && !_prevSet[r.key]));
 
       /* ĐANG BƠM — D/E đọc thẳng từ chuyển động SAP của chính ngày đó */
-      if(r.inSap && !_isPX(r.letter) && (_n(r.gi)<0 || _n(r.trs)<0)) r.pumping=true;
+      if(r.inSap && !_isPX(r.letter) && (_n(r.gi)<0 || _n(r.trs)<0)){
+        r.pumping=true; r.pumpWhy='sap';
+      }
+
+      /* ⭐ D/E · DẤU HIỆU THỨ HAI — END STOCK ĐÃ TỤT DƯỚI LƯỢNG HẢI QUAN DUYỆT
+         Cột GI/Trs âm chỉ bắt được đúng NGÀY SAP ghi bút toán rút hàng. Lô
+         bơm nhiều ngày thì những ngày giữa GI/Trs bằng 0, nhìn vào tưởng lô
+         còn nguyên chưa ai đụng. Nhưng HQ approved là lượng hải quan duyệt
+         cho cả lô — đứng yên suốt vòng đời lô — nên hễ End Stock < HQ
+         approved là ĐÃ CÓ HÀNG RA KHỎI LÔ, tức lô đang chảy dở.
+         ⚠ Ô HQ approved TRỐNG (hoặc 0) thì BỎ QUA luật này, giữ nguyên cách
+         nhận diện cũ: người dùng chưa khai thì không có gì để mà so, đoán
+         bừa sẽ báo đang bơm cho cả những lô còn nguyên.
+         ⚠ So theo KG đúng như số đang lưu, KHÔNG tự quy đổi tấn — cột HQ
+         approved của tab KNQ cũ từng bị gõ theo tấn (4750 trong khi SAP ghi
+         4.750.000), tự nhân chia ở đây là che mất chỗ nhập sai đó.
+         Chừa dung sai 0,5 kg cho sai số làm tròn: End = HQ thì lô còn nguyên.
+         ⚠ End = 0 thì KHÔNG đem đi so: bơm xong rồi, 0 < HQ approved là chuyện
+         đương nhiên. Việc còn lại của lô là VASSCM, không phải "đang bơm". */
+      if(r.inSap && !_isPX(r.letter) && !r.pumping && _n(r.end)>0.5){
+        const hq=_num(r.hqQty);
+        if(hq!=null && hq>0.5 && _n(r.end) < hq-0.5){ r.pumping=true; r.pumpWhy='hq'; }
+      }
 
       /* đã TỪNG có hàng chưa? lô luôn bằng 0 thì không phải "vừa hết" */
       const everHad = _n(r.init)>0 || _n(r.gr)>0 || _n(r.used)>0 || base>0;
@@ -744,7 +771,8 @@ const BOND = (function(){
         hqQty:_n(r.hqQty), vas:!!r.vas, vasDate:r.vasDate||'', note:r.note||'',
         left:_n(r.left), used:_n(r.used), flag:r.flag||'', st:r.st||'',
         eta:r.eta||'', etaDays:(r.etaDays==null?'':r.etaDays), projected:!!r.projected,
-        isNew:!!r.isNew, noInfo:!!r.noInfo, low:!!r.low, pumping:!!r.pumping };
+        isNew:!!r.isNew, noInfo:!!r.noInfo, low:!!r.low, pumping:!!r.pumping,
+        pumpWhy:r.pumpWhy||'' };
     });
     const rec={ savedAt:_stamp(), savedBy:_who(), sapDate:_sapDay||'',
                 ol1:{ t:Math.round(o.t), x:Math.round(o.x), p:Math.round(o.p),
@@ -873,8 +901,10 @@ const BOND = (function(){
     const r=cell.getRow().getData();
     const st=r.st||'';
     const tip={ pumping:'Being drawn out right now'+
-                        (_isPX(r.letter)?' — head of the FIFO queue for this lot type'
-                                        :' — SAP booked a negative GI or Trs on '+_dmy(r.date)),
+                        (r.pumpWhy==='fifo'?' — head of the FIFO queue for this lot type'
+                        :r.pumpWhy==='hq'  ?' — End Stock '+_K(r.end)+' kg is below the HQ approved '+_K(r.hqQty)+' kg, so part of the lot has already gone out'
+                        :r.pumpWhy==='sap' ?' — SAP booked a negative GI or Trs on '+_dmy(r.date)
+                                           :''),
                 wait:'Untouched, not its turn yet',
                 emptied:'Empty but VASSCM NOT ticked yet — still something to do',
                 zero:'Empty and VASSCM filed — finished',

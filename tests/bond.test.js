@@ -176,6 +176,57 @@ chk('…và đúng là lô còn hàng sớm nhất trong hàng đợi',
 chk('lô chưa tới lượt mang trạng thái "wait"',
     by('260818X002').st==='wait', by('260818X002').st);
 
+/* ⭐ DẤU HIỆU THỨ HAI CHO D/E — End Stock < HQ approved.
+   260812D001 (C3) có End 800.000, GI và Trs đều bằng 0 ⇒ theo dấu hiệu cũ
+   thì nằm im ở "wait". Nhưng nếu hải quan duyệt 1.000.000 thì 200.000 kg
+   đã ra khỏi lô rồi — lô đang chảy dở, chỉ là SAP không ghi bút toán đúng
+   ngày này. Đây chính là ngày giữa của một lô bơm dài. */
+const HQK='C3_260812D001';
+chk('trước khi khai HQ approved thì lô vẫn là "wait"',
+    byM('260812D001','C3').st==='wait', byM('260812D001','C3').st);
+S.INFO[HQK]={ hqQty:1000000 };
+rows=BOND.recalc();
+chk('⭐ D/E: End Stock < HQ approved ⇒ ĐANG BƠM dù GI và Trs đều bằng 0',
+    byM('260812D001','C3').st==='pumping' && byM('260812D001','C3').pumpWhy==='hq',
+    'end='+fmt(byM('260812D001','C3').end)+' < hq=1,000,000');
+S.INFO[HQK]={ hqQty:800000 };
+rows=BOND.recalc();
+chk('…End Stock BẰNG ĐÚNG HQ approved ⇒ lô còn nguyên, KHÔNG phải đang bơm',
+    byM('260812D001','C3').st==='wait', byM('260812D001','C3').st);
+S.INFO[HQK]={ hqQty:600000 };
+rows=BOND.recalc();
+chk('…HQ approved NHỎ HƠN End (gõ nhầm / lô nhập thêm) ⇒ không suy diễn gì',
+    byM('260812D001','C3').st==='wait', byM('260812D001','C3').st);
+S.INFO[HQK]={ hqQty:'' };
+rows=BOND.recalc();
+chk('⭐ ô HQ approved TRỐNG ⇒ BỎ QUA luật này, giữ nguyên cách nhận diện cũ',
+    byM('260812D001','C3').st==='wait', byM('260812D001','C3').st);
+S.INFO[HQK]={ hqQty:0 };
+rows=BOND.recalc();
+chk('…HQ approved = 0 cũng coi như chưa khai',
+    byM('260812D001','C3').st==='wait', byM('260812D001','C3').st);
+delete S.INFO[HQK];
+
+/* Lô ĐÃ HẾT thì HQ approved to cỡ nào cũng không được kéo ngược về "đang bơm" —
+   hết là hết, việc còn lại là VASSCM. */
+S.INFO['C3_260721D001']={ hqQty:1800000 };
+rows=BOND.recalc();
+chk('⭐ lô End = 0 dù HQ approved lớn vẫn KHÔNG thành "đang bơm"',
+    byM('260721D001','C3').st!=='pumping', byM('260721D001','C3').st);
+chk('…và KHÔNG mang số 0 đi so với HQ approved (cờ pumping cũng không bật)',
+    byM('260721D001','C3').pumping===false && !byM('260721D001','C3').pumpWhy,
+    'pumping='+byM('260721D001','C3').pumping);
+delete S.INFO['C3_260721D001'];
+
+/* P/X vẫn chỉ suy từ hàng đợi FIFO — SAP đứng yên cả tháng nên End Stock của
+   chúng là tồn ĐẦU KỲ, đem so với HQ approved là vô nghĩa. */
+S.INFO['C3_260818X002']={ hqQty:99000000 };
+rows=BOND.recalc();
+chk('⭐ P/X KHÔNG áp luật HQ approved — vẫn chỉ theo hàng đợi FIFO',
+    by('260818X002').st==='wait', by('260818X002').st);
+delete S.INFO['C3_260818X002'];
+rows=BOND.recalc();
+
 console.log('  — lô mới —');
 chk('⭐ ảnh chụp ngày liền trước = 17/08 (mốc nhận ra lô mới)',
     S.prevDay()==='2026-08-17', S.prevDay());
