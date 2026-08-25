@@ -10,7 +10,7 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=4108">
+<link rel="stylesheet" href="css/core.css?v=4110">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
@@ -845,6 +845,10 @@
         <button class="btn" id="tpViewToggle" onclick="TP.toggleView()" title="Switch between the customer-grouped ledger view and the flat editing table">▤ TABLE VIEW</button>
         <span class="tp-syncnote" title="Per-row ☑ column: CHECKED = status &amp; actual follow SCALE/WMS automatically; UNCHECKED = manual entry (locked).">☑ Per-row auto-sync</span>
         <button class="btn btn-amber" onclick="tpCreateTemp()" title="Assign a temp DO (TMP) to every order without a real DO (DO column says 'after loading' / empty). Runs automatically on paste.">🔢 Create Temp DO</button>
+        <!-- v4.109 — 🔗 LINK ORDERS: một đơn hàng thật có thể nằm trên nhiều dòng
+             (một trong N xe sẽ vào lấy = ALT · một xe chở nhiều DO = MULTI-DO).
+             Không link thì PLAN cộng trùng, và tab Scale phải hỏi lại lúc assign. -->
+        <button class="btn" style="background:#0b6ea8;color:#fff;border-color:#0b6ea8" onclick="tpOpenLink()" title="Link plan rows that are really ONE order: alternate trucks (only one will come — counted once) or one truck carrying several DOs (loaded together at the scale, no pop-up).">🔗 Link Orders</button>
         <button class="btn btn-green" onclick="tpOpenPaste()">📋 Paste from Excel</button>
         <button class="btn" style="background:#7b2d8e;color:#fff;border-color:#7b2d8e" onclick="PTT_EARLY.open('today')" title="Bulk print PTT from Today Plan — every order still Pending / Entered. Tick/untick in the list to choose which to print. Lot/tank are placeholders.">🖨 PTT Today (<span id="peTodayCntPlan">0</span>)</button>
         <button class="btn btn-blue" onclick="tpExportCsv()">⬇ Export</button>
@@ -4842,8 +4846,8 @@
 <script src="js/checks/wgcheck.js"></script>
 <!-- features -->
 <script src="js/features/fleet.js"></script>
-<script src="js/features/plan.js?v=484"></script>
-<script src="js/features/scale.js?v=485"></script>
+<script src="js/features/plan.js?v=4109"></script><!-- v4.109 — 🔗 LINK ORDERS: một đơn hàng thật nằm trên nhiều dòng kế hoạch. Nhóm ALT (một trong N xe sẽ vào lấy) chỉ được tính MỘT lần vào PLAN/LOADED/REMAIN — trước đây 1 đơn 25 MT khai 3 xe bị cộng thành 75 MT; xe nào vào station trước thì các dòng anh em tự park (cancel + cờ _altSkip) và tự mở lại nếu xe đó rời station. Nhóm MDO (một xe nhiều DO) khai trước để tab Scale gộp thẳng lúc assign. Cột ACTUAL + mọi số MT hiện 3 số thập phân (đọc được tới kg) -->
+<script src="js/features/scale.js?v=4110"></script><!-- v4.110 — SỬA LỖI IN GỘP/TÁCH MULTI-DO chạy chập chờn: hộp hỏi chuyển từ ô kết quả tìm kiếm của trạm (bị handler click-outside + scRenderCtrl ghi đè) sang MODAL riêng không đóng khi bấm ra nền; CẢ HAI đường assign (dò tìm & đã link) đều hỏi cách in một lần duy nhất; số chia per-DO (_mdoNets), turn đã chốt (_tlTurn) và cách in (_pttMode) lưu lên trạm nên sống sót qua F5 và sang máy khác; chặn dòng thiếu số DO; hộp hỏi phiếu DN mở sẵn đúng lựa chọn lúc assign · v4.109 — thẻ PLAN dùng chung TP.lnkTotals nên không còn lệch với Today Plan (+3 số thập phân) -->
 <script src="js/features/fnote.js?v=484"></script><!-- Sổ ghi chú xe/tài xế — lazy, không tự đọc Firebase -->
 <script src="js/features/eng.js?v=4108"></script><!-- v4.107 — cột Filled LPG = ΣCOQ (lùi GC khi lot chưa có COQ), hai cột Filled C3/C4 (GC) hạ nổi bật · v4.108 — thêm 4 cột Open/End C3/C4 THỰC TẾ (INIT/FINAL VOL đo được × nền COQ), chỉ tính trên máy -->
 <!-- v4.101 — Density (cột 33) & ρ COQ đầu (cột 63) giữ ĐỦ 4 số thập phân ở ô sửa dòng + bảng Tank Log + bản in -->
@@ -4866,7 +4870,7 @@
 <script src="js/features/scx2.js?v=4108"></script><!-- v4.108 — nút 📏 trên thẻ tank mở bảng đối chiếu chuyển kho -->
 <script src="js/features/alloc.js?v=4681"></script>
 <!-- integrations -->
-<script src="js/integrations/ptt-early.js?v=487"></script><!-- v4.87 — chọn kỹ sư cho phiếu KTPTVC khi in early/today -->
+<script src="js/integrations/ptt-early.js?v=4110"></script><!-- v4.87 — chọn kỹ sư cho phiếu KTPTVC khi in early/today -->
 <script src="js/integrations/sync2.js"></script>
 <script src="js/integrations/notif.js"></script>
 <!-- v4.84 — hàng đợi thông báo Zalo cho hàng ≠50:50. KHÔNG chứa token.

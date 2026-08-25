@@ -319,24 +319,48 @@ var PTT_EARLY = (function(){
     var s = (typeof _mdNormDO==='function') ? _mdNormDO(d) : String(d==null?'':d).replace(/[,\s]/g,'').replace(/^0+/,'').trim();
     return /^\d{7,}$/.test(s) ? s : '';
   }
+  /* v4.109 — nhóm đã LINK ở Today Plan (nút 🔗 Link Orders) được ưu tiên
+     TUYỆT ĐỐI so với phép đoán theo biển số + tài xế:
+       _lnkK='mdo' → một xe nhiều DO ⇒ luôn là một nhóm in được, kể cả khi
+                     còn DO tạm hoặc tổng vượt 27 MT (người dùng đã xác nhận
+                     lúc link, phần mềm không cãi lại).
+       _lnkK='alt' → mỗi xe là MỘT khả năng riêng, tuyệt đối KHÔNG gộp phiếu. */
+  function _lnkOf(r){
+    var k = String((r && r._lnkK) || '').trim().toLowerCase();
+    var g = String((r && r._lnkG) || '').trim();
+    return (g && (k === 'mdo' || k === 'alt')) ? { kind:k, gid:g } : null;
+  }
   /* Build the ordered list of units (single rows + qualifying groups). */
   function _buildUnits(rows){
-    var buckets = {}, order = [];
+    var buckets = {}, order = [], forced = {}, altSeq = 0;
     rows.forEach(function(r){
-      var pk = _plateKey(r.plate), dk = String(r.driver||'').trim().toUpperCase(), fd = String(r._forDate||'');
-      var key = pk+'|'+dk+'|'+fd;
+      var lk = _lnkOf(r), key;
+      if(lk && lk.kind === 'mdo'){ key = 'LNK|' + lk.gid; forced[key] = 1; }
+      else if(lk && lk.kind === 'alt'){ key = 'ALT|' + lk.gid + '|' + (altSeq++); }
+      else {
+        key = _plateKey(r.plate)+'|'+String(r.driver||'').trim().toUpperCase()+'|'+String(r._forDate||'');
+      }
       if(!buckets[key]){ buckets[key] = []; order.push(key); }
       buckets[key].push(r);
     });
     var units = [];
     order.forEach(function(key){
       var grp = buckets[key];
-      var allReal = grp.every(function(r){ return !!_realDO(r.doNum); });
       var total = grp.reduce(function(s,r){ return s + (parseFloat(r.qty)||0); }, 0);
-      var combinable = grp.length > 1 && allReal && total <= MDO_CAP_MT && _plateKey(grp[0].plate);
+      var combinable;
+      if(forced[key]){
+        combinable = grp.length > 1;                       /* đã link — tin người dùng */
+      } else {
+        var allReal = grp.every(function(r){ return !!_realDO(r.doNum); });
+        combinable = grp.length > 1 && allReal && total <= MDO_CAP_MT && _plateKey(grp[0].plate);
+      }
       if(combinable){
         units.push({ type:'group', key:key, rows:grp, total:total });
-        if(!(key in _groupMode)) _groupMode[key] = 'combined';   /* default suggestion: gộp */
+        if(!(key in _groupMode)){
+          /* nhóm đã link mang sẵn lựa chọn in của chính nó */
+          var pref = forced[key] ? String(grp[0]._lnkPrint||'') : '';
+          _groupMode[key] = (pref === 'separate') ? 'separate' : 'combined';
+        }
       } else {
         grp.forEach(function(r){ units.push({ type:'single', row:r }); });
       }
@@ -727,6 +751,33 @@ var PTT_EARLY = (function(){
     var bg = document.getElementById('ptt-early-bg');
     if(bg) bg.classList.add('on');
   }
+  /* v4.109 — mở picker CHỈ với các dòng được chỉ định, bỏ qua bộ lọc trạng
+     thái của _gather. Tab Scale gọi hàm này ngay sau khi assign một nhóm
+     🔗 MULTI-DO đã chọn IN TÁCH: lúc đó các dòng đã sang 'loading' nên
+     open('today') sẽ không còn thấy chúng nữa. */
+  function openFor(oids, groupMode){
+    var want = {}; (oids||[]).forEach(function(o){ if(o) want[String(o)] = 1; });
+    var rows = (typeof TP !== 'undefined' && TP.PLAN)
+      ? Object.values(TP.PLAN).filter(function(r){ return want[String(r._oid||'')]; }) : [];
+    if(!rows.length){ if(typeof toast==='function') toast('No plan rows to print','er'); return; }
+    _ensureModal();
+    _mode = 'today';
+    var ttl = document.getElementById('pe-title');
+    var sub = document.getElementById('pe-sub');
+    if(ttl) ttl.textContent = '🖨 PRINT PTT — LINKED ORDER (' + rows.length + ' DO)';
+    if(sub) sub.innerHTML = 'These rows were linked as <b>one truck carrying several DOs</b> and have just been assigned to a station. '
+          + 'Choose <b>Combined</b> for one slip listing every DO, or <b>Separate</b> for one slip per DO, then print.';
+    _candidates = rows;
+    _selected = {};
+    rows.forEach(function(r){ if(r._oid) _selected[r._oid] = true; });
+    _units = _buildUnits(rows);
+    if(groupMode){
+      _units.forEach(function(u){ if(u.type === 'group') _groupMode[u.key] = (groupMode === 'separate') ? 'separate' : 'combined'; });
+    }
+    _render();
+    var bg = document.getElementById('ptt-early-bg');
+    if(bg) bg.classList.add('on');
+  }
   function close(){
     var bg = document.getElementById('ptt-early-bg');
     if(bg) bg.classList.remove('on');
@@ -862,7 +913,7 @@ var PTT_EARLY = (function(){
   setTimeout(updateTodayBadge, 2500);
 
   return {
-    open: open, close: close, toggle: toggle, selectAll: selectAll, print: print,
+    open: open, openFor: openFor, close: close, toggle: toggle, selectAll: selectAll, print: print,
     setGroupMode: setGroupMode, isEarly8: _isEarly8, gather: _gather,
     updateTodayBadge: updateTodayBadge,
     /* v4.87 — KTPTVC engineer picker */
@@ -1048,32 +1099,48 @@ function dnOvPrint3(){
    ============================================================ */
 let _dnSeq = null;   /* { stId, cur, tech, payloads:[...], idx } while a separate sequence runs */
 
-function _mdoPrintChoice(stId, cur, tech, payloads){
+function _mdoPrintChoice(stId, cur, tech, payloads, pref){
   const n = (payloads||[]).length;
+  /* v4.110 — `pref` = cách in đã chốt lúc assign (lưu ở station._pttMode hoặc
+     trên nhóm 🔗 đã link). Nút tương ứng được tô đậm + đánh dấu ✓ để phiếu DN
+     đi đúng với phiếu PTT đã in cho tài xế, thay vì luôn mặc định "gộp". */
+  const want = (pref === 'separate') ? 'separate' : 'combined';
   let bg = document.getElementById('mdo-print-bg');
   if(bg) bg.remove();
   bg = document.createElement('div');
   bg.id = 'mdo-print-bg';
   bg.style.cssText = 'position:fixed;inset:0;z-index:12500;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center';
   const doList = (payloads||[]).map(p => (p.doNo||'?')).join(' · ');
+  const solid = 'padding:12px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;text-align:left';
+  const plain = 'padding:12px;border:1.5px solid #cbd5e1;border-radius:8px;background:#f1f5f9;color:#1e293b;font-size:13.5px;font-weight:700;cursor:pointer;text-align:left';
+  const subOn = 'display:block;font-weight:400;font-size:11.5px;color:#dbeafe;margin-top:2px';
+  const subOff= 'display:block;font-weight:400;font-size:11.5px;color:#64748b;margin-top:2px';
+  const mOn = (want === 'combined'), sOn = !mOn;
   bg.innerHTML =
-      '<div style="background:#fff;border-radius:12px;width:min(460px,94vw);padding:20px 22px;box-shadow:0 10px 36px rgba(0,0,0,.3);font-family:Barlow,system-ui,sans-serif">'
+      '<div style="background:#fff;border-radius:12px;width:min(470px,94vw);padding:20px 22px;box-shadow:0 10px 36px rgba(0,0,0,.3);font-family:Barlow,system-ui,sans-serif">'
     + '<h3 style="margin:0 0 4px;font-family:\'Oswald\',sans-serif;font-size:16px;color:#0077b6;letter-spacing:.5px">🖨 Print Delivery Note</h3>'
-    + '<p style="margin:0 0 14px;font-size:12.5px;color:#475569;line-height:1.45">This is a combined load of <b>'+n+' DO</b> ('+_esc(doList)+'). Print one merged note, or a separate note for each DO?</p>'
+    + '<p style="margin:0 0 12px;font-size:12.5px;color:#475569;line-height:1.45">This is a combined load of <b>'+n+' DO</b> ('+_esc(doList)+'). Print one merged note, or a separate note for each DO?</p>'
+    + '<p style="margin:0 0 14px;padding:7px 10px;background:#eff6ff;border-left:3px solid #2563eb;border-radius:4px;font-size:11.5px;color:#1e3a5f">'
+    +   'The PTT for this truck was printed <b>'+(mOn ? 'combined' : 'separate')+'</b>, so that option is pre-selected. Pick the other one only if you really want the notes to differ from the slip.</p>'
     + '<div style="display:flex;flex-direction:column;gap:10px">'
-    + '<button id="mdo-print-merged" style="padding:12px;background:#f1f5f9;border:1.5px solid #cbd5e1;border-radius:8px;color:#1e293b;font-size:13.5px;font-weight:700;cursor:pointer;text-align:left">🧾 Print 1 merged DN'
-    + '<span style="display:block;font-weight:400;font-size:11.5px;color:#64748b;margin-top:2px">All DO numbers and total net on one note</span></button>'
-    + '<button id="mdo-print-sep" style="padding:12px;background:#2563eb;border:0;border-radius:8px;color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;text-align:left">📑 Print '+n+' separate DNs'
-    + '<span style="display:block;font-weight:400;font-size:11.5px;color:#dbeafe;margin-top:2px">One note per DO, each with its own net weight</span></button>'
+    + '<button id="mdo-print-merged" style="'+(mOn?solid:plain)+'">🧾 Print 1 merged DN'+(mOn?' ✓':'')
+    + '<span style="'+(mOn?subOn:subOff)+'">All DO numbers and total net on one note</span></button>'
+    + '<button id="mdo-print-sep" style="'+(sOn?solid:plain)+'">📑 Print '+n+' separate DNs'+(sOn?' ✓':'')
+    + '<span style="'+(sOn?subOn:subOff)+'">One note per DO, each with its own net weight</span></button>'
     + '</div>'
-    + '<div style="text-align:right;margin-top:14px"><button id="mdo-print-cancel" style="padding:8px 14px;background:transparent;border:0;color:#64748b;font-size:12.5px;cursor:pointer">Cancel</button></div>'
+    + '<div style="text-align:right;margin-top:14px"><button id="mdo-print-cancel" style="padding:8px 14px;background:transparent;border:0;color:#64748b;font-size:12.5px;cursor:pointer">Cancel — print later</button></div>'
     + '</div>';
   document.body.appendChild(bg);
   const close = ()=>{ bg.remove(); };
-  bg.addEventListener('click', e=>{ if(e.target===bg) close(); });
+  /* v4.110 — KHÔNG đóng khi bấm ra nền. Một cú bấm trượt vào nền là mất luôn
+     phiếu DN mà chẳng báo gì, xe vẫn treo ở trạm — đúng kiểu "bấm không ăn"
+     mà nhân viên cân phản ánh. Muốn thoát thì bấm Cancel. */
   document.getElementById('mdo-print-merged').addEventListener('click', ()=>{ close(); _dnShowOverlay(stId, cur, tech); });
   document.getElementById('mdo-print-sep').addEventListener('click', ()=>{ close(); _dnStartSeparate(stId, cur, tech, payloads); });
-  document.getElementById('mdo-print-cancel').addEventListener('click', close);
+  document.getElementById('mdo-print-cancel').addEventListener('click', ()=>{
+    close();
+    if(typeof toast === 'function') toast('No Delivery Note printed — press PRINT & DONE again when ready','er', 4500);
+  });
 }
 
 function _dnStartSeparate(stId, cur, tech, payloads){

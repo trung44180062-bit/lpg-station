@@ -417,6 +417,13 @@ function _makePlanModule(opts){
          node from `nr` (which had no _autoSync), silently dropping a manual
          lock / cancel override. Default stays AUTO (true). */
       nr._autoSync  = (or._autoSync === false) ? false : true;
+      /* v4.109 — mang LINK qua re-paste. Nếu không copy 4 trường này thì mỗi
+         lần sale dán lại kế hoạch là mọi nhóm 🔗 biến mất và tổng PLAN lại
+         phình lên như cũ. */
+      nr._lnkG      = or._lnkG || '';
+      nr._lnkK      = or._lnkK || '';
+      nr._lnkPrint  = or._lnkPrint || '';
+      nr._altSkip   = or._altSkip || false;
       nr._forDate   = forDate;
       const newDO = String(nr.doNum||'').trim();
       const oldDO = String(or.doNum||'').trim();
@@ -795,6 +802,440 @@ function _makePlanModule(opts){
       try{ renderLedger(); }catch(_){}
     }, 30);
     toast('Row '+(row.plate||oid)+': '+status.toUpperCase()+' (Auto-sync OFF — re-check ☑ to undo)', 'ok');
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     v4.109 — ORDER LINKS (🔗) · gộp nhiều DÒNG kế hoạch thành 1 ĐƠN
+     -------------------------------------------------------------------
+     Sale dán kế hoạch theo DÒNG XE, nên một đơn hàng thật có thể nằm
+     trên nhiều dòng. Có hai kiểu hoàn toàn khác nhau:
+
+       'alt' — MỘT TRONG SỐ các xe sẽ vào lấy. 3 dòng × 25 MT nhưng thực
+               tế chỉ 1 xe / 25 MT được bán. Trước v4.109 phần mềm cộng cả
+               3 ⇒ PLAN 75 MT (SAI). Nay nhóm 'alt' chỉ tính MỘT lần với
+               qty LỚN NHẤT trong nhóm; xe nào vào station trước thì các
+               dòng còn lại tự bị "park" (cancel + cờ _altSkip) và tự mở
+               lại nếu xe đó rời station.
+
+       'mdo' — MỘT XE chở NHIỀU DO. Tất cả các dòng đều bán thật nên tổng
+               vẫn cộng đủ; cái lợi là lúc assign ở tab Scale phần mềm
+               KHÔNG phải dò tìm rồi hỏi "load together?" nữa — đã link
+               thì gộp thẳng, chỉ còn hỏi in PTT/DN gộp hay tách.
+
+     Lưu ngay trên dòng kế hoạch (Firebase `${FBN}<oid>/`):
+       _lnkG     id nhóm, ví dụ "LK5F2A1C3"   (rỗng = không link)
+       _lnkK     'alt' | 'mdo'
+       _lnkPrint 'combined' | 'separate'  — chỉ nhóm 'mdo', chọn lúc assign
+       _altSkip  true trên dòng ALT bị park (phần mềm tự đặt / tự gỡ)
+     Bốn trường này được mang qua re-paste trong computeDiff nên dán lại
+     kế hoạch KHÔNG làm mất link.
+     ═══════════════════════════════════════════════════════════════════ */
+  const LNK_ALT = 'alt', LNK_MDO = 'mdo';
+  function lnkGid(r){ return String((r && r._lnkG) || '').trim(); }
+  function lnkKind(r){
+    const k = String((r && r._lnkK) || '').trim().toLowerCase();
+    return (k === LNK_ALT || k === LNK_MDO) ? k : '';
+  }
+  function lnkIsLinked(r){ return !!(lnkGid(r) && lnkKind(r)); }
+  function lnkIsParked(r){ return !!(r && r._altSkip); }
+  function lnkNewGid(){
+    return 'LK' + Date.now().toString(36).toUpperCase()
+         + Math.floor(Math.random()*36).toString(36).toUpperCase();
+  }
+  /* Mọi dòng cùng nhóm, theo thứ tự dán (_seq). RAM — không đọc Firebase. */
+  function lnkMembers(gid){
+    const g = String(gid || '').trim();
+    if(!g) return [];
+    return Object.values(PLAN).filter(r => lnkGid(r) === g).sort((a,b)=>{
+      const sa = (typeof a._seq === 'number') ? a._seq : Number.MAX_SAFE_INTEGER;
+      const sb = (typeof b._seq === 'number') ? b._seq : Number.MAX_SAFE_INTEGER;
+      return sa !== sb ? sa - sb : String(a._oid||'').localeCompare(String(b._oid||''));
+    });
+  }
+  /* Dòng ĐẠI DIỆN của một nhóm ALT: xe đã vào (loading/done) nếu có,
+     ngược lại dòng qty lớn nhất — hoà thì dòng đầu theo _seq. */
+  function _lnkAltRep(members){
+    if(!members || !members.length) return null;
+    const live = members.find(r=>{
+      const st = computeStatusFromState(r);
+      return st === 'loading' || st === 'done';
+    });
+    if(live) return live;
+    let best = members[0], bq = parseFloat(best.qty||0) || 0;
+    members.forEach(r=>{ const q = parseFloat(r.qty||0)||0; if(q > bq){ bq = q; best = r; } });
+    return best;
+  }
+  /* Thu gọn danh sách dòng: mỗi nhóm ALT chỉ còn dòng đại diện. Nhóm MDO và
+     dòng không link giữ nguyên. Dùng cho MỌI phép tính tổng.
+     Đại diện được chọn TRONG danh sách truyền vào, nên khi ledger đang lọc
+     theo ngày / ô tìm kiếm thì tổng vẫn khớp với đúng những gì đang hiện. */
+  function lnkCollapse(rows){
+    const list = rows || [];
+    const present = new Set(list.map(r => String(r._oid||'')));
+    const out = [], seen = new Set();
+    list.forEach(r=>{
+      const gid = lnkGid(r);
+      if(gid && lnkKind(r) === LNK_ALT){
+        if(seen.has(gid)) return;
+        seen.add(gid);
+        const vis = lnkMembers(gid).filter(m => present.has(String(m._oid||'')));
+        out.push(_lnkAltRep(vis) || r);
+        return;
+      }
+      out.push(r);
+    });
+    return out;
+  }
+  /* Tổng kế hoạch CÓ HIỂU LINK — nguồn DUY NHẤT cho cả dải Plan·Loaded·Remain
+     của Ledger lẫn thẻ PLAN tab Scale, nên hai chỗ không bao giờ lệch nhau.
+       planMT    Σ qty đơn không cancel      · loadedMT Σ qty đơn done + loading
+       remainMT  planMT − loadedMT
+       planCnt/doneCnt  số ĐƠN (đã thu gọn ALT), KHÔNG phải số dòng
+       altSaved  số dòng bị loại nhờ ALT (để hiện chú thích) */
+  function lnkTotals(rows){
+    const src  = rows || Object.values(PLAN);
+    const list = lnkCollapse(src);
+    let planMT = 0, loadedMT = 0, planCnt = 0, doneCnt = 0;
+    list.forEach(r=>{
+      const q  = parseFloat(r.qty||0) || 0;
+      const st = String(getEffectiveStatus(r)||'').toLowerCase();
+      if(st === 'cancel') return;
+      planCnt++; planMT += q;
+      if(st === 'done' || st === 'loading'){ doneCnt++; loadedMT += q; }
+    });
+    return { planMT, loadedMT, remainMT: Math.max(0, planMT - loadedMT),
+             planCnt, doneCnt, remainCnt: Math.max(0, planCnt - doneCnt),
+             altSaved: src.length - list.length };
+  }
+
+  /* ── Tự khoá / mở khoá dòng ALT thua ────────────────────────────────
+     Khi một xe trong nhóm ALT đã vào station (loading) hoặc cân xong
+     (done) thì những dòng còn lại KHÔNG còn hàng để bán: đặt chúng về
+     MANUAL + cancel + cờ _altSkip. Cờ này là dấu để phần mềm biết CHÍNH
+     NÓ đã khoá, nên khi xe kia rời station (không còn loading/done) nó tự
+     gỡ đúng những dòng nó khoá — cancel do người dùng bấm tay (không có
+     _altSkip) tuyệt đối không bị đụng.
+     Idempotent: không có gì đổi thì KHÔNG ghi Firebase (giữ quota Spark).
+     Chạy trong refreshStatus nên mọi thay đổi station/TL đều kích hoạt. */
+  let _lnkSyncing = false;
+  function lnkSyncAlt(){
+    if(_lnkSyncing) return;
+    if(typeof FB_DB === 'undefined' || !FB_DB) return;
+    try{ if(!canWrite(PERMK)) return; }catch(_){ return; }
+    const groups = new Map();
+    Object.values(PLAN).forEach(r=>{
+      if(lnkKind(r) !== LNK_ALT) return;
+      const g = lnkGid(r); if(!g) return;
+      if(!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(r);
+    });
+    if(!groups.size) return;
+    const payload = {}, touched = [];
+    groups.forEach(members=>{
+      const winner = members.find(r=>{
+        const st = computeStatusFromState(r);
+        return st === 'loading' || st === 'done';
+      });
+      members.forEach(r=>{
+        const oid = String(r._oid||''); if(!oid) return;
+        const parked = lnkIsParked(r);
+        if(winner && r !== winner && !parked){
+          if(computeStatusFromState(r)) return;   /* dòng này cũng đang chạy — đừng đụng */
+          if(r._autoSync === false && String(r._status||'')) return;  /* người dùng đã chốt tay */
+          payload[`${FBN}${oid}/_autoSync`] = false;
+          payload[`${FBN}${oid}/_status`]   = 'cancel';
+          payload[`${FBN}${oid}/_altSkip`]  = true;
+          r._autoSync = false; r._status = 'cancel'; r._altSkip = true;
+          touched.push(oid);
+        } else if(parked && (!winner || r === winner)){
+          payload[`${FBN}${oid}/_autoSync`]  = true;
+          payload[`${FBN}${oid}/_status`]    = null;
+          payload[`${FBN}${oid}/_actualQty`] = null;
+          payload[`${FBN}${oid}/_altSkip`]   = null;
+          r._autoSync = true; r._status = ''; r._actualQty = ''; r._altSkip = false;
+          touched.push(oid);
+        }
+      });
+    });
+    if(!touched.length) return;
+    bumpVersion(payload);
+    _lnkSyncing = true; _suppressEcho++;
+    FB_DB.ref().update(payload)
+      .then(()=>{ try{ logAudit(PERMK + ':altLink', touched.join(','), '_altSkip', '', '', 'auto park / release'); }catch(_){} })
+      .catch(e=>{ console.error('plan lnkSyncAlt', e); })
+      /* Mở khoá _lnkSyncing NGAY khi ghi xong: nếu để chung với _suppressEcho
+         (600ms) thì hai thay đổi trạng thái sát nhau — xe rời station ngay sau
+         khi vào — sẽ bị bỏ qua lần đồng bộ thứ hai. */
+      .finally(()=>{ _lnkSyncing = false; setTimeout(()=>{ _suppressEcho--; }, 600); });
+    setTimeout(()=>{ try{ renderLedger(); }catch(_){} try{ refreshCounts(); }catch(_){} }, 40);
+  }
+
+  /* Ghi link cho một loạt dòng. kind='' ⇒ GỠ link (và gỡ luôn park). */
+  function lnkWrite(oids, kind, printMode){
+    const list = (oids||[]).map(o=>String(o||'').trim()).filter(o=>PLAN[o]);
+    if(!list.length){ toast('No rows selected','er'); return false; }
+    if(typeof FB_DB === 'undefined' || !FB_DB){ toast('Offline — Firebase not connected','er'); return false; }
+    if(!canWrite(PERMK)){ toast('You do not have permission','er'); return false; }
+    const k   = (kind === LNK_ALT || kind === LNK_MDO) ? kind : '';
+    const gid = k ? lnkNewGid() : '';
+    const pm  = (printMode === 'separate') ? 'separate' : 'combined';
+    const now = Date.now();
+    const payload = {};
+    list.forEach(oid=>{
+      const r = PLAN[oid];
+      payload[`${FBN}${oid}/_lnkG`]     = k ? gid : null;
+      payload[`${FBN}${oid}/_lnkK`]     = k ? k   : null;
+      payload[`${FBN}${oid}/_lnkPrint`] = (k === LNK_MDO) ? pm : null;
+      r._lnkG = k ? gid : ''; r._lnkK = k ? k : ''; r._lnkPrint = (k === LNK_MDO) ? pm : '';
+      /* Gỡ link ⇒ dòng đang bị park phải được trả về AUTO ngay, nếu không nó
+         nằm mãi ở trạng thái Cancelled mà không ai gỡ được. */
+      if(!k && lnkIsParked(r)){
+        payload[`${FBN}${oid}/_autoSync`]  = true;
+        payload[`${FBN}${oid}/_status`]    = null;
+        payload[`${FBN}${oid}/_actualQty`] = null;
+        r._autoSync = true; r._status = ''; r._actualQty = '';
+      }
+      payload[`${FBN}${oid}/_altSkip`] = null;
+      r._altSkip = false;
+      payload[`${FBN}${oid}/lastBy`] = CURRENT_USER.name;
+      payload[`${FBN}${oid}/lastAt`] = now;
+      r.lastBy = CURRENT_USER.name; r.lastAt = now;
+    });
+    bumpVersion(payload);
+    _suppressEcho++;
+    FB_DB.ref().update(payload)
+      .then(()=>{ try{ logAudit(PERMK + ':link', list.join(','), '_lnkK', '', k || '(unlink)', k ? ('group ' + gid) : 'unlink'); }catch(_){} })
+      .catch(e=>{ console.error('plan lnkWrite', e); toast('Link write failed','er'); })
+      .finally(()=>setTimeout(()=>{ _suppressEcho--; }, 600));
+    setTimeout(()=>{
+      if(table){ try{ rebuildTableData(); }catch(_){} }
+      refreshCounts();
+      try{ renderLedger(); }catch(_){}
+      try{ if(typeof SCALE !== 'undefined' && SCALE.refreshRow1) SCALE.refreshRow1(); }catch(_){}
+      lnkSyncAlt();
+    }, 40);
+    return true;
+  }
+  /* Đổi chế độ in của một nhóm MDO ('combined' | 'separate'). */
+  function lnkSetPrint(gid, mode){
+    const ms = lnkMembers(gid);
+    if(!ms.length) return false;
+    if(typeof FB_DB === 'undefined' || !FB_DB) return false;
+    try{ if(!canWrite(PERMK)) return false; }catch(_){ return false; }
+    const pm = (mode === 'separate') ? 'separate' : 'combined';
+    const payload = {};
+    ms.forEach(r=>{
+      const oid = String(r._oid||''); if(!oid) return;
+      payload[`${FBN}${oid}/_lnkPrint`] = pm;
+      r._lnkPrint = pm;
+    });
+    bumpVersion(payload);
+    _suppressEcho++;
+    FB_DB.ref().update(payload)
+      .catch(e=>console.error('plan lnkSetPrint', e))
+      .finally(()=>setTimeout(()=>{ _suppressEcho--; }, 600));
+    setTimeout(()=>{ try{ renderLedger(); }catch(_){} }, 40);
+    return true;
+  }
+  /* Chip 🔗 hiện trên ô DO của cả Ledger lẫn Table view. */
+  function lnkBadgeHtml(r){
+    const k = lnkKind(r), gid = lnkGid(r);
+    if(!k || !gid) return '';
+    const ms = lnkMembers(gid), n = ms.length;
+    const i  = ms.findIndex(m => String(m._oid||'') === String(r._oid||'')) + 1;
+    if(k === LNK_ALT){
+      if(lnkIsParked(r))
+        return '<span class="tp-lnk alt off" title="Linked order — another truck in this group is already loading, so this row is parked and is not counted. It is released automatically if that truck leaves the station.">⏸ ALT ' + i + '/' + n + '</span>';
+      const rep = _lnkAltRep(ms);
+      const isRep = !!(rep && String(rep._oid||'') === String(r._oid||''));
+      return '<span class="tp-lnk alt' + (isRep ? ' rep' : '') + '" title="ALTERNATE trucks — ONE order, ' + n
+           + ' possible trucks. Only one of them is counted in PLAN / LOADED / REMAIN'
+           + (isRep ? ' — this is the row being counted.' : '.') + '">🔗 ALT ' + i + '/' + n + (isRep ? ' ★' : '') + '</span>';
+    }
+    const pm = (String(r._lnkPrint||'') === 'separate') ? 'separate' : 'combined';
+    return '<span class="tp-lnk mdo" title="MULTI-DO — one truck carries ' + n
+         + ' DOs. Assigning any of them loads them together, no questions asked; PTT / DN print ' + pm
+         + '.">🔗 MDO ' + i + '/' + n + '</span>';
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     v4.109 — Hộp thoại 🔗 LINK ORDERS
+     Dựng DOM ngay trong JS (như PTT_EARLY) để index.html chỉ cần thêm
+     ĐÚNG một cái nút. Mỗi instance (tp / tmr) có id riêng nên hai bảng
+     kế hoạch không giẫm lên nhau.
+     ═══════════════════════════════════════════════════════════════════ */
+  const _lnkSel = new Set();
+  function _lnkBgId(){ return ID + 'LinkBg'; }
+  function _lnkEnsureModal(){
+    let bg = document.getElementById(_lnkBgId());
+    if(bg) return bg;
+    bg = document.createElement('div');
+    bg.id = _lnkBgId();
+    bg.className = 'lnk-bg';
+    bg.innerHTML =
+        '<div class="lnk-modal">'
+      +   '<div class="lnk-hdr">'
+      +     '<div><h3>🔗 Link orders</h3>'
+      +     '<div class="lnk-sub">One real order can arrive on several plan rows. Link them so the software stops counting the same load twice.</div></div>'
+      +     '<button class="lnk-x" onclick="'+G+'.closeLink()">✕</button>'
+      +   '</div>'
+      +   '<div class="lnk-body" id="'+ID+'LinkBody"></div>'
+      +   '<div class="lnk-foot" id="'+ID+'LinkFoot"></div>'
+      + '</div>';
+    document.body.appendChild(bg);
+    bg.addEventListener('click', e=>{ if(e.target === bg) closeLink(); });
+    return bg;
+  }
+  function openLink(){
+    _lnkEnsureModal();
+    _lnkSel.clear();
+    _lnkRender();
+    document.getElementById(_lnkBgId()).classList.add('on');
+  }
+  function closeLink(){
+    const bg = document.getElementById(_lnkBgId());
+    if(bg) bg.classList.remove('on');
+    _lnkSel.clear();
+  }
+  function lnkToggleSel(oid, on){
+    const k = String(oid||'');
+    if(on) _lnkSel.add(k); else _lnkSel.delete(k);
+    _lnkRenderFoot();
+  }
+  function _lnkRowLine(r){
+    const oid  = String(r._oid||'');
+    const dn   = String(r.doNum||'').trim() || '—';
+    const st   = String(getEffectiveStatus(r)||'').toLowerCase();
+    const linked = lnkIsLinked(r);
+    const stTxt = st === 'done' ? '✅ Done' : st === 'loading' ? '⛽ Loading'
+                : st === 'cancel' ? (lnkIsParked(r) ? '⏸ Parked' : '🚫 Cancelled')
+                : st === 'entered' ? '🚛 Entered' : '— Pending';
+    return '<label class="lnk-row'+(linked?' linked':'')+(st==='done'||st==='loading'?' busy':'')+'">'
+      + '<input type="checkbox" '+(linked?'disabled':'')+' '+(_lnkSel.has(oid)?'checked':'')
+      + ' onchange="'+G+'.lnkToggleSel(\''+escapeHtml(oid).replace(/'/g,"")+'\', this.checked)">'
+      + '<span class="lnk-c plate">'+escapeHtml(String(r.plate||'—'))+'</span>'
+      + '<span class="lnk-c do">'+escapeHtml(dn)+'</span>'
+      + '<span class="lnk-c drv">'+escapeHtml(String(r.driver||'—'))+'</span>'
+      + '<span class="lnk-c qty">'+escapeHtml(String(r.qty||'—'))+' MT</span>'
+      + '<span class="lnk-c date">'+escapeHtml(isoLabel(r._forDate||''))+'</span>'
+      + '<span class="lnk-c st">'+stTxt+'</span>'
+      + '<span class="lnk-c bdg">'+lnkBadgeHtml(r)+'</span>'
+      + '</label>';
+  }
+  function _lnkRender(){
+    const body = document.getElementById(ID + 'LinkBody');
+    if(!body) return;
+    const rows = planRows();
+    /* ── các nhóm đang có ── */
+    const gseen = new Set(); const gHtml = [];
+    rows.forEach(r=>{
+      const gid = lnkGid(r);
+      if(!gid || !lnkKind(r) || gseen.has(gid)) return;
+      gseen.add(gid);
+      const ms = lnkMembers(gid), k = lnkKind(r);
+      const tot = ms.reduce((a,m)=>a + (parseFloat(m.qty||0)||0), 0);
+      const pm  = (String(ms[0]._lnkPrint||'') === 'separate') ? 'separate' : 'combined';
+      gHtml.push('<div class="lnk-grp '+k+'">'
+        + '<div class="lnk-grp-hd">'
+        +   '<span class="lnk-kind '+k+'">'+(k===LNK_ALT?'🔗 ALTERNATE TRUCKS':'🔗 MULTI-DO')+'</span>'
+        +   '<span class="lnk-grp-meta">'+ms.length+' rows · '
+        +     (k===LNK_ALT ? ('counts as 1 order, '+_fmtMT(_lnkAltRep(ms) ? (parseFloat(_lnkAltRep(ms).qty||0)||0) : 0)+' MT')
+                           : ('one truck, total '+_fmtMT(tot)+' MT'))+'</span>'
+        +   (k===LNK_MDO
+              ? '<span class="lnk-pm">Print PTT / DN: '
+                + '<button class="lnk-pmb'+(pm==='combined'?' on':'')+'" onclick="'+G+'.lnkSetPrint(\''+gid+'\',\'combined\')">Combined</button>'
+                + '<button class="lnk-pmb'+(pm==='separate'?' on':'')+'" onclick="'+G+'.lnkSetPrint(\''+gid+'\',\'separate\')">Separate</button></span>'
+              : '')
+        +   '<button class="lnk-unbtn" onclick="'+G+'.lnkUnlink(\''+gid+'\')">✂ Unlink</button>'
+        + '</div>'
+        + '<div class="lnk-grp-rows">'
+        +   ms.map(m=>'<div class="lnk-mini">'
+        +     '<b>'+escapeHtml(String(m.plate||'—'))+'</b> · '+escapeHtml(String(m.doNum||'—'))
+        +     ' · '+escapeHtml(String(m.qty||'—'))+' MT · '+escapeHtml(String(m.customer||'—'))
+        +     (lnkIsParked(m)?' <span class="lnk-parked">⏸ parked</span>':'')+'</div>').join('')
+        + '</div></div>');
+    });
+    /* ── danh sách dòng để chọn, gom theo khách hàng ── */
+    const byCust = new Map();
+    rows.forEach(r=>{
+      const c = (String(r.customer||'').trim() || '—');
+      if(!byCust.has(c)) byCust.set(c, []);
+      byCust.get(c).push(r);
+    });
+    let list = '';
+    byCust.forEach((items, cust)=>{
+      list += '<div class="lnk-cust">'+escapeHtml(cust)+'<span>'+items.length+' row'+(items.length>1?'s':'')+'</span></div>'
+            + items.map(_lnkRowLine).join('');
+    });
+    if(!rows.length) list = '<div class="lnk-empty">No plan rows for the dates currently shown.</div>';
+    body.innerHTML =
+        '<div class="lnk-help">'
+      +   '<div><b>🔗 Alternate trucks</b> — one order, several trucks on the plan, and only <b>one</b> of them will actually come. '
+      +   'The group is counted <b>once</b> (largest qty in the group). The moment one truck is assigned, the others are parked automatically, and released again if that truck leaves the station.</div>'
+      +   '<div><b>🔗 Multi-DO</b> — one truck carrying several DOs. Everything is still sold, so nothing is deducted; assigning any row loads them all together with no pop-up, and the only question left is whether PTT / DN print combined or separate.</div>'
+      + '</div>'
+      + (gHtml.length ? '<div class="lnk-sect">Existing groups</div>' + gHtml.join('') : '')
+      + '<div class="lnk-sect">Plan rows — tick the ones that belong to the same order</div>'
+      + list;
+    _lnkRenderFoot();
+  }
+  function _lnkRenderFoot(){
+    const foot = document.getElementById(ID + 'LinkFoot');
+    if(!foot) return;
+    const n = _lnkSel.size;
+    const sel = Array.from(_lnkSel).map(o=>PLAN[o]).filter(Boolean);
+    const tot = sel.reduce((a,r)=>a + (parseFloat(r.qty||0)||0), 0);
+    const maxQ = sel.reduce((a,r)=>Math.max(a, parseFloat(r.qty||0)||0), 0);
+    foot.innerHTML =
+        '<span class="lnk-count">'+n+' row'+(n===1?'':'s')+' selected'
+      +   (n>1 ? ' · sum '+_fmtMT(tot)+' MT · largest '+_fmtMT(maxQ)+' MT' : '')+'</span>'
+      + '<button class="lnk-btn alt" '+(n<2?'disabled':'')+' onclick="'+G+'.lnkApply(\'alt\')" '
+      +   'title="One order — only one of these trucks will come. Counted once.">🔗 One order · alternate trucks</button>'
+      + '<button class="lnk-btn mdo" '+(n<2?'disabled':'')+' onclick="'+G+'.lnkApply(\'mdo\')" '
+      +   'title="One truck carrying all of these DOs. Everything is still sold.">🔗 One truck · multi-DO</button>'
+      + '<button class="lnk-btn ghost" onclick="'+G+'.closeLink()">Close</button>';
+  }
+  /* Tạo nhóm từ các dòng đang tick. Chặn những tổ hợp chắc chắn sai, cảnh báo
+     những tổ hợp đáng ngờ nhưng vẫn cho làm (kế hoạch thực tế rất lộn xộn). */
+  function lnkApply(kind){
+    const oids = Array.from(_lnkSel).filter(o=>PLAN[o]);
+    if(oids.length < 2){ toast('Select at least 2 rows','er'); return; }
+    const rows = oids.map(o=>PLAN[o]);
+    if(rows.some(lnkIsLinked)){ toast('Some rows are already linked — unlink them first','er'); return; }
+    const dates = new Set(rows.map(r=>String(r._forDate||'').trim()));
+    if(dates.size > 1){ toast('All rows in a group must share the same plan date','er'); return; }
+    const busy = rows.filter(r=>{ const st = getEffectiveStatus(r); return st === 'done' || st === 'loading'; });
+    if(busy.length > 1){ toast('More than one row is already loading / done — they cannot be one order','er'); return; }
+    const norm = v => String(v||'').replace(/[-.\s]/g,'').toUpperCase();
+    if(kind === LNK_MDO){
+      const plates = new Set(rows.map(r=>norm(r.plate)));
+      if(plates.size > 1 &&
+         !confirm('MULTI-DO means ONE truck carrying every DO in the group, but the selected rows list '
+                + plates.size + ' different plates.\n\nLink them anyway?')) return;
+      const tot = rows.reduce((a,r)=>a + (parseFloat(r.qty||0)||0), 0);
+      if(tot > 27 &&
+         !confirm('Combined quantity is ' + tot.toFixed(3) + ' MT, above the 27 MT a single truck can take.\n\nLink them anyway?')) return;
+    } else {
+      const qs = Array.from(new Set(rows.map(r=>parseFloat(r.qty||0)||0)));
+      if(qs.length > 1 &&
+         !confirm('Alternate trucks normally carry the SAME quantity, but the selected rows differ ('
+                + qs.map(q=>q.toFixed(3)).join(' / ') + ' MT).\n\nThe group will be counted as '
+                + Math.max.apply(null, qs).toFixed(3) + ' MT (the largest). Link them anyway?')) return;
+    }
+    if(lnkWrite(oids, kind)){
+      toast('Linked ' + oids.length + ' rows as ' + (kind === LNK_ALT ? 'ONE ORDER (alternate trucks)' : 'ONE TRUCK (multi-DO)'), 'ok');
+      _lnkSel.clear();
+      setTimeout(_lnkRender, 120);
+    }
+  }
+  function lnkUnlink(gid){
+    const ms = lnkMembers(gid);
+    if(!ms.length) return;
+    if(!confirm('Unlink this group of ' + ms.length + ' rows?\n\nEvery row goes back to being counted on its own.')) return;
+    if(lnkWrite(ms.map(r=>String(r._oid||'')), '')){
+      toast('Unlinked ' + ms.length + ' rows','ok');
+      setTimeout(_lnkRender, 120);
+    }
   }
 
   /* -------- Ensure temp DOs for orders without a real DO --------
@@ -1244,6 +1685,7 @@ function _makePlanModule(opts){
     // Build WG diff badges (RAM-only) — appended after the DO value
     let wgBadges = '';
     try{ if(typeof WGCHECK !== 'undefined') wgBadges = WGCHECK.badgeHtml(rowData); }catch(_){}
+    wgBadges += lnkBadgeHtml(rowData);   /* v4.109 — chip 🔗 ALT / MDO */
     /* real DO → show plain */
     if(isRealDO(v)) return `<span class="tp-do">${escapeHtml(v)}</span>${wgBadges}`;
     /* temp DO (stored in the DO column) → editable temp value */
@@ -1337,9 +1779,10 @@ function _makePlanModule(opts){
     if(v === '' || v == null) return `<span class="tp-actual tp-actual-empty">—</span>`;
     const n = parseFloat(v);
     if(isNaN(n)) return `<span class="tp-actual">${escapeHtml(String(v))}</span>`;
-    /* if value looks like kilograms (>= 1000) show as MT with 3 decimals */
-    const disp = n >= 1000 ? (n/1000).toFixed(3) : n.toFixed(3);
-    return `<span class="tp-actual">${disp}</span>`;
+    /* v4.109 — LUÔN 3 số thập phân (đọc được tới kg). Giá trị lưu là kg khi
+       >= 1000; số nhỏ hơn là MT gõ tay ở chế độ MANUAL nên giữ nguyên. */
+    const disp = (n >= 1000 ? n/1000 : n).toFixed(3);
+    return `<span class="tp-actual" title="${escapeHtml(String(v))} kg">${disp}</span>`;
   }
 
   function statusEditor(cell, onRendered, success, cancel){
@@ -1684,6 +2127,9 @@ function _makePlanModule(opts){
     }
     refreshCounts();
     renderLedger();   /* v4.35.0 — statuses changed (SCALE/TL push) → refresh ledger pills */
+    /* v4.109 — nhóm ALT: xe nào vào station trước thì các dòng anh em tự bị
+       park. Hàm idempotent, không đổi gì thì không ghi Firebase. */
+    try{ lnkSyncAlt(); }catch(e){ console.warn('[PLAN] lnkSyncAlt', e); }
     /* v4.22.4 — bubble up to SCALE row-1 stats: PLAN remaining MT changes
        whenever a row goes DONE / cancel / new assignment. RAM-only. */
     try{ if(typeof SCALE !== 'undefined' && SCALE.refreshRow1) SCALE.refreshRow1(); }catch(_){}
@@ -2348,10 +2794,13 @@ function _makePlanModule(opts){
     sel.addEventListener('blur', commit);
     sel.addEventListener('keydown', e=>{ if(e.key === 'Escape'){ done = true; e.stopPropagation(); renderLedger(); } });
   }
+  /* v4.109 — MỌI số MT trên Ledger + thẻ PLAN tab Scale hiện 3 số thập phân
+     (1 chữ số = 100 kg, không đủ để đối chiếu cân). Dùng minimumFractionDigits
+     để 25 hiện "25.000" chứ không phải "25" — cột số nhìn thẳng hàng. */
   function _fmtMT(v){
     const n = parseFloat(v);
-    if(!isFinite(n)) return '0';
-    return n.toLocaleString('en-US', { maximumFractionDigits: 1 });
+    if(!isFinite(n)) return '0.000';
+    return n.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
   }
   function renderLedger(){
     if(viewMode !== 'ledger') return;
@@ -2375,19 +2824,21 @@ function _makePlanModule(opts){
        qty (MT). Loaded = Σ qty đơn 'done' + 'loading' (xe đang nạp tạm trừ
        khỏi Remain; về queue thì tự cộng lại). KHÔNG cân thực TL, KHÔNG max
        tole. Remain = Plan − Loaded. Khớp 1:1 với PLAN card tab Scale. */
-    let planMT = 0, loadedMT = 0;
-    info.forEach(i=>{
-      const q = parseFloat(i.r.qty) || 0;
-      if(i.st !== 'cancel') planMT += q;
-      if(i.st === 'done' || i.st === 'loading') loadedMT += q;
-    });
-    const remainMT = Math.max(0, planMT - loadedMT);
+    /* v4.109 — tổng đi qua lnkTotals: nhóm 🔗 ALT (một trong N xe sẽ vào lấy)
+       chỉ được tính MỘT lần, nếu không 1 đơn 25 MT khai 3 xe sẽ thành 75 MT. */
+    const _tot = lnkTotals(info.map(i=>i.r));
+    const planMT = _tot.planMT, loadedMT = _tot.loadedMT, remainMT = _tot.remainMT;
 
     const FCH = [['all','ALL'],['pending','PENDING'],['loading','LOADING'],['done','DONE'],['cancel','CANCEL']];
     let h = '<div class="pl-fbar">' + FCH.map(([k,lbl])=>
       '<span class="pl-fchip'+(_ledgerFilter===k?' on':'')+'" onclick="'+G+'.setLedgerFilter(\''+k+'\')">'+lbl+' '+cnt[k]+'</span>'
     ).join('')
-      + '<span class="pv-sum">Plan <b>'+_fmtMT(planMT)+'</b> · Loaded <b class="g">'+_fmtMT(loadedMT)+'</b> · Remain <b class="o">'+_fmtMT(remainMT)+'</b> MT</span>'
+      + '<span class="pv-sum">Plan <b>'+_fmtMT(planMT)+'</b> · Loaded <b class="g">'+_fmtMT(loadedMT)+'</b> · Remain <b class="o">'+_fmtMT(remainMT)+'</b> MT'
+      + '<span class="pv-sum-cnt">'+_tot.planCnt+' order'+(_tot.planCnt===1?'':'s')+'</span>'
+      + (_tot.altSaved>0
+          ? '<span class="pv-sum-alt" title="'+_tot.altSaved+' row(s) belong to a 🔗 ALT group (one order, several possible trucks) and are NOT counted a second time.">🔗 −'+_tot.altSaved+' alt row'+(_tot.altSaved===1?'':'s')+'</span>'
+          : '')
+      + '</span>'
       + '</div>';
 
     if(!shown.length){
@@ -2436,16 +2887,18 @@ function _makePlanModule(opts){
     groups.forEach(g=>{
       const short = (typeof CT!=='undefined' && CT.lookup) ? CT.lookup(g.cust) : g.cust;
       const hasShort = short && short !== g.cust;
-      let gQty = 0, gAct = 0;
+      /* v4.109 — tổng của KHÁCH HÀNG cũng phải thu gọn nhóm ALT, nếu không
+         header khách vẫn khai 75 MT trong khi dải tổng phía trên đã đúng 25. */
+      const _gTot = lnkTotals(g.items.map(i=>i.r));
+      let gQty = _gTot.planMT, gAct = 0;
 
       let body = '', lastSg = null;
       g.items.forEach((i, idx)=>{
         const r = i.r, st = i.st;
         const q = parseFloat(r.qty) || 0;
-        if(st !== 'cancel') gQty += q;
         const akg = parseFloat(computeActualFromState(r));
         const actMT = (isFinite(akg) && akg > 0) ? akg/1000 : 0;
-        if(st === 'done') gAct += (actMT>0?actMT:q);
+        if(st === 'done') gAct += (actMT>0?actMT:q);   /* actual thật — dòng ALT bị park không có cân nên không cộng trùng */
 
         const oid = String(r._oid||'').replace(/['"\\]/g,'');
 
@@ -2475,6 +2928,7 @@ function _makePlanModule(opts){
         else if(!dn)            doH = '<span class="pv-do none">no DO</span>';
         else                    doH = '<span class="pv-do none" title="No temp DO yet">'+escapeHtml(dn)+'</span>';
         let doBadges = ''; try{ if(typeof WGCHECK!=='undefined' && WGCHECK.badgeHtml) doBadges = WGCHECK.badgeHtml(r) || ''; }catch(_){}
+        doBadges += lnkBadgeHtml(r);   /* v4.109 — chip 🔗 ALT / MDO */
         const tolRaw = String(r.tolerance||'').trim();
 
         /* PLATE cell — WG plate-diff → Fleet-missing → cert blink */
@@ -2583,7 +3037,12 @@ function _makePlanModule(opts){
                   + ' — KHÁC hàng phổ thông 50:50. Kiểm tra tank/lot/COQ trước khi cân!">⚠ '+gSpecials.join(' · ')+'</span>';
       }
       const actChip  = (!isTmr && gAct>0) ? '<span class="pv-gact">✅ '+_fmtMT(gAct)+' MT</span>' : '';
-      const cntChip  = '<span class="pv-gmeta" style="font-size:10px;color:#6b8299;margin-left:8px">'+g.items.length+' order'+(g.items.length>1?'s':'')+'</span>';
+      const _cntTxt = (_gTot.altSaved > 0)
+        ? (g.items.length + ' rows · ' + _gTot.planCnt + ' order' + (_gTot.planCnt === 1 ? '' : 's'))
+        : (g.items.length + ' order' + (g.items.length > 1 ? 's' : ''));
+      const cntChip  = '<span class="pv-gmeta" style="font-size:10px;color:#6b8299;margin-left:8px"'
+                     + (_gTot.altSaved > 0 ? ' title="Some rows are 🔗 ALT alternates of the same order — only one of them is counted."' : '')
+                     + '>'+_cntTxt+'</span>';
       const custCell = gName + typeChip + cntChip + '<span class="pv-gqty">'+_fmtMT(gQty)+' MT</span>' + actChip;
 
       h += '<tr class="pv-cust"><td colspan="'+N+'">'+custCell+'</td></tr>' + body;
@@ -2628,6 +3087,16 @@ function _makePlanModule(opts){
     getEffectiveStatus,   /* v4.22.7 — RAM-only status check (TL.ROWS + DB_SC.stations).
                               Used by SCALE.scShowResults to gray out done/cancel orders
                               and by scAssignToStation as a defense-in-depth race guard. */
+    /* ── v4.109 — ORDER LINKS (🔗) ─────────────────────────────────
+       openLink/closeLink/lnkToggleSel/lnkApply/lnkUnlink : hộp thoại.
+       lnkTotals : tổng CÓ HIỂU LINK — SCALE._updateRow1 gọi hàm này để
+                   thẻ PLAN và dải tổng của Ledger không bao giờ lệch nhau.
+       lnkMembers/lnkKind/lnkIsParked : SCALE đọc để biết nhóm đã link mà
+                   gộp thẳng khi assign, khỏi hỏi "load together?". */
+    openLink, closeLink, lnkToggleSel, lnkApply, lnkUnlink,
+    lnkSetPrint(gid, mode){ const ok = lnkSetPrint(gid, mode); if(ok) setTimeout(_lnkRender, 120); return ok; },
+    lnkMembers, lnkTotals, lnkCollapse, lnkKind, lnkGid,
+    lnkIsLinked, lnkIsParked, lnkBadgeHtml, lnkSyncAlt,
     getEffectiveActual,   /* RAM-only ACTUAL loaded (kg) for a row from TL weights.
                               Dùng cho PLAN card donut (SCALE._updateRow1) để LOADED
                               lấy ĐÚNG khối lượng cân thực, không dùng plan qty. */
@@ -2681,6 +3150,8 @@ function tpClearAll(){ TP.clearAll(); }
 function tpRequestDeleteRow(r){ TP.requestDeleteRow(r); }
 function tpExportCsv(){ TP.exportCsv(); }
 function tpCreateTemp(){ TP.createTempDO(); }
+/* v4.109 — 🔗 LINK ORDERS (Today Plan) */
+function tpOpenLink(){ TP.openLink(); }
 function tpToggleRowSync(oid){ TP.toggleRowSync(oid); }
 function tpChangePlanDate(iso){ TP.setPlanDate(iso); }
 function tpToggleDate(iso){ TP.toggleDateSel(iso); }

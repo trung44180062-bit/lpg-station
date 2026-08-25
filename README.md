@@ -23,6 +23,43 @@ Phần đã chuyển và **có test canh**: tab SAP/kho ngoại quan (`tests/bon
 bảng ⚖ Stock-transfer reconciliation (`tests/stx-recon-dom.smoke.js`) — cả hai đều có mục
 quét dấu tiếng Việt trong chuỗi hiển thị, gõ tiếng Việt vào là test đỏ ngay.
 
+## 🔗 ORDER LINKS (v4.109) — một đơn hàng, nhiều dòng kế hoạch
+
+Sale dán kế hoạch theo **dòng xe**, nên một đơn hàng thật hay nằm trên nhiều dòng.
+Nút **🔗 Link Orders** trên thanh công cụ Today Plan khai trước điều đó:
+
+| Kiểu | Nghĩa | Phần mềm làm gì |
+|---|---|---|
+| **ALT** — alternate trucks | Một đơn, khai sẵn 2–3 xe, **chỉ một** xe sẽ vào lấy | Nhóm chỉ tính **MỘT** lần vào PLAN / LOADED / REMAIN (lấy qty lớn nhất). Xe nào vào station trước thì các dòng còn lại tự **park**; xe đó rời station thì tự mở lại |
+| **MDO** — multi-DO | Một xe chở nhiều DO | Tổng vẫn cộng đủ. Lúc assign ở tab Scale **gộp thẳng**, bỏ hẳn popup "load together?", chỉ còn hỏi in PTT **gộp hay tách** |
+
+Lưu ngay trên dòng kế hoạch (`_lnkG` · `_lnkK` · `_lnkPrint` · `_altSkip`) và được
+mang qua re-paste, nên dán lại kế hoạch không làm mất link.
+`TP.lnkTotals()` là **nguồn duy nhất** của dải Plan·Loaded·Remain (Ledger) lẫn thẻ
+PLAN (tab Scale) — hai chỗ không bao giờ lệch nhau nữa. Test canh:
+`tests/order-link.test.js` + `tests/order-link-dom.smoke.js`.
+
+## 🖨 MULTI-DO: in GỘP hay in TÁCH (v4.110)
+
+Một xe chở nhiều DO thì có hai chứng từ phải quyết định cách in: **PTT** (lúc
+assign) và **phiếu cân / Delivery Note** (lúc cân xong).
+
+* **Hỏi đúng MỘT lần, lúc assign.** Cả hai đường — nhóm đã link bằng 🔗 Link
+  Orders lẫn nhóm phần mềm tự dò ra — đều hiện cùng một hộp với hai nút
+  *1 COMBINED SLIP* / *N SEPARATE SLIPS*. Lựa chọn ghi lên trạm (`_pttMode`),
+  nên hộp hỏi phiếu cân lúc PRINT & DONE **mở sẵn đúng ô đó**.
+* **Hộp hỏi là modal thật.** Trước v4.110 nó được vẽ vào ô kết quả tìm kiếm của
+  trạm (`#sc-res-N`) — mà ô đó bị handler click-outside ẩn đi, và bị
+  `scRenderCtrl()` ghi đè mỗi lần **bất kỳ** trạm nào đổi trạng thái (kể cả do
+  máy khác đẩy về). Đó chính là lý do chức năng "khi được khi không".
+* **Số chia per-DO sống sót qua F5 / đổi máy.** `tech._mdoNets` +
+  `tech._tlTurn` lưu trên trạm; nếu RAM trống thì dựng lại y nguyên N phiếu.
+  Không dựng lại được thì **báo rõ**, không âm thầm in một phiếu gộp.
+* **Không dead-end.** Hộp hỏi không đóng khi bấm ra nền; bấm Cancel thì có
+  toast nhắc bấm lại PRINT & DONE.
+
+Test canh: `tests/mdo-print.test.js`.
+
 ## Chạy / xuất bản
 
 Đây là web tĩnh, **không cần build**. Đẩy repo lên GitHub rồi bật **Settings → Pages**

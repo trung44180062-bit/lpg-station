@@ -161,7 +161,17 @@ const SCALE = (function(){
      so a following DONE / PRINT&DONE does NO TL work (no scan, no Firebase). */
   const _tlPushSig = {};
   function _tlFreezeTurn(stId){
-    if(_tlTurnFreeze[stId]==null) _tlTurnFreeze[stId]=getDisplayTurn(stId);
+    if(_tlTurnFreeze[stId]==null){
+      /* v4.110 — bản đồ này chỉ nằm trong RAM, nên F5 giữa chuyến (hoặc mở
+         trên máy khác) là mất số đã chốt: getDisplayTurn() tính lại và ra số
+         KHÁC vì dòng TL của chính xe này đã được đếm ⇒ MERGE_KEY
+         doNo|scaleNo|turn đổi ⇒ TL sinh dòng TRÙNG, và DN in sai ô "Số trạm".
+         Số đã chốt được ghi kèm tech trên trạm (`_tlTurn`), đọc lại trước. */
+      const st = DB_SC.stations[stId];
+      const saved = st && st.tech && st.tech._tlTurn;
+      const n = (saved != null && saved !== '') ? parseInt(saved, 10) : NaN;
+      _tlTurnFreeze[stId] = isNaN(n) ? getDisplayTurn(stId) : n;
+    }
     return _tlTurnFreeze[stId];
   }
   function _tlClearFrozenTurn(stId){ delete _tlTurnFreeze[stId]; delete _tlPushSig[stId]; }
@@ -428,35 +438,43 @@ const SCALE = (function(){
                  REMAIN tự cộng lại). KHÔNG dùng cân thực TL, KHÔNG max tole,
                  KHÔNG dùng station.qty (vòng 2 cũ đã bỏ — lấy qty plan row).
        • REMAIN= PLAN − LOADED. Khớp 1:1 với renderLedger (plan.js). */
-    let planTotalMt = 0, planDoneLoadMt = 0;
+    /* v4.109 — TỔNG ĐI QUA TP.lnkTotals, KHÔNG tự cộng nữa.
+       Một đơn hàng có thể nằm trên nhiều dòng vì sale khai sẵn 2-3 xe mà chỉ
+       MỘT xe sẽ vào lấy (nhóm 🔗 ALT). Cộng thẳng từng dòng thì 1 đơn 25 MT
+       thành 75 MT. lnkTotals thu gọn mỗi nhóm ALT về đúng một đơn (qty lớn
+       nhất) và là hàm DÙNG CHUNG với dải tổng của Ledger, nên thẻ PLAN và
+       Today Plan không bao giờ lệch nhau nữa. */
+    let planTotalMt = 0, planDoneLoadMt = 0, planRowCount = 0, planDoneCount = 0;
     const hasTP = (typeof TP !== 'undefined' && TP.PLAN);
-    const getEff = (hasTP && typeof TP.getEffectiveStatus === 'function')
-      ? TP.getEffectiveStatus : null;
-    /* v4.59 — getEffectiveActual không còn dùng ở đây (LOADED theo plan qty) */
-    let planRowCount = 0;
-    let planDoneCount = 0;   /* v4.5x — số ĐƠN đã complete (status done) */
     if(hasTP){
       const d = new Date(), p = n => String(n).padStart(2,'0');
       const today = d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
-      Object.values(TP.PLAN).forEach(r => {
+      const todayRows = Object.values(TP.PLAN).filter(r=>{
         const fd = String(r._forDate || '').trim();
-        if(fd && fd !== today) return;                       /* today's plan only */
-        const qty = parseFloat(r.qty || 0) || 0;             /* qty only — no contractQty */
-        if(qty <= 0) return;
-        const st = getEff ? String(getEff(r)||'').toLowerCase() : String(r._status||'').toLowerCase();
-        if(st === 'cancel') return;                          /* đơn huỷ: bỏ khỏi mọi tổng */
-        planRowCount++;
-        planTotalMt += qty;
-        if(st === 'done' || st === 'loading'){
-          planDoneCount++;                                   /* đếm đơn complete + đang nạp */
-          planDoneLoadMt += qty;                             /* v4.59 — plan qty, không actual/maxTol */
-        }
+        if(fd && fd !== today) return false;                 /* today's plan only */
+        return (parseFloat(r.qty || 0) || 0) > 0;            /* qty only — no contractQty */
       });
+      if(typeof TP.lnkTotals === 'function'){
+        const t = TP.lnkTotals(todayRows);
+        planTotalMt = t.planMT; planDoneLoadMt = t.loadedMT;
+        planRowCount = t.planCnt; planDoneCount = t.doneCnt;
+      } else {
+        /* dự phòng: bản plan.js cũ chưa có lnkTotals */
+        const getEff = (typeof TP.getEffectiveStatus === 'function') ? TP.getEffectiveStatus : null;
+        todayRows.forEach(r=>{
+          const qty = parseFloat(r.qty || 0) || 0;
+          const st = getEff ? String(getEff(r)||'').toLowerCase() : String(r._status||'').toLowerCase();
+          if(st === 'cancel') return;
+          planRowCount++; planTotalMt += qty;
+          if(st === 'done' || st === 'loading'){ planDoneCount++; planDoneLoadMt += qty; }
+        });
+      }
     }
     const planRemainMt = Math.max(0, planTotalMt - planDoneLoadMt);
+    /* v4.109 — 3 số thập phân: 1 chữ số chỉ tới 100 kg, không đủ để đối chiếu cân. */
     const fmtMt = v => v > 0
-      ? (Math.round(v * 10) / 10).toFixed(1)
-      : (planRowCount > 0 ? '0' : '—');
+      ? v.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
+      : (planRowCount > 0 ? '0.000' : '—');
     const setTxt = (id, val) => { const el = document.getElementById(id); if(el) el.textContent = val; };
     setTxt('scPlanTotal',    fmtMt(planTotalMt));
     setTxt('scPlanDoneLoad', fmtMt(planDoneLoadMt));
@@ -671,7 +689,17 @@ const SCALE = (function(){
     let st='';
     try{ if(typeof TP!=='undefined' && typeof TP.getEffectiveStatus==='function') st=String(TP.getEffectiveStatus(r)||'').toLowerCase(); }catch(_){}
     if(st==='done')   return { code:'done',   badge:'<span class="sc-res-status-badge s-done">✅ DONE</span>',     msg:'Order is DONE — cannot assign to a station' };
-    if(st==='cancel') return { code:'cancel', badge:'<span class="sc-res-status-badge s-cancel">🚫 CANCEL</span>', msg:'Order is CANCELLED — cannot assign to a station' };
+    if(st==='cancel'){
+      /* v4.109 — dòng ALT bị park KHÔNG phải đơn huỷ: nó là xe dự phòng của
+         một đơn mà xe khác đã vào lấy. Nói đúng lý do để nhân viên cân khỏi
+         đi hỏi phòng bán hàng xem sao đơn này lại "bị huỷ". */
+      let _parked = false;
+      try{ _parked = !!(typeof TP!=='undefined' && TP.lnkIsParked && TP.lnkIsParked(r)); }catch(_){}
+      if(_parked) return { code:'altparked',
+        badge:'<span class="sc-res-status-badge s-cancel">⏸ ALT</span>',
+        msg:'Linked order — another truck of this group is already loading, so this row is on hold. It is released automatically if that truck leaves the station.' };
+      return { code:'cancel', badge:'<span class="sc-res-status-badge s-cancel">🚫 CANCEL</span>', msg:'Order is CANCELLED — cannot assign to a station' };
+    }
     if(String(r.allowLoad||'').trim().toUpperCase()==='NO')
       return { code:'noload', badge:'<span class="sc-res-status-badge s-noload">🚫 NO LOAD</span>', msg:'Sale marked NO (not for sale) — cannot assign to a station' };
     const dnum=String(r.doNum||'').trim();
@@ -853,6 +881,9 @@ const SCALE = (function(){
     return rows.filter(r=>{
       if(!r || r===row) return false;
       if(r._oid && String(r._oid) === String(row._oid||'')) return false;       /* same order */
+      /* v4.109 — dòng đã thuộc một nhóm 🔗 nào đó thì để đường LINK lo; phép
+         đoán theo biển số + tài xế không được phép kéo nó vào một nhóm khác. */
+      try{ if(typeof TP!=='undefined' && TP.lnkIsLinked && TP.lnkIsLinked(r)) return false; }catch(_){}
       const es = effStatus(r);
       if(es==='done' || es==='cancel') return false;
       if(_mdoNormPlate(r.plate) !== plate) return false;                         /* same plate */
@@ -872,66 +903,141 @@ const SCALE = (function(){
     });
   }
 
-  /* Render the merge/single picker into the station's search-results dropdown. */
-  function _mdoShowPopup(stId, pickedRow, otherRows){
-    const res = _getOrCreateRes(stId);
-    _positionRes(stId);
-    const allRows = [pickedRow, ...otherRows];
-    const totalQty = allRows.reduce((s,r)=>s+(parseFloat(r.qty||0)||0),0);
-    /* Combined max-tol. Each plan row's `tolerance` already holds (qty + per-load
-       allowance), e.g. 25.000 → 25.300. Summing those would count the loading
-       qty N times. The correct combined max weight is: total loading qty + ONE
-       allowance, where the allowance is the largest per-DO (tolerance − qty). */
-    const _mdoAllow = Math.max.apply(null, allRows.map(r=>{
+  /* ════════════════════════════════════════════════════════════
+     v4.110 — HỘP QUYẾT ĐỊNH MULTI-DO PHẢI LÀ MODAL THẬT
+     ------------------------------------------------------------
+     Tới v4.109 popup "load together?" và popup hỏi cách in được vẽ
+     THẲNG vào ô kết quả tìm kiếm của trạm (#sc-res-N). Có HAI thứ
+     xoá nó bất cứ lúc nào, và đó chính là lý do nhân viên cân thấy
+     chức năng "khi được khi không":
+       1. handler click-outside ở cuối file (capture phase) ẩn dropdown
+          ngay khi bấm ra chỗ khác — kể cả bấm để đọc ghi chú bên cạnh;
+       2. scRenderCtrl() vẽ lại panel là gọi lại scShowResults() cho ô
+          còn chữ ⇒ GHI ĐÈ nội dung popup bằng danh sách tìm kiếm. Mà
+          scRenderCtrl chạy mỗi lần BẤT KỲ trạm nào đổi trạng thái, kể
+          cả do MÁY KHÁC đẩy về qua listener Firebase.
+     Popup biến mất giữa chừng ⇒ _mdoCtx vẫn còn, nút thì không còn,
+     assign coi như không xảy ra mà chẳng báo gì.
+     Nay dựng overlay riêng gắn thẳng vào <body>: nằm ngoài vùng
+     scRenderCtrl vẽ lại, và KHÔNG đóng khi bấm ra nền — quyết định
+     này bắt buộc phải trả lời bằng một trong các nút.
+     ════════════════════════════════════════════════════════════ */
+  function _mdoModal(html){
+    let bg = document.getElementById('sc-mdo-bg');
+    if(bg) bg.remove();
+    bg = document.createElement('div');
+    bg.id = 'sc-mdo-bg';
+    bg.className = 'sc-mdo-bg';
+    bg.innerHTML = '<div class="sc-mdo-card">' + html + '</div>';
+    document.body.appendChild(bg);
+    return bg;
+  }
+  function _mdoModalClose(){ const bg = document.getElementById('sc-mdo-bg'); if(bg) bg.remove(); }
+
+  /* Combined max weight = tổng qty + MỘT phần dung sai lớn nhất. Cộng dồn
+     tolerance của từng dòng sẽ đếm qty nhiều lần: mỗi `tolerance` đã là
+     (qty + dung sai) rồi, ví dụ 25.000 → 25.300. */
+  function _mdoMaxTol(rows){
+    const allow = Math.max.apply(null, rows.map(r=>{
       const q = parseFloat(r.qty||0)||0, t = parseFloat(r.tolerance||r.maxTol||0)||0;
-      return (t>q) ? (t-q) : 0;
+      return (t > q) ? (t - q) : 0;
     }).concat([0]));
-    const maxTol = totalQty + _mdoAllow;
-    const pickedDO = String(pickedRow.doNum||'').trim();
-    const pickedQty = parseFloat(pickedRow.qty||0)||0;
-    const listHTML = allRows.map((r,i)=>{
-      const rowNote=(r.note||'').trim();
-      const doDisplay = String(r.doNum||'').trim() || '<span style="color:#d62839;font-style:italic">Waiting DO</span>';
-      return '<div style="padding:5px 0;'+(i>0?'border-top:1px dashed #e0e8ef':'')+'">'
-        + '<div style="display:flex;align-items:center;gap:6px">'
-        + '<span style="font-family:\'Oswald\',sans-serif;font-weight:700;color:#0077b6;font-size:12px;min-width:85px">'+doDisplay+'</span>'
-        + '<span style="font-size:11px;color:#1a2733;flex:1">'+esc(r.customer||'—')+'</span>'
-        + '<span style="font-family:\'Oswald\',sans-serif;font-weight:700;color:#0d6e3a;font-size:12px">'+esc(String(r.qty||'—'))+' MT</span>'
+    return rows.reduce((s,r)=>s+(parseFloat(r.qty||0)||0),0) + allow;
+  }
+  /* Danh sách DO trong hộp hỏi — dùng chung cho cả hai đường. */
+  function _mdoListHtml(rows){
+    return rows.map((r,i)=>{
+      const note = String(r.note||'').trim();
+      const doTxt = String(r.doNum||'').trim();
+      return '<div class="sc-mdo-item'+(i?' sep':'')+'">'
+        + '<div class="sc-mdo-line">'
+        +   '<span class="sc-mdo-do">'+(doTxt ? esc(doTxt) : '<i>Waiting DO</i>')+'</span>'
+        +   '<span class="sc-mdo-cust">'+esc(r.customer||'—')+'</span>'
+        +   '<span class="sc-mdo-qty">'+esc(String(r.qty||'—'))+' MT</span>'
         + '</div>'
-        + (rowNote?'<div style="margin-top:3px;padding:3px 6px;background:#fffde7;border-left:3px solid #f59e0b;font-size:12px;font-weight:600;color:#92400e">📝 '+esc(rowNote)+'</div>':'')
+        + (note ? '<div class="sc-mdo-note">📝 '+esc(note)+'</div>' : '')
         + '</div>';
     }).join('');
-    const saleNotes = allRows.filter(r=>(r.note||'').trim()).map(r=>esc((r.note||'').trim()));
-    const saleNoteHTML = saleNotes.length
-      ? '<div style="background:#fff8e1;border:2px solid #f59e0b;border-radius:6px;padding:8px 10px;margin-top:8px">'
-        + '<div style="font-family:\'Oswald\',sans-serif;font-size:11px;color:#b45309;letter-spacing:1px;margin-bottom:4px">📋 SALE NOTE</div>'
-        + '<div style="font-size:14px;font-weight:700;color:#78350f;line-height:1.4">'+saleNotes.join('<br>')+'</div></div>'
-      : '';
-    res.innerHTML = '<div style="padding:10px">'
-      + '<div style="font-family:\'Oswald\',sans-serif;font-size:12px;letter-spacing:1px;color:#0077b6;margin-bottom:6px">⚠ MULTI-DO DETECTED — '+esc(pickedRow.plate)+'</div>'
-      + '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Truck <b>'+esc(pickedRow.plate)+'</b> · Driver <b>'+esc(pickedRow.driver||'—')+'</b> — '+allRows.length+' DOs:</div>'
-      + '<div style="background:#f7f9fc;border:1px solid var(--border);border-radius:5px;padding:6px 10px">'+listHTML+'</div>'
-      + saleNoteHTML
-      + '<div style="display:flex;flex-direction:column;gap:5px;margin-top:10px">'
-      + '<button onclick="SCALE.mdoMerge('+stId+')" style="padding:8px 14px;background:linear-gradient(135deg,#0077b6,#005f8e);color:#fff;border:none;border-radius:5px;font-family:\'Oswald\',sans-serif;font-size:12px;font-weight:700;letter-spacing:1px;cursor:pointer">🔗 LOAD TOGETHER — '+totalQty.toFixed(1)+' MT ('+allRows.length+' DO)</button>'
-      + '<button onclick="SCALE.mdoSingle('+stId+')" style="padding:7px 12px;background:#fff;color:#1a2733;border:1.5px solid var(--border);border-radius:5px;font-size:11px;font-weight:600;cursor:pointer">📄 Only '+(pickedDO?('DO '+esc(pickedDO)):esc(pickedRow.customer||'this row'))+' — '+pickedQty.toFixed(1)+' MT</button>'
-      + '<button onclick="SCALE.mdoCancel('+stId+')" style="padding:4px;background:none;border:none;color:var(--muted);font-size:10px;cursor:pointer">✕ Cancel</button>'
-      + '</div></div>';
-    res.style.display='block';
-    _mdoCtx = { stId, pickedRow, otherRows, allRows, totalQty, maxTol };
+  }
+  /* Hai nút chọn cách in, dùng y hệt nhau ở cả hai đường. `pref` là lựa chọn
+     đã ghi nhớ của nhóm (nếu có) — nút đó được tô đậm sẵn. */
+  function _mdoPrintBtns(stId, n, pref){
+    const p = (pref === 'separate') ? 'separate' : 'combined';
+    return '<button class="sc-mdo-btn'+(p==='combined'?' on':'')+'" onclick="SCALE.mdoAssign('+stId+',\'combined\')">'
+      +   '🧾 LOAD TOGETHER · 1 COMBINED SLIP'+(p==='combined'?' ✓':'')
+      +   '<span>One PTT listing every DO, and later one merged Delivery Note</span></button>'
+      + '<button class="sc-mdo-btn'+(p==='separate'?' on':'')+'" onclick="SCALE.mdoAssign('+stId+',\'separate\')">'
+      +   '📑 LOAD TOGETHER · '+n+' SEPARATE SLIPS'+(p==='separate'?' ✓':'')
+      +   '<span>One PTT per DO, and later one Delivery Note per DO</span></button>';
   }
 
-  /* LOAD TOGETHER → merge all DOs into one combined-DO row, then assign. */
-  function mdoMerge(stId){
-    const ctx = _mdoCtx; if(!ctx) return;
+  /* ── Popup DÒ TÌM (chưa link ở Today Plan) ──────────────────────
+     Vẫn hỏi "có gộp không", nhưng câu hỏi cách in được hỏi LUÔN ở đây
+     thay vì để tới lúc in mới lòi ra — nhờ vậy đường dò tìm và đường
+     đã-link hành xử giống hệt nhau, không còn chuyện lúc hỏi lúc không. */
+  function _mdoShowPopup(stId, pickedRow, otherRows){
+    const allRows = [pickedRow, ...otherRows];
+    const totalQty = allRows.reduce((s,r)=>s+(parseFloat(r.qty||0)||0),0);
+    const pickedDO = String(pickedRow.doNum||'').trim();
+    const pickedQty = parseFloat(pickedRow.qty||0)||0;
+    _mdoCtx = { stId, pickedRow, otherRows, allRows, totalQty, maxTol:_mdoMaxTol(allRows), _linkGid:'' };
     scHideResults(stId);
-    /* Build the combined DO string by resolving EACH linked row to its own
-       identity — a real DO when present, otherwise its temp OID. Cleaning the
-       joined string instead (cleanDO of "8651943 PET2606121") would discard every
-       temp token whenever any real DO was present, losing temp-DO members. */
+    _mdoModal(
+        '<div class="sc-mdo-hd det">⚠ MULTI-DO DETECTED — '+esc(pickedRow.plate||'')+'</div>'
+      + '<div class="sc-mdo-sub">Truck <b>'+esc(pickedRow.plate||'')+'</b> · Driver <b>'+esc(pickedRow.driver||'—')+'</b>'
+      + ' has <b>'+allRows.length+' DOs</b> on today\'s plan. Load them together, or only the one picked?</div>'
+      + '<div class="sc-mdo-list">'+_mdoListHtml(allRows)
+      +   '<div class="sc-mdo-total">Total '+totalQty.toFixed(3)+' MT</div></div>'
+      + '<div class="sc-mdo-btns">'
+      +   _mdoPrintBtns(stId, allRows.length, 'combined')
+      +   '<button class="sc-mdo-btn ghost" onclick="SCALE.mdoSingle('+stId+')">📄 ONLY '
+      +     (pickedDO ? ('DO '+esc(pickedDO)) : esc(pickedRow.customer||'THIS ROW'))+' — '+pickedQty.toFixed(3)+' MT'
+      +     '<span>Leave the other DOs on the plan for a later turn</span></button>'
+      +   '<button class="sc-mdo-x" onclick="SCALE.mdoCancel('+stId+')">✕ Cancel — do not assign</button>'
+      + '</div>');
+  }
+
+  /* ── Popup nhóm ĐÃ LINK ở Today Plan ────────────────────────────
+     Sale đã trả lời "có gộp không" từ sáng, nên ở đây chỉ còn đúng một
+     câu: in gộp hay in tách. */
+  function _lnkPttAsk(stId, lk){
+    const rows = lk.allRows;
+    const total = rows.reduce((s,r)=>s+(parseFloat(r.qty||0)||0),0);
+    const pref = (String(rows[0]._lnkPrint||'') === 'separate') ? 'separate' : 'combined';
+    _mdoCtx = { stId, pickedRow: lk.row, otherRows: lk.others, allRows: rows,
+                totalQty: total, maxTol:_mdoMaxTol(rows), _linkGid: lk.gid };
+    scHideResults(stId);
+    _mdoModal(
+        '<div class="sc-mdo-hd lnk">🔗 LINKED MULTI-DO — '+esc(rows[0].plate||'')+'</div>'
+      + '<div class="sc-mdo-sub">These <b>'+rows.length+' DOs</b> were linked in Today Plan, so they load together. '
+      + 'Only one thing left to decide: how to print.</div>'
+      + '<div class="sc-mdo-list">'+_mdoListHtml(rows)
+      +   '<div class="sc-mdo-total">Total '+total.toFixed(3)+' MT</div></div>'
+      + '<div class="sc-mdo-btns">'
+      +   _mdoPrintBtns(stId, rows.length, pref)
+      +   '<button class="sc-mdo-x" onclick="SCALE.mdoCancel('+stId+')">✕ Cancel — do not assign</button>'
+      + '</div>');
+  }
+
+  /* ── GỘP + ASSIGN — đường DUY NHẤT cho cả hai popup ─────────────
+     `mode` = 'combined' | 'separate' (cách in). Ghi vào trạm bằng
+     `_pttMode` nên câu trả lời sống sót qua F5 và sang máy khác; hộp
+     hỏi Delivery Note lúc cân xong lấy chính nó làm mặc định, không
+     còn cảnh hỏi lại rồi mặc định ngược với lúc assign. */
+  function mdoAssign(stId, mode){
+    const ctx = _mdoCtx; if(!ctx) return;
+    const pm = (mode === 'separate') ? 'separate' : 'combined';
+    _mdoModalClose();
+    scHideResults(stId);
+    const oids = ctx.allRows.map(r=>String(r._oid||'')).filter(Boolean);
+    /* Nhóm đã link: ghi nhớ lựa chọn lên nhóm để lần sau mở sẵn đúng ô. */
+    try{ if(ctx._linkGid && typeof TP !== 'undefined' && TP.lnkSetPrint) TP.lnkSetPrint(ctx._linkGid, pm); }catch(_){}
+    /* Chuỗi DO gộp: giải TỪNG dòng ra danh tính của chính nó — DO thật nếu
+       có, không thì OID tạm. Làm cleanDO trên chuỗi đã nối sẽ vứt sạch token
+       tạm mỗi khi có một DO thật, tức là mất luôn thành viên DO tạm. */
     const _rowId = r=>{
       const c = cleanDO(String(r.doNum||'').trim());
-      if(c && /\d{7,}/.test(c)) return c;                 /* has a real DO */
+      if(c && /\d{7,}/.test(c)) return c;
       const oid = String(r._oid||'').trim();
       return isTempOid(c) ? c : (isTempOid(oid) ? oid : '');
     };
@@ -941,22 +1047,86 @@ const SCALE = (function(){
       qty: String(ctx.totalQty),
       tolerance: String(ctx.maxTol),
       _multiDO: true,
-      _linkedRows: ctx.allRows.map(r=>({ doNum:r.doNum||'', customer:r.customer||'', qty:r.qty||'', type:r.type||'', note:r.note||'' })),
-      _mdResolved: true
+      /* v4.110 — lưu DANH TÍNH ĐÃ GIẢI (`_rowId`), không lưu doNum thô. Dòng
+         chưa có DO thật mà cột DO còn trống sẽ cho doNo rỗng ở bước chia số:
+         dòng TL của nó bị bỏ qua KHÔNG BÁO GÌ và phiếu DN in ra trống số DO. */
+      _linkedRows: ctx.allRows.map(r=>({ doNum:(_rowId(r) || String(r.doNum||'').trim()),
+        customer:r.customer||'', qty:r.qty||'', type:r.type||'', note:r.note||'',
+        _oid:String(r._oid||'') })),
+      _mdResolved: true,
+      _pttMode: pm,
+      /* IN TÁCH: phiếu gộp của trạm không dùng được, nên chặn PTT tự mở.
+         Cờ đi THEO DÒNG (không phải biến toàn cục) nên một assign bị chặn
+         giữa chừng không thể nuốt mất PTT của lần assign kế tiếp. */
+      _noAutoPtt: (pm === 'separate')
     });
-    try{ if(typeof logAudit==='function') logAudit('scale:assign_multi_do', stId, '_merge', ctx.allRows.length, '', 'merge'); }catch(_){}
-    scAssignToStation(stId, merged);
+    try{ if(typeof logAudit === 'function')
+      logAudit('scale:assign_multi_do', stId, '_merge', ctx.allRows.length, pm,
+               ctx._linkGid ? 'pre-linked' : 'detected'); }catch(_){}
     _mdoCtx = null;
+    scAssignToStation(stId, merged);
+    /* Chỉ mở bảng in khi trạm THẬT SỰ đã nhận — assign có thể bị chặn (xe bị
+       cấm, thiếu lot, sai ngày…) và khi đó mở bảng in là đánh lừa người dùng. */
+    const st = DB_SC.stations[stId];
+    const okAssigned = !!(st && st.status === 'loading' && String(st.doNum||'') === mergedDOs);
+    if(!okAssigned){ toast('Assign did not go through — nothing was printed','er'); return; }
+    if(pm === 'separate'){
+      setTimeout(()=>{
+        try{
+          if(typeof PTT_EARLY !== 'undefined' && PTT_EARLY.openFor) PTT_EARLY.openFor(oids, 'separate');
+          else toast('Open 🖨 PTT Today to print one slip per DO','er');
+        }catch(e){ console.warn('[multiDO] separate PTT', e); toast('Could not open the separate PTT list','er'); }
+      }, 260);
+    }
   }
-  /* Only the picked row → assign normally (skip re-detection). */
+  /* Tương thích ngược: mọi lối gọi cũ đều là "gộp + in gộp". */
+  function mdoMerge(stId){ mdoAssign(stId, 'combined'); }
+  function lnkAssign(stId, mode){ mdoAssign(stId, mode); }
+  /* Chỉ dòng được chọn → assign như bình thường (bỏ qua dò tìm lần nữa). */
   function mdoSingle(stId){
     const ctx = _mdoCtx; if(!ctx) return;
+    _mdoModalClose();
     scHideResults(stId);
     const single = Object.assign({}, ctx.pickedRow, { _mdResolved: true });
-    scAssignToStation(stId, single);
     _mdoCtx = null;
+    scAssignToStation(stId, single);
   }
-  function mdoCancel(stId){ _mdoCtx = null; scClear(stId); }
+  function mdoCancel(stId){ _mdoModalClose(); _mdoCtx = null; scClear(stId); }
+
+  /* ════════════════════════════════════════════════════════════
+     v4.109 — NHÓM ĐÃ LINK SẴN Ở TODAY PLAN
+     Nút 🔗 Link Orders bên Today Plan cho phép khai TRƯỚC rằng mấy
+     dòng kế hoạch thật ra là một đơn:
+       'mdo' — MỘT xe chở nhiều DO  → assign là GỘP THẲNG, bỏ hẳn câu
+               hỏi "load together?", chỉ còn hỏi in gộp hay tách.
+       'alt' — MỘT TRONG N xe sẽ vào lấy → assign đúng dòng được chọn;
+               các dòng anh em do plan.js (lnkSyncAlt) tự park.
+     ════════════════════════════════════════════════════════════ */
+  function _lnkGroupOf(row){
+    if(typeof TP === 'undefined' || typeof TP.lnkKind !== 'function') return null;
+    const kind = TP.lnkKind(row);
+    if(!kind) return null;
+    const gid = TP.lnkGid(row);
+    if(!gid) return null;
+    /* Chỉ giữ những dòng còn bán được: bỏ done/cancel, bỏ DO đã nằm trên
+       station hoặc trong hàng đợi — xe quay lại chuyến hai không kéo theo
+       DO của chuyến trước. */
+    const assigned = new Set();
+    Object.values(DB_SC.stations||{}).forEach(st=>{ if(st && st.doNum) splitDOs(st.doNum).forEach(d=>assigned.add(d)); });
+    (SC_WAIT||[]).forEach(w=>{ if(w && w.doNum) splitDOs(w.doNum).forEach(d=>assigned.add(d)); });
+    splitDOs(row.doNum||'').forEach(d=>assigned.add(d));
+    const others = TP.lnkMembers(gid).filter(r=>{
+      if(!r || r === row) return false;
+      if(String(r._oid||'') === String(row._oid||'')) return false;
+      let es = '';
+      try{ es = String(TP.getEffectiveStatus(r)||'').toLowerCase(); }catch(_){}
+      if(es === 'done' || es === 'cancel') return false;
+      const rd = splitDOs(r.doNum||'');
+      if(rd.length && rd.every(d=>assigned.has(d))) return false;
+      return true;
+    });
+    return { kind, gid, row, others, allRows: [row].concat(others) };
+  }
 
   /* ═══════════════════════════════════════════════════
      STAFF-ON-DUTY GATE (v4.56 — hard block)
@@ -1083,10 +1253,22 @@ const SCALE = (function(){
        point, so whichever branch the operator picks proceeds cleanly. ── */
     if(!row._mdResolved){
       try{
-        const _others = _mdoFindLinkable(stId, row);
-        if(_others.length){
-          const _tot = [row].concat(_others).reduce((s,r)=>s+(parseFloat(r.qty||0)||0),0);
-          if(_tot <= 27){ _mdoShowPopup(stId, row, _others); return; }
+        /* v4.109 — nhóm đã LINK ở Today Plan thì KHÔNG hỏi lại "load together?".
+           Sale đã trả lời câu đó từ sáng; hỏi lần nữa chỉ tổ làm chậm cân. */
+        const _lk = _lnkGroupOf(row);
+        if(_lk && _lk.kind === 'mdo' && _lk.others.length){
+          _lnkPttAsk(stId, _lk); return;                 /* gộp thẳng, chỉ hỏi cách IN */
+        }
+        if(_lk && _lk.kind === 'alt'){
+          /* Một trong N xe: chỉ dòng này được assign; các dòng anh em do
+             TP.lnkSyncAlt tự park ngay ở lần refreshStatus kế tiếp. */
+          row._mdResolved = true;
+        } else if(!_lk){
+          const _others = _mdoFindLinkable(stId, row);
+          if(_others.length){
+            const _tot = [row].concat(_others).reduce((s,r)=>s+(parseFloat(r.qty||0)||0),0);
+            if(_tot <= 27){ _mdoShowPopup(stId, row, _others); return; }
+          }
         }
       }catch(e){ console.warn('[multiDO] detect failed', e); }
     }
@@ -1118,7 +1300,10 @@ const SCALE = (function(){
       rmooc:row.rmooc||row.romooc||'',turn:getNextTurn(stId),type:row.type||'',
       note:stNote,tech:{},_oid:row._oid||'',
       tolerance:String(row.tolerance||row.maxTol||''),
-      _multiDO:row._multiDO||false,_linkedRows:row._linkedRows||null});
+      _multiDO:row._multiDO||false,_linkedRows:row._linkedRows||null,
+      /* v4.110 — cách in đã chọn lúc assign đi THEO TRẠM, nên sau F5 hay sang
+         máy khác hộp hỏi Delivery Note vẫn mở sẵn đúng ô người ta đã chọn. */
+      _pttMode:row._pttMode||''});
     /* v4.56 — Staff-on-duty is now enforced by _requireStaffOnDuty() above
        (hard block, before this point), so Engineer / Check Booth are always
        present here. */
@@ -1142,8 +1327,18 @@ const SCALE = (function(){
        Idempotent — if the queue's own assign path already spliced the
        item, nothing left to remove. */
     try{ _scWaitCleanupByRow(row._oid||'', doStr); }catch(_){}
-    /* Auto-open PTT for printing — driver needs the ticket to begin loading. */
-    setTimeout(()=>{ try{ pttPrint(stId); }catch(e){ console.warn('[SCALE] auto PTT', e); } }, 150);
+    /* Auto-open PTT for printing — driver needs the ticket to begin loading.
+       v4.110 — trừ khi lần assign NÀY chọn IN TÁCH: phiếu gộp của trạm không
+       dùng được, N phiếu rời in qua PTT_EARLY ngay sau đó. Cờ đọc từ chính
+       `row` (không phải biến toàn cục như v4.109) nên một assign bị chặn giữa
+       chừng không thể nuốt mất PTT của lần assign kế tiếp. */
+    const _noAutoPtt = !!row._noAutoPtt;
+    setTimeout(()=>{
+      try{
+        if(_noAutoPtt) return;
+        pttPrint(stId);
+      }catch(e){ console.warn('[SCALE] auto PTT', e); }
+    }, 150);
   }
 
   /* ═══════════════════════════════════════════════════
@@ -1626,6 +1821,20 @@ const SCALE = (function(){
     return t;
   }
 
+  /* v4.110 — _techRead() dựng object MỚI từ các ô nhập, nên mọi trường do
+     phần mềm tự đặt (`_mdoAllocated`, `_mdoNets`, `_tlTurn`) sẽ rơi mất sau
+     mỗi lần SAVE / PRINT & DONE nếu không chép lại. Trước đây chỉ
+     `_mdoAllocated` được chép tay ở ba chỗ; gom về một hàm để không bao giờ
+     quên trường mới. Đồng thời ĐÓNG DẤU số turn đã chốt để nó sống sót qua F5. */
+  function _techCarry(stId, cur, tech){
+    const prev = (cur && cur.tech) || {};
+    if(prev._mdoAllocated) tech._mdoAllocated = true;
+    if(Array.isArray(prev._mdoNets) && prev._mdoNets.length) tech._mdoNets = prev._mdoNets;
+    const t = (prev._tlTurn != null && prev._tlTurn !== '') ? prev._tlTurn : String(_tlFreezeTurn(stId));
+    if(t != null && t !== '') tech._tlTurn = String(t);
+    return tech;
+  }
+
   /* Order info populate — runs on openTech */
   function _populateOrderInfo(stId, s){
     const eHtml = v => String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1940,6 +2149,48 @@ const SCALE = (function(){
     if(priceVal) payload.price = priceVal;
     return payload;
   }
+  /* v4.110 — Lấy danh sách payload per-DO để in N phiếu Delivery Note.
+     Ưu tiên bản trong RAM (vừa chia xong ở chính máy này); nếu không có thì
+     DỰNG LẠI từ `tech._mdoNets` đã lưu trên trạm. Nhờ vậy chức năng in tách
+     vẫn chạy sau khi F5, sau khi đổi ca, hay khi người bấm PRINT & DONE ngồi
+     ở máy khác với người bấm SAVE. */
+  function _mdoPayloads(stId, cur, tech){
+    const ram = _mdoPayloadsByStation[stId];
+    if(Array.isArray(ram) && ram.length > 1) return ram;
+    const lr = (cur && cur._linkedRows) || [];
+    const nets = (cur && cur.tech && cur.tech._mdoNets) || (tech && tech._mdoNets);
+    if(lr.length < 2 || !Array.isArray(nets) || nets.length !== lr.length) return null;
+    const savedTurn = (cur.tech && cur.tech._tlTurn != null && cur.tech._tlTurn !== '')
+      ? cur.tech._tlTurn : null;
+    /* Số đã lưu phải khớp ĐÚNG thứ tự DO của trạm; lệch một cái là in nhầm
+       khối lượng sang khách khác, nên thà không dựng lại còn hơn dựng sai. */
+    for(let i=0;i<lr.length;i++){
+      const a = String((nets[i]&&nets[i].doNo)||'').trim();
+      const b = String((lr[i]&&lr[i].doNum)||'').trim();
+      if(a && b && a !== b){ console.warn('[multiDO] saved nets do not match station DOs', a, b); return null; }
+    }
+    const out = lr.map((row, i)=>_mdoBuildPayloadFor(
+      stId, cur, tech, row,
+      parseFloat(nets[i].net)||0, parseFloat(nets[i].truckWt)||0, parseFloat(nets[i].grossWt)||0,
+      savedTurn));
+    _mdoPayloadsByStation[stId] = out;
+    return out;
+  }
+  /* Cách in đã chốt lúc assign — hộp hỏi Delivery Note mở sẵn đúng ô đó thay
+     vì luôn mặc định "gộp" rồi mâu thuẫn với phiếu PTT đã in. */
+  function _mdoPrintPref(stId, cur){
+    const fromSt = String((cur && cur._pttMode) || '');
+    if(fromSt === 'separate' || fromSt === 'combined') return fromSt;
+    try{
+      if(typeof TP !== 'undefined' && TP.PLAN && cur && Array.isArray(cur._linkedRows)){
+        for(const lr of cur._linkedRows){
+          const hit = Object.values(TP.PLAN).find(r=>String(r.doNum||'').trim() === String(lr.doNum||'').trim());
+          if(hit && String(hit._lnkPrint||'')) return String(hit._lnkPrint);
+        }
+      }
+    }catch(_){}
+    return 'combined';
+  }
   /* Render the allocation popup (global overlay element). */
   function _mdoAllocShow(stId, cur, tech, netWt){
     const lr = cur._linkedRows || [];
@@ -2034,6 +2285,15 @@ const SCALE = (function(){
     const lastNet = Math.round(ctx.netWt - total);
     if(lastNet<=0){ toast('⚠ Last DO weight ≤ 0 — please check','er'); return; }
     nets.push(lastNet);
+    /* v4.110 — chặn trước: một dòng không có số DO (kể cả DO tạm) thì dòng TL
+       của nó sẽ bị bỏ qua âm thầm và phiếu DN in ra trống số DO. Thà dừng lại
+       và nói rõ còn hơn để lọt một chuyến thiếu chứng từ. */
+    const _missing = lr.map((r,i)=>({ i, id:String((r&&r.doNum)||'').trim() }))
+                       .filter(o=>!o.id).map(o=>'#'+(o.i+1));
+    if(_missing.length){
+      toast('⛔ No DO number on row '+_missing.join(', ')+' — create a temp DO in Today Plan first','er', 6000);
+      return;
+    }
     let runTruck = ctx.truckWt, pushed = 0;
     /* One frozen turn for the whole combined load (same truck, one visit). */
     const comboTurn = _tlFreezeTurn(ctx.stId);
@@ -2050,9 +2310,21 @@ const SCALE = (function(){
     }
     /* Remember the per-DO payloads so PRINT & DONE can print separate DNs. */
     _mdoPayloadsByStation[ctx.stId] = builtPayloads;
+    /* v4.110 — và LƯU BỀN số đã chia lên trạm. Bản đồ trên chỉ nằm trong RAM:
+       F5 một cái, hoặc bấm PRINT & DONE ở máy khác, là câu hỏi "gộp hay tách"
+       biến mất và phần mềm âm thầm in một phiếu gộp — đúng cái mà nhân viên
+       cân báo là "lúc được lúc không". Ba con số này đủ để dựng lại y nguyên
+       N phiếu ở bất kỳ máy nào. */
+    const netsSaved = builtPayloads.map(pl=>({
+      doNo: String(pl.doNo||''),
+      net: parseFloat(pl.lpgQty)||0,
+      truckWt: parseFloat(pl.truckWt)||0,
+      grossWt: parseFloat(pl.grossWt)||0
+    }));
     /* Mark the station tech as allocated so PRINT&DONE / DONE skip the single push. */
     const cur2 = DB_SC.stations[ctx.stId] || ctx.cur;
-    const tech2 = Object.assign({}, cur2.tech||ctx.tech, { _mdoAllocated:true, updatedAt:Date.now() });
+    const tech2 = Object.assign({}, cur2.tech||ctx.tech, {
+      _mdoAllocated:true, _mdoNets:netsSaved, _tlTurn:String(comboTurn), updatedAt:Date.now() });
     setSt(ctx.stId, Object.assign({}, cur2, { tech: tech2 }));
     try{ if(typeof logAudit==='function') logAudit('scale:assign_multi_do', ctx.stId, '_alloc', pushed, '', 'combined'); }catch(_){}
     mdoAllocCancel();
@@ -2085,7 +2357,7 @@ const SCALE = (function(){
     const stId = parseInt(document.getElementById('tech-sid').value);
     const cur = DB_SC.stations[stId];
     if(!cur || cur.status==='empty'){ toast('⚠ Station empty','er'); techClose(); return; }
-    const tech = _techRead();
+    const tech = _techCarry(stId, cur, _techRead());
     if(!tech.grossWt && !tech.truckWt){
       toast('Enter Truck or Gross Wt first','er');
       return;
@@ -2119,7 +2391,7 @@ const SCALE = (function(){
     const stId = parseInt(document.getElementById('tech-sid').value);
     const cur = DB_SC.stations[stId];
     if(!cur || cur.status==='empty'){ toast('⚠ Station empty','er'); techClose(); return; }
-    const tech = _techRead();
+    const tech = _techCarry(stId, cur, _techRead());
     if(!tech.grossWt && !tech.truckWt){
       toast('Enter Truck or Gross Wt first','er');
       return;
@@ -2142,13 +2414,17 @@ const SCALE = (function(){
       tech.updatedAt = Date.now();
       setSt(stId, {...cur, tech});
       techClose();
-      /* Rows already pushed by allocation. Ask: one merged DN, or a separate
-         DN per DO. Falls back to merged if the per-DO payloads aren't around. */
-      const _pl = _mdoPayloadsByStation[stId];
+      /* Dòng TL đã được đẩy lúc chia số. Giờ hỏi: MỘT phiếu gộp, hay MỖI DO
+         một phiếu. v4.110 — danh sách per-DO được DỰNG LẠI từ số đã lưu trên
+         trạm nếu RAM không còn (F5 / máy khác), nên câu hỏi không còn "khi có
+         khi không"; và nếu thật sự không dựng lại được thì NÓI RÕ chứ không
+         âm thầm in gộp. */
       try{
+        const _pl = _mdoPayloads(stId, cur, tech);
         if(typeof _mdoPrintChoice === 'function' && Array.isArray(_pl) && _pl.length > 1){
-          _mdoPrintChoice(stId, cur, tech, _pl);
+          _mdoPrintChoice(stId, cur, tech, _pl, _mdoPrintPref(stId, cur));
         } else {
+          toast('Per-DO weights are missing — printing ONE merged Delivery Note','er', 5000);
           _dnShowOverlay(stId, cur, tech);
         }
       }
@@ -2169,7 +2445,7 @@ const SCALE = (function(){
     const stId = parseInt(document.getElementById('tech-sid').value);
     const cur = DB_SC.stations[stId];
     if(!cur || cur.status==='empty'){ toast('⚠ Station empty','er'); techClose(); return; }
-    const tech = _techRead();
+    const tech = _techCarry(stId, cur, _techRead());
     if(!tech.grossWt && !tech.truckWt){
       toast('Enter Truck or Gross Wt first','er');
       return;
@@ -2677,6 +2953,7 @@ const SCALE = (function(){
       _multiDO:   row._multiDO || false,
       _linkedRows: row._linkedRows || null,
       _mdResolved: !!(row._multiDO && Array.isArray(row._linkedRows) && row._linkedRows.length > 1),
+      _pttMode:   row._pttMode || '',   /* v4.110 — giữ cách in đã chốt qua hàng đợi */
       _targetSt:  stId,
       _turn:      turn
     };
@@ -2857,7 +3134,13 @@ const SCALE = (function(){
         tolerance:   it.tolerance || row.tolerance || '',
         _multiDO:    true,
         _linkedRows: it._linkedRows,
-        _mdResolved: true
+        _mdResolved: true,
+        /* v4.110 — cách in đã chốt lần trước theo xe về tận đây; thiếu nó thì
+           lần assign lại từ hàng đợi rơi về "gộp" và mâu thuẫn với phiếu đã in.
+           CỐ Ý không đặt _noAutoPtt ở đây: assign lại từ hàng đợi không mở bảng
+           in tách, nên chặn PTT tự mở sẽ khiến tài xế không có phiếu nào cả —
+           thà mở bản xem trước gộp (đóng được) còn hơn im lặng. */
+        _pttMode:    it._pttMode || ''
       });
     }
     try{ logAudit('scale:queue:assign', it._oid || it.doNum || '_', '_assign', '', String(stId), 'assign'); }catch(_){}
@@ -2963,6 +3246,7 @@ const SCALE = (function(){
       _multiDO:   stData._multiDO || false,
       _linkedRows: stData._linkedRows || null,
       _mdResolved: !!(stData._multiDO && Array.isArray(stData._linkedRows) && stData._linkedRows.length > 1),
+      _pttMode:   stData._pttMode || '',   /* v4.110 — giữ cách in đã chốt qua hàng đợi */
       _targetSt:  stId,
       _turn:      turn
     });
@@ -2978,6 +3262,8 @@ const SCALE = (function(){
     scSearch, scShowResults, scClear, scHideResults,
     assignFromSearch, stEditOpen, openTech, pttPrint,
     mdoMerge, mdoSingle, mdoCancel,
+    mdoAssign,   /* v4.110 — gộp + assign + chốt cách in, dùng chung cả 2 đường */
+    lnkAssign,   /* v4.109 — giữ tên cũ cho tương thích, gọi thẳng mdoAssign */
     mdoAllocRecalc, mdoAllocSave, mdoAllocCancel,
     techSave, techSaveNew, techPrintDone, techDoneNew, techDone, techClose, _techNet,
     scCalcNet, scFmtTime, scTabNext, _fmtWtLive,

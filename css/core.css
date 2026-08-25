@@ -3667,3 +3667,123 @@ input.stx-inp::placeholder{font-weight:400;color:#b9c6d3;}
 .eng-tbl td.td-cq-miss{background:#fdf0d0;color:#8a4708;font-weight:800;text-align:center;cursor:help;}
 .eng-cqi .cqi-list{margin:6px 0 4px;padding:7px 9px;border-radius:6px;
   background:rgba(255,255,255,.6);font-size:11.5px;line-height:1.75;}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v4.109 — 🔗 ORDER LINKS
+   Chip trên dòng kế hoạch + hộp thoại Link Orders (Today Plan).
+   ═══════════════════════════════════════════════════════════════════ */
+.tp-lnk{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:9px;
+  font-family:'Oswald',sans-serif;font-size:9px;font-weight:700;letter-spacing:.4px;
+  vertical-align:middle;cursor:help;white-space:nowrap;}
+.tp-lnk.alt{background:#e8f1fb;color:#0b5c94;border:1px solid #b7d5ee;}
+.tp-lnk.alt.rep{background:#0b6ea8;color:#fff;border-color:#0b6ea8;}
+.tp-lnk.alt.off{background:#f1f3f5;color:#8a949c;border-color:#dde2e6;text-decoration:line-through;}
+.tp-lnk.mdo{background:#efe6f7;color:#6a2d8e;border:1px solid #d6c0e6;}
+
+.pv-sum-cnt{margin-left:8px;padding:1px 6px;border-radius:9px;background:#eef3f7;
+  color:#5a6b7b;font-size:10px;font-weight:700;}
+.pv-sum-alt{margin-left:6px;padding:1px 6px;border-radius:9px;background:#e8f1fb;
+  color:#0b5c94;font-size:10px;font-weight:700;cursor:help;}
+
+.lnk-bg{position:fixed;inset:0;z-index:12400;background:rgba(10,20,30,.55);
+  display:none;align-items:center;justify-content:center;padding:20px;}
+.lnk-bg.on{display:flex;}
+.lnk-modal{background:#fff;border-radius:12px;width:min(1020px,96vw);max-height:92vh;
+  display:flex;flex-direction:column;box-shadow:0 18px 48px rgba(0,0,0,.32);
+  font-family:Barlow,system-ui,sans-serif;overflow:hidden;}
+.lnk-hdr{display:flex;align-items:flex-start;gap:12px;padding:14px 18px;
+  border-bottom:1px solid var(--line);background:#f7fbfe;}
+.lnk-hdr h3{margin:0;font-family:'Oswald',sans-serif;font-size:17px;color:#0b6ea8;letter-spacing:.5px;}
+.lnk-sub{margin-top:3px;font-size:12px;color:var(--ink-2);line-height:1.4;}
+.lnk-x{margin-left:auto;background:none;border:0;font-size:18px;color:var(--ink-3);cursor:pointer;line-height:1;}
+.lnk-x:hover{color:#d62839;}
+.lnk-body{padding:14px 18px;overflow:auto;flex:1;}
+.lnk-help{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;}
+.lnk-help>div{background:#f7fbfe;border:1px solid #dbe9f4;border-radius:8px;
+  padding:9px 11px;font-size:11.5px;color:var(--ink-2);line-height:1.5;}
+.lnk-help b{color:#0b5c94;}
+.lnk-sect{margin:12px 0 7px;font-family:'Oswald',sans-serif;font-size:11px;
+  letter-spacing:1px;color:var(--ink-3);text-transform:uppercase;}
+
+.lnk-grp{border:1px solid #cfe1f0;border-radius:8px;margin-bottom:9px;overflow:hidden;}
+.lnk-grp.mdo{border-color:#ddc9ec;}
+.lnk-grp-hd{display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  padding:7px 10px;background:#f2f8fd;border-bottom:1px solid #e3eef7;}
+.lnk-grp.mdo .lnk-grp-hd{background:#f8f3fc;border-bottom-color:#eee0f5;}
+.lnk-kind{font-family:'Oswald',sans-serif;font-size:11px;font-weight:700;letter-spacing:.7px;}
+.lnk-kind.alt{color:#0b5c94;} .lnk-kind.mdo{color:#6a2d8e;}
+.lnk-grp-meta{font-size:11px;color:var(--ink-2);}
+.lnk-pm{margin-left:auto;font-size:11px;color:var(--ink-2);display:flex;align-items:center;gap:4px;}
+.lnk-pmb{padding:2px 9px;border:1px solid #cbd8e2;border-radius:11px;background:#fff;
+  font-size:10.5px;font-weight:700;color:var(--ink-2);cursor:pointer;}
+.lnk-pmb.on{background:#0b6ea8;border-color:#0b6ea8;color:#fff;}
+.lnk-unbtn{padding:3px 10px;border:1px solid #f0c2c2;border-radius:6px;background:#fff5f5;
+  color:#b3261e;font-size:11px;font-weight:700;cursor:pointer;}
+.lnk-unbtn:hover{background:#ffe9e9;}
+.lnk-grp-rows{padding:6px 10px;background:#fff;}
+.lnk-mini{font-size:11.5px;color:var(--ink);padding:2px 0;}
+.lnk-parked{color:#8a949c;font-weight:700;}
+
+.lnk-cust{margin:10px 0 3px;padding:3px 8px;background:#eef3f7;border-radius:5px;
+  font-size:11.5px;font-weight:800;color:var(--ink);display:flex;justify-content:space-between;}
+.lnk-cust span{font-weight:600;color:var(--ink-3);font-size:10.5px;}
+.lnk-row{display:grid;grid-template-columns:22px 96px 118px 1fr 78px 74px 88px auto;
+  align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--line-2);
+  font-size:11.5px;cursor:pointer;}
+.lnk-row:hover{background:#f5faff;}
+.lnk-row.linked{opacity:.62;cursor:not-allowed;background:#fbfcfd;}
+.lnk-row.busy .lnk-c.st{color:#0d6e3a;font-weight:700;}
+.lnk-c{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lnk-c.plate{font-family:'Oswald',sans-serif;font-weight:700;}
+.lnk-c.do{font-family:'Courier New',monospace;font-weight:700;color:#0b5c94;}
+.lnk-c.qty{text-align:right;font-weight:700;}
+.lnk-c.date,.lnk-c.st{color:var(--ink-2);font-size:10.5px;}
+.lnk-empty{padding:18px;text-align:center;color:var(--ink-3);font-size:12px;}
+
+.lnk-foot{display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+  padding:11px 18px;border-top:1px solid var(--line);background:#f7fbfe;}
+.lnk-count{font-size:12px;color:var(--ink-2);margin-right:auto;}
+.lnk-btn{padding:8px 14px;border:0;border-radius:7px;font-size:12.5px;font-weight:700;
+  cursor:pointer;color:#fff;}
+.lnk-btn.alt{background:#0b6ea8;} .lnk-btn.mdo{background:#6a2d8e;}
+.lnk-btn.ghost{background:#fff;color:var(--ink-2);border:1px solid var(--line);}
+.lnk-btn:disabled{opacity:.42;cursor:not-allowed;}
+
+/* ═══════════════════════════════════════════════════════════════════
+   v4.110 — Hộp quyết định MULTI-DO ở tab Scale
+   Trước đây popup này được vẽ vào ô kết quả tìm kiếm của trạm nên bị
+   handler click-outside và scRenderCtrl() xoá/ghi đè bất cứ lúc nào.
+   Nay là overlay riêng: không nằm trong vùng bị vẽ lại, không đóng khi
+   bấm ra nền.
+   ═══════════════════════════════════════════════════════════════════ */
+.sc-mdo-bg{position:fixed;inset:0;z-index:12600;background:rgba(10,20,30,.55);
+  display:flex;align-items:center;justify-content:center;padding:18px;}
+.sc-mdo-card{background:#fff;border-radius:12px;width:min(470px,95vw);max-height:92vh;
+  overflow:auto;padding:18px 20px;box-shadow:0 14px 40px rgba(0,0,0,.32);
+  font-family:Barlow,system-ui,sans-serif;}
+.sc-mdo-hd{font-family:'Oswald',sans-serif;font-size:13px;letter-spacing:1px;font-weight:700;}
+.sc-mdo-hd.det{color:#b45309;} .sc-mdo-hd.lnk{color:#6a2d8e;}
+.sc-mdo-sub{margin:5px 0 10px;font-size:12px;color:var(--ink-2);line-height:1.45;}
+.sc-mdo-list{background:#f7f9fc;border:1px solid var(--line);border-radius:6px;padding:7px 10px;}
+.sc-mdo-item.sep{border-top:1px dashed #e0e8ef;margin-top:4px;padding-top:4px;}
+.sc-mdo-line{display:flex;align-items:baseline;gap:8px;}
+.sc-mdo-do{font-family:'Oswald',sans-serif;font-weight:700;font-size:12.5px;color:#0b5c94;min-width:92px;}
+.sc-mdo-do i{color:#d62839;font-weight:600;}
+.sc-mdo-cust{flex:1;min-width:0;font-size:11.5px;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.sc-mdo-qty{font-family:'Oswald',sans-serif;font-weight:700;font-size:12.5px;color:#0d6e3a;}
+.sc-mdo-note{margin-top:3px;padding:3px 7px;background:#fffde7;border-left:3px solid #f59e0b;
+  font-size:11.5px;font-weight:600;color:#92400e;border-radius:0 3px 3px 0;}
+.sc-mdo-total{margin-top:6px;border-top:1px solid #dbe4ec;padding-top:5px;
+  font-size:12px;font-weight:800;color:#1a2733;text-align:right;}
+.sc-mdo-btns{display:flex;flex-direction:column;gap:8px;margin-top:12px;}
+.sc-mdo-btn{padding:11px 13px;border:1.5px solid #cbd8e2;border-radius:8px;background:#f1f5f9;
+  color:#1e293b;font-size:13px;font-weight:700;text-align:left;cursor:pointer;line-height:1.25;}
+.sc-mdo-btn span{display:block;margin-top:2px;font-size:11px;font-weight:400;color:#64748b;}
+.sc-mdo-btn.on{background:linear-gradient(135deg,#0077b6,#005f8e);border-color:transparent;color:#fff;}
+.sc-mdo-btn.on span{color:#dbeafe;}
+.sc-mdo-btn.ghost{background:#fff;}
+.sc-mdo-btn:hover{filter:brightness(1.03);}
+.sc-mdo-x{margin-top:2px;padding:6px;background:none;border:0;color:var(--ink-3);
+  font-size:11.5px;cursor:pointer;}
+.sc-mdo-x:hover{color:#d62839;}
