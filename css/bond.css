@@ -216,6 +216,13 @@
 
 .bond-vas{ color:var(--ink-3);cursor:pointer;font-size:13px; }
 .bond-vas.on{ color:#2f9e63;font-weight:900; }
+/* ⭐ VAS đã NẠP (click 1) — chờ click 2 mới ghi. Phải nhìn là biết ngay đây
+   không còn là ô bình thường, nếu không hai lần bấm chỉ tổ phiền mà không
+   ngăn được cú nhầm nào. */
+.bond-vas.arm{ color:#8a5300;font-weight:900;background:#ffe9a8;
+  border:1px solid #e0a800;border-radius:4px;padding:0 6px;
+  animation:bondVasArm .7s ease-in-out infinite; }
+@keyframes bondVasArm{ 0%,100%{ opacity:1 } 50%{ opacity:.45 } }
 .bond-del{ color:#b3261e;cursor:pointer;font-weight:800; }
 .bond-del:hover{ color:#7d1d15; }
 

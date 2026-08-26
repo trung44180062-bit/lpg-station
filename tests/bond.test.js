@@ -85,6 +85,14 @@ S.markLoaded();
    kiểm tra dưới đây ghim kỳ 2026-08; _wantDay() của kỳ đã qua = 31/08. */
 S.setMonth('2026-08');
 
+/* ⭐ GHIM LUÔN "HÔM NAY" = 24/08/2026.
+   Ảnh chụp Firebase đứng yên, nhưng lượt CHIẾU TỚI TƯƠNG LAI đo từ đồng hồ
+   thật ⇒ càng để lâu, lô càng bị chiếu cạn thêm. Sáng 26/08 hai mục "còn N
+   ngày" và "lùi xa ra vì X=0" đỏ lên dù mã không đổi một chữ: lô 260812X001
+   dự kiến hết ĐÚNG hôm đó (etaDays=0) và tuột khỏi cửa sổ HORIZON.
+   Không ghim thì bộ test đo cả thời gian trôi, không còn nói về mã nữa. */
+S.pinToday('2026-08-24');
+
 /* ---------- [1] ẢNH CHỤP SAP ---------- */
 console.log('\n[1] CHỌN NGÀY SAP');
 let rows=BOND.recalc();

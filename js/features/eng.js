@@ -1110,7 +1110,6 @@ const ENG = (function(){
     const on = String(row[C_ST]||'') !== '1';
     _applyST(row, on);
     render();
-    try{ if(window.ALLOC && ALLOC.refresh) ALLOC.refresh(); }catch(_){}
     if(typeof toast==='function'){
       toast(on ? '✔ Lot '+String(row[1]||'')+' · đã stock transfer'
                : '○ Lot '+String(row[1]||'')+' · bỏ đánh dấu stock transfer', on?'ok':'warn');
@@ -1137,7 +1136,6 @@ const ENG = (function(){
       });
       if(changed){
         render();
-        try{ if(window.ALLOC && ALLOC.refresh) ALLOC.refresh(); }catch(_){}
       }
       return true;
     };

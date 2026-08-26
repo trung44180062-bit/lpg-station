@@ -3,7 +3,8 @@
  * ------------------------------------------------------------
  * Tab: LPG Sales ▸ SAP ▸ nút gạt "🛃 Kho ngoại quan (KNQ)"
  * Global: window.BOND
- * Nạp: SAU sp.js (đọc SP.batch1100) và SAU knq.js (dùng chung node OL1).
+ * Nạp: SAU sp.js (đọc SP.batch1100). Tab KNQ cũ đã gỡ ở v4.109 — node
+ *      knq_bonded/use vẫn là nguồn FEED OL1 và KHÔNG được xoá.
  * LAZY — chỉ đọc Firebase khi bật sang chế độ KNQ lần đầu.
  * ------------------------------------------------------------
  * ⭐ Ý TƯỞNG NỀN — VÌ SAO BẢN NÀY THAY ĐƯỢC CẢ TAB KNQ CŨ
@@ -74,6 +75,16 @@
  *    Đây chính là chỗ đã sót ở bản đầu — bảng OL1 mất mức tạm tính nên
  *    không dự đoán được ngày bơm xong cho P/X.
  *
+ * ⭐ TICK VAS PHẢI BẤM HAI LẦN (v4.109)
+ *    Ô VAS rộng 48 px. Tick nhầm một cái là lô nhảy từ "Empty — no VASSCM"
+ *    (còn việc phải làm, tô cam, đứng trong dải cảnh báo) sang "Done" (làm
+ *    mờ, hết nhắc) ⇒ MẤT DẤU một việc chưa làm mà không ai hay. Bỏ tick nhầm
+ *    cũng tệ ngang. Click 1 chỉ NẠP (ô đổi thành ❓ nền vàng nhấp nháy +
+ *    toast nói rõ sắp bật hay sắp tắt), click 2 vào ĐÚNG ô đó mới ghi.
+ *    Nạp tự huỷ sau 4 s, khi bấm sang ô khác, hoặc khi bảng dựng lại.
+ *    Ô VASSCM date bên cạnh VẪN sửa một lần: gõ sai ngày thì nhìn thấy ngay
+ *    trên bảng, không âm thầm như cái tick.
+ *
  * ⚠ ĐANG LÀM VIỆC Ở ĐÂU THÌ MÀN HÌNH PHẢI Ở NGUYÊN ĐÓ (v4.107 — đã dính)
  *    Bản đầu: mỗi lần gõ một ô hay tick VAS đều `replaceData` cả bảng ⇒
  *    Tabulator dựng lại toàn bộ dòng ⇒ NHẢY VỀ ĐẦU. Đang sửa lô thứ 25 mà
@@ -112,7 +123,7 @@
  *    Khối "📊 Raw SAP" nằm NGOÀI phạm vi — nó là bảng cũ, chưa chuyển ngữ.
  *
  * ⚠ KHÔNG ĐƯỢC làm hai việc sau, đã cân nhắc kỹ:
- *    ① Thêm cột của KNQ vào chính node sap_ — alloc.js / cav.js / plan.js /
+ *    ① Thêm cột của KNQ vào chính node sap_ — cav.js / plan.js /
  *      mthr.js đều đang đọc SP.ROWS, và thông tin hải quan sẽ nằm trong tầm
  *      với của nút 🗑 Range delete. knq_info là node RIÊNG vì lẽ đó.
  *    ② Vẽ lại toàn bộ innerHTML mỗi lần sửa một ô — đó chính là thứ làm tab
@@ -196,7 +207,15 @@ const BOND = (function(){
     const n=parseFloat(s); return isFinite(n)?n:null;
   }
   function _n(v){ const x=_num(v); return x==null?0:x; }
-  function _today(){ const d=new Date();
+  /* ⚠ _pinToday CHỈ dùng cho test. Bộ test chạy trên ẢNH CHỤP Firebase đứng
+     yên (SAP tới 18/08, OL1 hết tháng 8) nhưng lượt CHIẾU TỚI TƯƠNG LAI lại
+     đo từ đồng hồ thật ⇒ mỗi ngày trôi qua là kết quả một khác, và tới ngày
+     lô dự kiến hết thì hai mục "còn N ngày" / "lùi xa ra" đỏ lên dù mã không
+     đổi gì (đã dính hôm 26/08). Ghim ngày là cách duy nhất để bộ test nói về
+     đúng một tình huống. TUYỆT ĐỐI không gọi từ mã chạy thật. */
+  let _pinToday='';
+  function _today(){ if(_pinToday) return _pinToday;
+    const d=new Date();
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
   /* ⭐ MỌI SỐ CỦA KHO NGOẠI QUAN LÀ SỐ CỦA HÔM QUA. SAP chậm hơn thực tế một
      ngày, và hôm nay còn đang bơm dở nên chưa có số cuối cùng. */
@@ -921,8 +940,50 @@ const BOND = (function(){
     if(mk.length) h+='<span class="bond-mks">'+mk.join('')+'</span>';
     return h+'</div>';
   }
+  /* ⭐ TICK VAS PHẢI BẤM HAI LẦN ────────────────────────────────
+     Ô VAS chỉ rộng 48 px và nằm kẹp giữa cột % và cột ngày, nhưng một cái
+     tick nhầm làm lô nhảy thẳng từ "Empty — no VASSCM" (còn việc phải làm,
+     tô cam, đứng trong dải cảnh báo) sang "Done" (làm mờ, hết nhắc) ⇒ MẤT
+     DẤU một việc chưa làm mà không ai hay. Bỏ tick nhầm cũng tệ ngang: lô
+     đã xong tự dựng dậy đòi VASSCM lại.
+     Vì thế: click 1 chỉ NẠP (ô đổi thành ❓ nền vàng + toast nói rõ sắp BẬT
+     hay sắp TẮT), click 2 vào ĐÚNG ô đó mới ghi xuống Firebase.
+     Nạp tự huỷ sau ARM_MS, hoặc khi bấm sang ô khác, hoặc khi bảng dựng lại
+     — người dùng bỏ đi rồi quay lại không được thừa hưởng một cú nạp cũ.
+     ⚠ Chỉ chặn Ô VAS. Ô VASSCM date bên cạnh vẫn sửa một lần như cũ: gõ sai
+     ngày thì nhìn thấy ngay trên bảng, không âm thầm như cái tick. */
+  const VAS_ARM_MS = 4000;
+  let _vasArm=null, _vasArmT=null;          /* _vasArm = {key, el, on} */
+
+  function _vasHtml(on,armed){
+    if(armed) return '<span class="bond-vas arm" title="Click again to '+
+                     (on?'clear':'confirm')+' VASSCM — or move away to cancel">?</span>';
+    return on?'<span class="bond-vas on">✔</span>':'<span class="bond-vas">—</span>';
+  }
   function _vasFmt(cell){
-    return cell.getValue()?'<span class="bond-vas on">✔</span>':'<span class="bond-vas">—</span>';
+    const d=cell.getRow().getData();
+    return _vasHtml(!!cell.getValue(), !!(_vasArm && _vasArm.key===d.key));
+  }
+  /* Gỡ nạp và TRẢ Ô VỀ NGUYÊN TRẠNG. Vẽ thẳng vào DOM chứ không đụng dữ
+     liệu — nạp không phải là một thay đổi, không có gì để đẩy lên Firebase. */
+  function _vasDisarm(){
+    if(_vasArmT){ clearTimeout(_vasArmT); _vasArmT=null; }
+    const a=_vasArm; _vasArm=null;
+    if(a && a.el){ try{ a.el.innerHTML=_vasHtml(a.on,false); }catch(_){} }
+  }
+  function _vasClick(cell){
+    const d=cell.getRow().getData(), el=cell.getElement();
+    if(_vasArm && _vasArm.key===d.key){        /* ── click 2 ⇒ ghi thật */
+      _vasDisarm();
+      setInfo(d.key,'vas',!d.vas);
+      return;
+    }
+    _vasDisarm();                              /* bấm sang ô khác ⇒ ô cũ về cũ */
+    _vasArm={ key:d.key, el:el, on:!!d.vas };
+    try{ el.innerHTML=_vasHtml(!!d.vas,true); }catch(_){}
+    _vasArmT=setTimeout(_vasDisarm,VAS_ARM_MS);
+    _say((d.vas?'Clear':'Confirm')+' VASSCM for '+d.bcode+
+         ' — click the cell again','warn');
   }
 
   function _columns(){
@@ -990,9 +1051,8 @@ const BOND = (function(){
                       'FEED OL1 — plan X from the file, and 2,000 T/day assumed for any day with no TOTAL keyed in.' },
       { title:'VAS', field:'vas', width:48, hozAlign:'center', headerSort:true,
         formatter:_vasFmt, cssClass:'bond-c-user',
-        headerTooltip:'VASSCM declaration filed — click to toggle',
-        cellClick:(e,cell)=>{ if(ro) return; const d=cell.getRow().getData();
-          setInfo(d.key,'vas',!d.vas); } },
+        headerTooltip:'VASSCM declaration filed — click twice to toggle',
+        cellClick:(e,cell)=>{ if(ro) return; _vasClick(cell); } },
       { title:'VASSCM date', field:'vasDate', width:112, editor:ro?undefined:'date',
         headerSort:true, cssClass:'bond-c-user', formatter:_dateFmt },
       { title:'Note', field:'note', width:190, editor:ed, headerSort:false,
@@ -1074,6 +1134,9 @@ const BOND = (function(){
      mới replaceData — và ngay cả lúc đó vẫn trả người dùng về đúng chỗ cũ. */
   function _refill(){
     if(!_table){ _build(); return; }
+    /* Bảng sắp vẽ lại ⇒ phần tử DOM đang giữ trong _vasArm hết giá trị.
+       Gỡ nạp trước, đừng để một cú click cũ còn hiệu lực sau khi số đã đổi. */
+    _vasDisarm();
     const sig=_sig(_rows), pos=_posSave();
     if(sig===_keys){
       try{
@@ -1785,6 +1848,7 @@ const BOND = (function(){
              setFilter:(q,m,l,st)=>{ _fq=(q||'').toLowerCase(); _fMat=m||''; _fLot=l||''; _fSt=st||''; },
              filter:()=>({q:_fq,mat:_fMat,lot:_fLot,st:_fSt}),
              asOf:_asOf, wantDay:_wantDay, sapDay:()=>_sapDay, behind:()=>_sapBehind,
+             today:_today, pinToday:d=>{ _pinToday=d||''; },
              month:()=>_month, setMonth:m=>{ _month=m; },
              setArch:a=>{ _arch=a; }, arch:()=>_arch,
              batchDate:_batchDate, letterOf:_letterOf, key:_key,

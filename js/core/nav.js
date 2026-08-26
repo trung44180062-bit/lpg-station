@@ -55,7 +55,10 @@ function navGo(id){
 /* legacy alias (old call sites) */
 function navStub(id){ navGo(id); }
 
-/* Report page sub-tab switcher: Daily Stock (rpt-shell) ↔ Cavern Daily/SAP-WMS */
+/* Report page sub-tab switcher: Daily Stock (rpt-shell) ↔ Cavern Daily/SAP-WMS
+   v4.109 — GỠ HẲN sub-tab 🛃 KNQ (XNK). Kho ngoại quan đã chuyển sang tab SAP
+   (bond.js/BOND, nút gạt "📊 Raw SAP | 🛃 Bonded warehouse"). Node Firebase
+   knq_bonded/use VẪN GIỮ — BOND đọc FEED OL1 từ chính node đó. */
 function rptSwitchTab(sub){
   document.querySelectorAll('#rptSubs .stab').forEach(b=>{
     b.classList.toggle('on', b.dataset.rptSub === sub);
@@ -63,15 +66,11 @@ function rptSwitchTab(sub){
   const shell = document.querySelector('#page-report .rpt-shell');
   const cav   = document.getElementById('rpt-pg-cavern');
   const mthr  = document.getElementById('rpt-pg-monthly');
-  const knq   = document.getElementById('rpt-pg-knq');
   if(shell) shell.style.display = (sub==='daily') ? '' : 'none';
   if(cav)   cav.style.display   = (sub==='cavern') ? 'flex' : 'none';
   if(mthr)  mthr.style.display  = (sub==='monthly') ? 'flex' : 'none';
-  if(knq)   knq.style.display   = (sub==='knq') ? 'flex' : 'none';
   if(sub==='cavern'){ try{ CAV.render(); }catch(_){} try{ CAV.showDefaults(); }catch(_){} }
   if(sub==='monthly'){ try{ MTHR.onTabEnter(); }catch(_){} }
-  /* KNQ — lazy: chỉ đọc Firebase khi mở tab (batch còn khác 0) */
-  if(sub==='knq'){ try{ KNQ.onTabEnter(); }catch(_){} }
 }
 window.rptSwitchTab = rptSwitchTab;
 

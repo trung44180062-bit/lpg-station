@@ -144,6 +144,65 @@ chk('xoá lọc thì về đủ và nút ✕ ẩn đi',
    lô thứ 25 lại phải cuộn xuống tìm lại — vừa khó chịu vừa dễ gõ nhầm dòng.
    Nguyên do: mỗi lần sửa đều replaceData ⇒ Tabulator dựng lại toàn bộ dòng.
    Chốt chặn dưới đây khoá đúng cơ chế, không phải khoá pixel. */
+/* ═══ TICK VAS PHẢI BẤM HAI LẦN (v4.109) ═══════════════════════════
+   Ô VAS rộng 48 px; một cái tick nhầm đẩy lô từ "Empty — no VASSCM" (còn
+   việc phải làm) sang "Done" (làm mờ, hết nhắc) ⇒ mất dấu việc chưa làm.
+   Chốt chặn: click 1 KHÔNG ĐƯỢC ghi gì xuống Firebase. */
+console.log('\n— TICK VAS BẤM HAI LẦN —');
+(function(){
+  BOND.clearFilter();
+  const cVas=TCFG.columns.find(c=>c.field==='vas');
+  chk('cột VAS bắt sự kiện click chứ không phải editor',
+      !!cVas && typeof cVas.cellClick==='function' && !cVas.editor);
+  chk('tooltip tiêu đề nói rõ phải bấm hai lần',
+      /twice/i.test(cVas.headerTooltip||''), cVas.headerTooltip);
+
+  const r0=BOND._state.all().find(r=>!r.vas && r.inSap);
+  const EL={ innerHTML:'' };
+  const cell={ getValue:()=>!!r0.vas, getElement:()=>EL,
+               getRow:()=>({ getData:()=>r0 }) };
+  const before=r0.vas;
+
+  cVas.cellClick(null,cell);                    /* ── click 1 */
+  chk('⭐ click 1 KHÔNG đổi dữ liệu — chưa ghi gì cả',
+      BOND._state.all().find(r=>r.key===r0.key).vas===before);
+  chk('⭐ …mà chỉ NẠP: ô đổi sang dấu hỏi có class .bond-vas.arm',
+      EL.innerHTML.indexOf('bond-vas arm')>-1, EL.innerHTML);
+  chk('…và formatter vẽ lại cũng giữ trạng thái đã nạp',
+      cVas.formatter(cell).indexOf('bond-vas arm')>-1);
+
+  cVas.cellClick(null,cell);                    /* ── click 2 */
+  chk('⭐ click 2 vào ĐÚNG ô đó mới thật sự ghi',
+      BOND._state.all().find(r=>r.key===r0.key).vas===!before);
+  chk('…ghi xong thì nhả nạp, formatter về ô bình thường',
+      cVas.formatter(cell).indexOf('bond-vas arm')===-1);
+  BOND.setInfo(r0.key,'vas',before);
+
+  /* Bấm ô A rồi bấm ô B: cú nạp ở A phải mất, không được cộng dồn thành
+     "hai lần bấm" trên hai ô khác nhau. */
+  const rA=BOND._state.all().find(r=>!r.vas && r.inSap);
+  const rB=BOND._state.all().find(r=>!r.vas && r.inSap && r.key!==rA.key);
+  const EA={innerHTML:''}, EB={innerHTML:''};
+  const cA={ getValue:()=>!!rA.vas, getElement:()=>EA, getRow:()=>({getData:()=>rA}) };
+  const cB={ getValue:()=>!!rB.vas, getElement:()=>EB, getRow:()=>({getData:()=>rB}) };
+  cVas.cellClick(null,cA); cVas.cellClick(null,cB);
+  chk('⭐ nạp ô A rồi bấm ô B ⇒ ô A nhả ra, KHÔNG ô nào bị ghi',
+      EA.innerHTML.indexOf('arm')===-1 &&
+      BOND._state.all().find(r=>r.key===rA.key).vas===false &&
+      BOND._state.all().find(r=>r.key===rB.key).vas===false);
+  cVas.cellClick(null,cB);
+  chk('…bấm tiếp ô B lần nữa thì B mới được ghi',
+      BOND._state.all().find(r=>r.key===rB.key).vas===true);
+  BOND.setInfo(rB.key,'vas',false);
+
+  /* Bảng vẽ lại giữa chừng ⇒ phần tử DOM đang giữ hết giá trị, phải nhả nạp */
+  cVas.cellClick(null,cA);
+  BOND.render();
+  cVas.cellClick(null,cA);
+  chk('⭐ bảng vẽ lại giữa hai lần bấm ⇒ nạp bị huỷ, click sau chỉ nạp lại',
+      BOND._state.all().find(r=>r.key===rA.key).vas===false);
+})();
+
 console.log('\n— GIỮ NGUYÊN VỊ TRÍ ĐANG CUỘN —');
 (function(){
   BOND._state.setFilter('','','',''); BOND.render();
@@ -452,6 +511,45 @@ chk('⭐ ĐANG BƠM nổi lên, ĐÃ XONG mờ đi',
     'opacity đã xong: '+/opacity:\.46/.test(CSS));
 chk('bốn loại lô có thanh rail màu riêng',
     ['p','x','d','e'].every(l=>CSS.indexOf('bond-lot-'+l+' ')>-1));
+
+/* ═══ HAI TAB ĐÃ GỠ HẲN (v4.109) ═══════════════════════════════════
+   🛃 KNQ (XNK) ở tab Report — kho ngoại quan đã chuyển sang tab SAP này.
+   🎯 ALLOCATION ở tab Sales — không dùng nữa.
+   Chốt chặn để không ai vô tình nối lại một nửa (còn nút mà mất file, hay
+   còn file mà mất nút). ⚠ Node Firebase knq_bonded/use PHẢI CÒN — BOND đọc
+   FEED OL1 từ chính node đó. */
+console.log('\n— HAI TAB ĐÃ GỠ HẲN —');
+(function(){
+  const fs2=require('fs'), P=p=>path.join(ROOT,p);
+  const NAV=fs2.readFileSync(P('js/core/nav.js'),'utf8');
+  const BOOT=fs2.readFileSync(P('js/boot.js'),'utf8');
+  const PLAN=fs2.readFileSync(P('js/features/plan.js'),'utf8');
+
+  chk('⭐ Report KHÔNG còn nút sub-tab KNQ', HTML.indexOf('data-rpt-sub="knq"')===-1);
+  chk('…và không còn khung #rpt-pg-knq', HTML.indexOf('rpt-pg-knq')===-1);
+  chk('…không còn nạp knq.js / knq.css', HTML.indexOf('features/knq.js')===-1 &&
+      HTML.indexOf('css/knq.css')===-1);
+  chk('…rptSwitchTab không còn nhánh knq', NAV.indexOf("sub==='knq'")===-1 &&
+      NAV.indexOf('KNQ.onTabEnter')===-1);
+  chk('⭐ Sales KHÔNG còn nút ALLOCATION', HTML.indexOf('data-sub="alloc"')===-1);
+  chk('…và không còn khung #sub-alloc', HTML.indexOf('sub-alloc')===-1);
+  chk('…không còn nạp alloc.js / alloc.css', HTML.indexOf('features/alloc.js')===-1 &&
+      HTML.indexOf('css/alloc.css')===-1);
+  chk('…boot không còn ALLOC.init, switchSalesTab không còn nhánh alloc',
+      BOOT.indexOf('ALLOC.init')===-1 && PLAN.indexOf("t==='alloc'")===-1);
+  /* Gỡ nửa vời hay để lại một <script src> trỏ vào file đã xoá — trình duyệt
+     nuốt im, chỉ hiện 404 trong console mà không ai nhìn. Quét cho chắc. */
+  const miss=[];
+  [...HTML.matchAll(/(?:src|href)="([^"?]+)(?:\?[^"]*)?"/g)].forEach(m=>{
+    const f=m[1];
+    if(/^(https?:|#|data:|mailto)/.test(f)) return;
+    if(!fs2.existsSync(P(f))) miss.push(f);
+  });
+  chk('⭐ mọi src/href trong index.html đều trỏ tới file CÓ THẬT',
+      miss.length===0, miss.join(', '));
+  chk('⭐ FEED OL1 vẫn đọc node knq_bonded/use (dùng chung, KHÔNG được xoá)',
+      fs2.readFileSync(P('js/features/bond.js'),'utf8').indexOf('knq_bonded/use')>-1);
+})();
 
 console.log('\n'+(fail?('❌ '+fail+' lỗi'):'✅ SMOKE TEST ĐẠT'));
 process.exit(fail?1:0);
