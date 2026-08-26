@@ -892,8 +892,16 @@ const RPT = (function(){
         gi:{tk3501:{c3:0,c4:0}, tk3502:{c3:0,c4:0}, ship:{c3:0,c4:0}, pure:{c3:0,c4:0}}
       };
       const g = groups[key];
-      // Trip key: doNo+truck+scaleNo+turn (best-effort distinct trip)
-      const tk = String(r.doNo||'')+'|'+String(r.truck||'')+'|'+String(r.scaleNo||'')+'|'+String(r.turn||'');
+      /* Trip key: doNo+truck+scaleNo+turn (best-effort distinct trip).
+         v4.112 — MỘT xe chở nhiều DO ghi thành NHIỀU dòng TL nhưng ngoài
+         bãi chỉ có MỘT lượt xe. Dòng nào mang dấu nối `mdoG` thì cả nhóm
+         tính là MỘT lượt, nếu không cột "Trips" đếm dư đúng bằng số DO
+         phụ. (Nhóm ở đây là theo KHÁCH — một xe chở DO của hai khách vẫn
+         là hai lần giao, mỗi khách một lượt; đó là số vận hành cần.) */
+      const _mdoG = String(r.mdoG||'').trim();
+      const tk = _mdoG
+        ? ('MDO|'+_mdoG)
+        : (String(r.doNo||'')+'|'+String(r.truck||'')+'|'+String(r.scaleNo||'')+'|'+String(r.turn||''));
       g._tripSet.add(tk);
       g.loadQty += nw;
       if(!g.price && price) g.price = price;

@@ -348,15 +348,19 @@ const SCALE = (function(){
         /* RAM-only fleet/cert warning + sale note for this station (no popup, no Firebase). */
         let warnRow='';
         try{
-          if(typeof FCHECK!=='undefined'){
-            const w=FCHECK.stationWarning(s);
-            const saleNote=(s.note||s.saleNote||'').toString().trim();
-            if(w||saleNote){
-              let inner='';
-              if(w) inner+=`<div class="sc-warn-line sc-warn-${w.level}">${esc(w.text)}</div>`;
-              if(saleNote) inner+=`<div class="sc-note-line">📝 ${esc(saleNote)}</div>`;
-              warnRow=`<div class="sc-warn-row">${inner}</div>`;
-            }
+          const w = (typeof FCHECK!=='undefined') ? FCHECK.stationWarning(s) : null;
+          const saleNote=(s.note||s.saleNote||'').toString().trim();
+          /* v4.112 — xe này thuộc nhóm 🔗 MULTI-DO nhưng trạm chỉ đang chở
+             MỘT DO ⇒ nói ngay trên thẻ. Hay gặp nhất khi sale link SAU lúc
+             xe đã vào trạm: kế hoạch bảo "một xe hai đơn" mà trạm vẫn một
+             đơn, và trước đây chẳng có chỗ nào nói ra điều đó. */
+          const mdoHint = _mdoStationHint(s);
+          if(w||saleNote||mdoHint){
+            let inner='';
+            if(w) inner+=`<div class="sc-warn-line sc-warn-${w.level}">${esc(w.text)}</div>`;
+            if(mdoHint) inner+=`<div class="sc-warn-line sc-warn-mdo" title="${esc(mdoHint.tip)}">${esc(mdoHint.text)}</div>`;
+            if(saleNote) inner+=`<div class="sc-note-line">📝 ${esc(saleNote)}</div>`;
+            warnRow=`<div class="sc-warn-row">${inner}</div>`;
           }
         }catch(_){}
         /* v4.83 — loại hàng ngay trên thẻ trạm: 50:50 chữ xanh nhạt, mọi loại
@@ -867,12 +871,16 @@ const SCALE = (function(){
   function _mdoFindLinkable(stId, row){
     const plate = _mdoNormPlate(row.plate);
     const driver = String(row.driver||'').trim().toUpperCase();
-    if(!plate || !driver) return [];
+    /* v4.112 — BIỂN SỐ là điều kiện bắt buộc, TÀI XẾ chỉ để loại trừ.
+       Kế hoạch thật hay bỏ trống ô tài xế ở dòng thứ hai của cùng một xe;
+       đòi hai ô khớp nhau y hệt làm phép dò tìm im lặng bỏ qua đúng những
+       ca cần nó nhất. Hai tên KHÁC nhau vẫn loại — đó là hai chuyến khác. */
+    if(!plate) return [];
     const rowDate = String(row._forDate||'').trim();
-    /* DOs already committed: on a station, in the wait queue, or the picked row */
+    /* DO đã cam kết = đang nằm TRÊN TRẠM, hoặc chính dòng đang assign.
+       v4.112 — hàng đợi KHÔNG tính (xe chờ vẫn chưa cân, gộp được). */
     const assigned = new Set();
     Object.values(DB_SC.stations||{}).forEach(st=>{ if(st && st.doNum) splitDOs(st.doNum).forEach(d=>assigned.add(d)); });
-    (SC_WAIT||[]).forEach(w=>{ if(w && w.doNum) splitDOs(w.doNum).forEach(d=>assigned.add(d)); });
     splitDOs(row.doNum||'').forEach(d=>assigned.add(d));
     const rows = (typeof TP!=='undefined' && TP.PLAN) ? Object.values(TP.PLAN) : [];
     const effStatus = (r)=>{ try{ return (typeof TP!=='undefined'&&TP.getEffectiveStatus)
@@ -887,7 +895,8 @@ const SCALE = (function(){
       const es = effStatus(r);
       if(es==='done' || es==='cancel') return false;
       if(_mdoNormPlate(r.plate) !== plate) return false;                         /* same plate */
-      if(String(r.driver||'').trim().toUpperCase() !== driver) return false;     /* same driver */
+      const rDrv = String(r.driver||'').trim().toUpperCase();
+      if(rDrv && driver && rDrv !== driver) return false;                        /* khác tài xế ⇒ khác chuyến */
       if(rowDate && String(r._forDate||'').trim() !== rowDate) return false;     /* same plan date */
       const rDOs = splitDOs(r.doNum||'');
       if(rDOs.length && rDOs.every(d=>assigned.has(d))) return false;            /* already committed */
@@ -988,6 +997,10 @@ const SCALE = (function(){
       + ' has <b>'+allRows.length+' DOs</b> on today\'s plan. Load them together, or only the one picked?</div>'
       + '<div class="sc-mdo-list">'+_mdoListHtml(allRows)
       +   '<div class="sc-mdo-total">Total '+totalQty.toFixed(3)+' MT</div></div>'
+      + (totalQty > 27
+          ? '<div class="sc-mdo-warn">⚠ Combined quantity is '+totalQty.toFixed(3)
+            + ' MT — above the 27 MT a single truck can take. Check with sales before loading them together.</div>'
+          : '')
       + '<div class="sc-mdo-btns">'
       +   _mdoPrintBtns(stId, allRows.length, 'combined')
       +   '<button class="sc-mdo-btn ghost" onclick="SCALE.mdoSingle('+stId+')">📄 ONLY '
@@ -1030,8 +1043,6 @@ const SCALE = (function(){
     _mdoModalClose();
     scHideResults(stId);
     const oids = ctx.allRows.map(r=>String(r._oid||'')).filter(Boolean);
-    /* Nhóm đã link: ghi nhớ lựa chọn lên nhóm để lần sau mở sẵn đúng ô. */
-    try{ if(ctx._linkGid && typeof TP !== 'undefined' && TP.lnkSetPrint) TP.lnkSetPrint(ctx._linkGid, pm); }catch(_){}
     /* Chuỗi DO gộp: giải TỪNG dòng ra danh tính của chính nó — DO thật nếu
        có, không thì OID tạm. Làm cleanDO trên chuỗi đã nối sẽ vứt sạch token
        tạm mỗi khi có một DO thật, tức là mất luôn thành viên DO tạm. */
@@ -1070,6 +1081,30 @@ const SCALE = (function(){
     const st = DB_SC.stations[stId];
     const okAssigned = !!(st && st.status === 'loading' && String(st.doNum||'') === mergedDOs);
     if(!okAssigned){ toast('Assign did not go through — nothing was printed','er'); return; }
+
+    /* ══ v4.112 — QUYẾT ĐỊNH Ở TRẠM PHẢI QUAY NGƯỢC VỀ TODAY PLAN ═══════
+       Chỉ ghi SAU KHI trạm thật sự nhận: một assign bị chặn (xe bị cấm,
+       thiếu lot, sai ngày…) không được để lại một nhóm 🔗 ma trên kế hoạch.
+         • nhóm đã link sẵn ⇒ cập nhật cách in đã chọn;
+         • đường DÒ TÌM  ⇒ LẬP LUÔN nhóm 🔗 MULTI-DO, để Today Plan, thẻ
+           PLAN và mọi tổng hiểu đây là MỘT xe — đúng như nhân viên cân vừa
+           quyết định, không phải chờ ai vào link lại bằng tay. */
+    try{
+      if(ctx._linkGid){
+        if(typeof TP !== 'undefined' && TP.lnkSetPrint) TP.lnkSetPrint(ctx._linkGid, pm);
+      } else if(oids.length > 1 && typeof TP !== 'undefined' && TP.lnkLinkMdo){
+        const res = TP.lnkLinkMdo(oids, pm);
+        if(res === 'created')
+          toast('🔗 Linked as MULTI-DO on Today Plan — '+oids.length+' DOs, one truck','ok');
+        else if(!res)
+          toast('⚠ Loaded together, but Today Plan could not be linked — link them by hand with 🔗 Link Orders','warn',5200);
+      }
+    }catch(e){ console.warn('[multiDO] link back to plan', e); }
+
+    /* Anh em vừa được gộp có thể đang nằm trong HÀNG ĐỢI — dọn hết, nếu
+       không cùng một DO vừa lên trạm lại còn đứng chờ ở hàng đợi. */
+    try{ ctx.allRows.forEach(r=>_scWaitCleanupByRow(String(r._oid||''), String(r.doNum||'').trim())); }catch(_){}
+
     if(pm === 'separate'){
       setTimeout(()=>{
         try{
@@ -1108,24 +1143,31 @@ const SCALE = (function(){
     if(!kind) return null;
     const gid = TP.lnkGid(row);
     if(!gid) return null;
-    /* Chỉ giữ những dòng còn bán được: bỏ done/cancel, bỏ DO đã nằm trên
-       station hoặc trong hàng đợi — xe quay lại chuyến hai không kéo theo
-       DO của chuyến trước. */
-    const assigned = new Set();
-    Object.values(DB_SC.stations||{}).forEach(st=>{ if(st && st.doNum) splitDOs(st.doNum).forEach(d=>assigned.add(d)); });
-    (SC_WAIT||[]).forEach(w=>{ if(w && w.doNum) splitDOs(w.doNum).forEach(d=>assigned.add(d)); });
-    splitDOs(row.doNum||'').forEach(d=>assigned.add(d));
+    /* ── v4.112 — CHỈ "ĐÃ NẰM TRÊN TRẠM" MỚI LOẠI ANH EM RA KHỎI NHÓM ──
+       Trước đây hàng đợi cũng bị tính là "đã cam kết": chỉ cần một anh em
+       đang xếp hàng là nhóm co lại còn một dòng ⇒ assign lặng lẽ thành đơn
+       lẻ — đúng cảnh "đã link, đã chọn gộp mà trạm chỉ hiện một đơn".
+       Xe xếp hàng thì CHƯA cân, gộp được; anh em nào được gộp sẽ được
+       mdoAssign dọn khỏi hàng đợi ngay sau khi trạm nhận. */
+    const onStation = new Set();
+    Object.values(DB_SC.stations||{}).forEach(st=>{ if(st && st.doNum) splitDOs(st.doNum).forEach(d=>onStation.add(d)); });
+    splitDOs(row.doNum||'').forEach(d=>onStation.add(d));
+    const dropped = [];
     const others = TP.lnkMembers(gid).filter(r=>{
       if(!r || r === row) return false;
       if(String(r._oid||'') === String(row._oid||'')) return false;
       let es = '';
       try{ es = String(TP.getEffectiveStatus(r)||'').toLowerCase(); }catch(_){}
-      if(es === 'done' || es === 'cancel') return false;
+      if(es === 'done')   { dropped.push({ r:r, why:'already done' });         return false; }
+      if(es === 'cancel') { dropped.push({ r:r, why:'cancelled' });            return false; }
       const rd = splitDOs(r.doNum||'');
-      if(rd.length && rd.every(d=>assigned.has(d))) return false;
+      if(rd.length && rd.every(d=>onStation.has(d))){
+        dropped.push({ r:r, why:'already on another station' }); return false;
+      }
       return true;
     });
-    return { kind, gid, row, others, allRows: [row].concat(others) };
+    return { kind:kind, gid:gid, row:row, others:others, dropped:dropped,
+             allRows: [row].concat(others) };
   }
 
   /* ═══════════════════════════════════════════════════
@@ -1253,24 +1295,39 @@ const SCALE = (function(){
        point, so whichever branch the operator picks proceeds cleanly. ── */
     if(!row._mdResolved){
       try{
-        /* v4.109 — nhóm đã LINK ở Today Plan thì KHÔNG hỏi lại "load together?".
-           Sale đã trả lời câu đó từ sáng; hỏi lần nữa chỉ tổ làm chậm cân. */
+        /* ══ v4.112 — HAI ĐƯỜNG PHÁT HIỆN MULTI-DO CHẠY SONG SONG ═══════
+           ① Nhóm đã LINK ở Today Plan (sale bấm 🔗 từ sáng) ⇒ không hỏi
+              lại "load together?", chỉ hỏi cách IN.
+           ② Chưa link (sáng nhiều xe quá, không kịp) ⇒ phần mềm TỰ DÒ theo
+              biển số + ngày và hỏi đủ hai câu: bán gộp hay bán tách, in
+              gộp hay in tách. Chọn gộp thì nhóm 🔗 được lập NGƯỢC về Today
+              Plan (xem mdoAssign), nên hai bên không bao giờ nói khác nhau.
+           Đường nào cũng KHÔNG được im lặng bỏ qua: mỗi lối thoát đều nói
+           rõ lý do — chính cái im lặng cũ đẻ ra cảnh "đã link, đã chọn gộp
+           mà trạm chỉ hiện một đơn" mà không ai biết vì sao. */
         const _lk = _lnkGroupOf(row);
-        if(_lk && _lk.kind === 'mdo' && _lk.others.length){
-          _lnkPttAsk(stId, _lk); return;                 /* gộp thẳng, chỉ hỏi cách IN */
-        }
-        if(_lk && _lk.kind === 'alt'){
+        if(_lk && _lk.kind === 'mdo'){
+          if(_lk.others.length){ _lnkPttAsk(stId, _lk); return; }   /* gộp thẳng, chỉ hỏi cách IN */
+          if(_lk.dropped.length){
+            toast('🔗 Multi-DO group — the other DO '
+                + (_lk.dropped.length > 1 ? 's are ' : 'is ')
+                + _lk.dropped.map(d=>d.why).join(' / ')
+                + '. Loading this DO on its own.', 'warn', 5200);
+          }
+          row._mdResolved = true;
+        } else if(_lk && _lk.kind === 'alt'){
           /* Một trong N xe: chỉ dòng này được assign; các dòng anh em do
              TP.lnkSyncAlt tự park ngay ở lần refreshStatus kế tiếp. */
           row._mdResolved = true;
         } else if(!_lk){
           const _others = _mdoFindLinkable(stId, row);
-          if(_others.length){
-            const _tot = [row].concat(_others).reduce((s,r)=>s+(parseFloat(r.qty||0)||0),0);
-            if(_tot <= 27){ _mdoShowPopup(stId, row, _others); return; }
-          }
+          /* v4.112 — BỎ cửa chặn im lặng `tổng <= 27`. Tổng quá tải chính
+             là lúc nhân viên cân CẦN được hỏi nhất; popup vẫn hiện, kèm
+             dòng cảnh báo đỏ, và họ vẫn chọn được "chỉ lấy DO này". */
+          if(_others.length){ _mdoShowPopup(stId, row, _others); return; }
         }
-      }catch(e){ console.warn('[multiDO] detect failed', e); }
+      }catch(e){ console.warn('[multiDO] detect failed', e);
+        toast('⚠ Multi-DO check failed — this DO is being loaded on its own','er'); }
     }
     /* Fleet/cert warning is surfaced inline in the search results + two-click
        confirm in assignFromSearch() — no blocking dialog here. RAM-only.
@@ -2095,6 +2152,37 @@ const SCALE = (function(){
   function _mdoIsCombined(cur){
     return !!(cur && cur._multiDO && Array.isArray(cur._linkedRows) && cur._linkedRows.length > 1);
   }
+  /* ── v4.112 — LƯỚI AN TOÀN CHO THẺ TRẠM ──────────────────────────────
+     Trạm đang chở MỘT DO nhưng dòng kế hoạch của nó lại nằm trong nhóm
+     🔗 MULTI-DO còn DO chưa lấy. Xảy ra khi sale link SAU lúc xe đã vào
+     trạm — lúc đó không còn cơ hội hỏi "gộp hay tách" nữa, nên ít nhất
+     phải NÓI RA, thay vì để nhân viên cân tự phát hiện lúc in phiếu.
+     Trả null khi không có gì để nói (đa số trường hợp). */
+  function _mdoStationHint(cur){
+    try{
+      if(!cur || cur.status !== 'loading') return null;
+      if(_mdoIsCombined(cur)) return null;
+      const oid = String(cur._oid||'').trim();
+      if(!oid || typeof TP === 'undefined' || !TP.PLAN) return null;
+      const row = Object.values(TP.PLAN).find(r=>String(r._oid||'') === oid);
+      if(!row) return null;
+      const lk = _lnkGroupOf(row);
+      if(!lk || lk.kind !== 'mdo' || !lk.others.length) return null;
+      const list = lk.others.map(r=>String(r.doNum||'').trim() || '(no DO)').join(', ');
+      return {
+        text: '🔗 MULTI-DO — ' + lk.others.length + ' more DO not on this load',
+        tip:  'Today Plan links this order with ' + list + ' as one truck, but this station is '
+            + 'carrying only the DO shown. Reset the station and assign again to load them together, '
+            + 'or unlink the group in 🔗 Link Orders.'
+      };
+    }catch(_){ return null; }
+  }
+  /* Khoá nhóm multi-DO ghi xuống TL Data — xem payload.mdoG bên dưới. */
+  function _mdoGroupKey(stId, turn, dateDMY, plate){
+    const pl = String(plate||'').replace(/[-.\s]/g,'').toUpperCase();
+    return 'MDO-' + String(dateDMY||'').replace(/\//g,'') + '-S' + String(stId||'')
+         + '-T' + String(turn||'') + (pl ? ('-' + pl) : '');
+  }
   /* Per-DO TL payload — mirrors _buildTLPayload but sourced from a linked row. */
   function _mdoBuildPayloadFor(stId, cur, tech, lr, jNet, jTruckWt, jGrossWt, sharedTurn){
     /* A combined load is ONE physical truck visit, so every linked DO shares
@@ -2127,7 +2215,14 @@ const SCALE = (function(){
       cust: shortCust, custFull: wmsCust, trade: trade, type: prodType,
       ltank: String(cur.tank||''), lot: lotNum,
       truck: String(cur.plate||''), rmooc: String(cur.rmooc||''), driver: String(cur.driver||''),
-      cw: (lr.qty!=null && lr.qty!=='') ? String(lr.qty) : ''
+      cw: (lr.qty!=null && lr.qty!=='') ? String(lr.qty) : '',
+      /* ══ v4.112 — DẤU NỐI MULTI-DO TRÊN TL DATA ══════════════════════
+         Một xe gộp đẻ ra NHIỀU dòng TL (mỗi DO một dòng) nhưng ngoài bãi
+         chỉ có MỘT lượt xe. Không có dấu này thì báo cáo đếm hai lượt.
+         Khoá dựng theo đúng một lượt xe — ngày · trạm · turn · biển số —
+         nên hai máy cùng ghi vẫn ra cùng một khoá, và người đọc bảng TL
+         nhìn là biết mấy dòng nào đi chung một chuyến. */
+      mdoG: _mdoGroupKey(stId, turn, today, cur.plate)
     };
     if(tech._giAuto) payload.giDate = today;
     payload.truckWt = String(Math.round(jTruckWt));
@@ -2514,10 +2609,41 @@ const SCALE = (function(){
     const tk = tkGetActive();
     const turn = getDisplayTurn(stId);
     const yr = new Date().getFullYear();
-    /* Find matching plan row */
-    const planRow = (typeof TP!=='undefined'&&TP.PLAN) ? Object.values(TP.PLAN).find(p=>String(p.doNum||'').trim()===String(s.doNum||'').trim()) : null;
+    /* Find matching plan row.
+       v4.112 — trạm GỘP giữ chuỗi DO nhiều token ("86758267 86758266") nên
+       tra theo doNum không bao giờ khớp; tra thêm theo _oid để phiếu vẫn
+       lấy được rmooc / loại hàng / ghi chú của dòng kế hoạch gốc. */
+    const planRow = (typeof TP!=='undefined'&&TP.PLAN)
+      ? (Object.values(TP.PLAN).find(p=>String(p.doNum||'').trim()===String(s.doNum||'').trim())
+         || (s._oid ? Object.values(TP.PLAN).find(p=>String(p._oid||'')===String(s._oid||'')) : null)
+         || null)
+      : null;
     /* Customer lookup — v4.22.6 uses VN full name (printed on PTT) */
-    const custName = (typeof CT!=='undefined'&&CT.vnName) ? CT.vnName(s.customer||'') : (s.customer||'');
+    let custName = (typeof CT!=='undefined'&&CT.vnName) ? CT.vnName(s.customer||'') : (s.customer||'');
+    let saleNote = planRow?.note || '';
+    /* ══ v4.112 — PHIẾU PTT CỦA XE GỘP PHẢI LIỆT KÊ ĐỦ MỌI DO ═══════════
+       Trạm đã gộp thì `s.qty` là TỔNG và `s._linkedRows` giữ từng DO kèm
+       số của nó. Trước đây phiếu chỉ in `s.doNum` + một con số, nên tài xế
+       cầm tờ phiếu chỉ thấy một đơn — đúng lỗi người dùng báo. */
+    const _isCombo = _mdoIsCombined(s);
+    let doRows = null;
+    if(_isCombo){
+      doRows = s._linkedRows.map(r=>({
+        doNum: String(r.doNum||'').trim(),
+        qty:   (r.qty != null && r.qty !== '') ? String(r.qty) : '',
+        customer: String(r.customer||'')
+      }));
+      const names = [];
+      s._linkedRows.forEach(r=>{
+        const c = (typeof CT!=='undefined'&&CT.vnName) ? CT.vnName(r.customer||'') : (r.customer||'');
+        const t = String(c||'').trim();
+        if(t && names.indexOf(t) < 0) names.push(t);
+      });
+      if(names.length) custName = names.join(' / ');
+      const notes = [];
+      s._linkedRows.forEach(r=>{ const n = String(r.note||'').trim(); if(n && notes.indexOf(n) < 0) notes.push(n); });
+      if(notes.length) saleNote = notes.join('  |  ');
+    }
     /* TW AVG from Fleet twavg */
     let twAvg = null;
     try{
@@ -2540,7 +2666,8 @@ const SCALE = (function(){
       customer:custName, qty:parseFloat(s.qty)||0, type:s.type||planRow?.type||'',
       driver:s.driver||planRow?.driver||'', tank:s.tank, batch:s.batch,
       turn, twAvg, sfKg, lotFull: s.batch ? _sanitizeLotPrefix(s.batch)+'/'+s.tank : (tk?(tk.lotFull+'/'+tk.name):''),
-      saleNote: planRow?.note||'', maxTol: parseFloat(s.tolerance||planRow?.tolerance||planRow?.maxTol||0)||0
+      saleNote: saleNote, maxTol: parseFloat(s.tolerance||planRow?.tolerance||planRow?.maxTol||0)||0,
+      doRows: doRows          /* v4.112 — null = phiếu một DO như cũ */
     });
   }
 

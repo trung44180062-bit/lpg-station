@@ -80,6 +80,8 @@ const INV = (function(){
   function attachFirebase(){
     const h = fb(); if(!h || _fbBound) return;
     _fbBound = true;
+    /* v4.113 — bản nháp tồn đầu hệ thống của bảng ⚖ / ô thông báo Tank Mix */
+    try{ _stxAttachDrafts(); }catch(e){ console.warn('[INV] stx draft attach', e); }
     /* Listen to today's node only (cheap). Re-bind is handled on date roll by init scheduler re-run. */
     h.ref('inv_daily/'+ds()).on('value', snap=>{
       const v = snap.val() || {};
@@ -787,16 +789,30 @@ const INV = (function(){
   let _stxTSV    = '';
   const _stxLotIn  = { '2100':'', '2101':'' };   // lot người dùng gõ đè
 
-  /* ── v4.111 — TỒN ĐẦU HỆ THỐNG GÕ TAY: MỘT NGUỒN DUY NHẤT ────────────
-     Trước đây con số này chỉ sống trong hai ô <input> của bảng đối chiếu,
-     nên ô thông báo Tank Mix không thể đọc hay sửa được. Giờ nó nằm ở đây
-     và hai màn hình chỉ là HAI CỬA SỔ nhìn vào cùng một chỗ: gõ ở thông
-     báo cũng đúng bằng gõ ở bảng đối chiếu.
-     Khoá theo BỒN + LOT — đổi lot thì số gõ tay của lot cũ KHÔNG được
-     dùng nhầm cho lot mới (đó là số tồn đầu của một mẻ cụ thể).
-       lot = ''  ⇒ chưa ai gõ tay ⇒ lấy SAP End Stock theo luật giờ finish. */
-  const _stxSys = { '2100':{ lot:'', c3:null, c4:null },
-                    '2101':{ lot:'', c3:null, c4:null } };
+  /* ══ v4.113 — TỒN ĐẦU HỆ THỐNG GÕ TAY: BẢN NHÁP LƯU TẠM TRÊN FIREBASE ══
+     v4.111 để con số này trong RAM và CHỈ MỘT ô cho mỗi bồn. Hai lỗ hổng:
+       ① Bồn vừa trộn xong mẻ mới ⇒ thông báo lot mới đẩy vào, số đang gõ dở
+          của lot CŨ bị đè mất — dù thông báo của lot cũ vẫn còn nguyên trên
+          /mix_notify (nó khoá theo TỪNG LOT).
+       ② F5, đổi ca, hay người bấm ✅ ngồi máy khác ⇒ mất trắng.
+     Nay: khoá theo BỒN + LOT (nhiều lot cùng tồn tại song song, đúng như 4
+     ô thông báo có thể là 4 lot khác nhau), và ghi tạm lên
+     /stx_draft/<TK>_<LOT>. Bản nháp bị XOÁ ngay khi kết quả đối chiếu đã
+     được lưu vào Tank Log (nút 💾 hoặc ✅ ở ô thông báo) — Tank Log mới là
+     nơi lưu chính thức, nháp không được phép tích lại theo thời gian.
+     Nháp quá hạn (mặc định 30 ngày) cũng bị dọn khi nạp: một thông báo trộn
+     được trả lời trong vài giờ, nháp cả tháng chỉ còn là rác. */
+  const _STX_DRAFT_PATH = 'stx_draft';
+  const _STX_DRAFT_TTL  = 30*24*3600*1000;     /* 30 ngày */
+  const _stxSys   = Object.create(null);   /* 'sloc|LOT' → {sloc,lot,c3,c4,by,ts} */
+  const _stxPushT = Object.create(null);   /* hẹn giờ gộp ghi cho từng khoá */
+  let   _stxFbRef = null;
+
+  function _stxKey(sloc, lot){ return String(sloc)+'|'+String(lot||'').trim().toUpperCase(); }
+  /* Khoá Firebase: "TK-3501_LPG-2026-900". Firebase cấm . # $ / [ ] */
+  function _stxFbKey(sloc, lot){
+    return String((TKNAME[sloc]||sloc)+'_'+String(lot||'').trim()).replace(/[.#$/\[\]]/g,'_');
+  }
   function _stxN(v){
     if(v === '' || v === null || v === undefined) return null;
     const x = parseFloat(String(v).replace(/,/g,''));
@@ -804,16 +820,90 @@ const INV = (function(){
   }
   /* Số gõ tay ĐANG CÓ HIỆU LỰC cho đúng bồn + lot này, hoặc null. */
   function _stxManualOf(sloc, lot){
-    const m = _stxSys[sloc];
-    if(!m || !m.lot) return null;
-    if(String(m.lot) !== String(lot || '')) return null;
+    const l = String(lot||'').trim();
+    if(!l) return null;
     /* CỐ Ý: xoá trắng cả hai ô VẪN là "đang gõ tay" — người dùng đang tự
        nhập, đừng lặng lẽ nhét số SAP trở lại vào ô họ vừa xoá. */
-    return m;
+    return _stxSys[_stxKey(sloc, l)] || null;
   }
   function _stxStore(sloc, lot, c3, c4){
-    if(!_stxSys[sloc]) return;
-    _stxSys[sloc] = { lot:String(lot || ''), c3:_stxN(c3), c4:_stxN(c4) };
+    const l = String(lot||'').trim();
+    if(!l) return;                       /* chưa biết lot thì không có gì để lưu */
+    _stxSys[_stxKey(sloc, l)] = { sloc:String(sloc), lot:l, c3:_stxN(c3), c4:_stxN(c4),
+                                  by:by(), ts:Date.now() };
+    _stxPushDraft(sloc, l);
+  }
+  /* Bỏ bản nháp của MỘT lot — gọi khi đã lưu vào Tank Log, hoặc khi người
+     dùng bấm ⟳ để quay lại số SAP. */
+  function _stxDrop(sloc, lot){
+    const l = String(lot||'').trim(); if(!l) return;
+    const k = _stxKey(sloc, l);
+    delete _stxSys[k];
+    if(_stxPushT[k]){ clearTimeout(_stxPushT[k]); delete _stxPushT[k]; }
+    _stxRemoveDraft(sloc, l);
+  }
+  /* Ghi GỘP: gõ từng chữ số không được đẻ ra một lượt ghi Firebase. */
+  function _stxPushDraft(sloc, lot){
+    const k = _stxKey(sloc, lot);
+    if(_stxPushT[k]) clearTimeout(_stxPushT[k]);
+    _stxPushT[k] = setTimeout(()=>{
+      delete _stxPushT[k];
+      const m = _stxSys[k];
+      if(!m || !_stxFbRef) return;
+      try{
+        _stxFbRef.child(_stxFbKey(m.sloc, m.lot)).set({
+          sloc:String(m.sloc), lot:String(m.lot),
+          c3:(m.c3 === null ? null : m.c3), c4:(m.c4 === null ? null : m.c4),
+          by:String(m.by||''), ts:+m.ts || Date.now()
+        }).catch(e=>{
+          console.warn('[INV] stx draft push', e);
+          toast('⚠ Could not save the system-opening draft to the server — it is kept on this machine only','warn');
+        });
+      }catch(e){ console.warn('[INV] stx draft push', e); }
+    }, 700);
+  }
+  function _stxRemoveDraft(sloc, lot){
+    if(!_stxFbRef) return;
+    try{ _stxFbRef.child(_stxFbKey(sloc, lot)).remove()
+      .catch(e=>console.warn('[INV] stx draft remove', e)); }
+    catch(e){ console.warn('[INV] stx draft remove', e); }
+  }
+  /* Nạp bản nháp từ Firebase. Bản ĐANG GÕ ở máy này (ts mới hơn) được GIỮ,
+     không để một lượt đẩy về của chính mình nuốt mất mấy chữ số vừa gõ. */
+  function _stxAttachDrafts(){
+    const h = fb(); if(!h || _stxFbRef) return;
+    _stxFbRef = h.ref(_STX_DRAFT_PATH);
+    _stxFbRef.on('value', snap=>{
+      const all = snap.val() || {};
+      const seen = Object.create(null);
+      const stale = [];
+      Object.keys(all).forEach(fk=>{
+        const v = all[fk]; if(!v || typeof v !== 'object') return;
+        const sloc = String(v.sloc||''), lot = String(v.lot||'').trim();
+        /* ⚠ _stxSys là Object.create(null) — KHÔNG có hasOwnProperty. Đừng
+           bao giờ gọi phương thức của Object trên nó. */
+        if(!sloc || !lot || !TKNAME[sloc]) return;
+        const ts = +v.ts || 0;
+        if(ts && (Date.now() - ts) > _STX_DRAFT_TTL){ stale.push(fk); return; }
+        const k = _stxKey(sloc, lot);
+        seen[k] = 1;
+        const cur = _stxSys[k];
+        if(cur && (+cur.ts||0) >= ts) return;      /* bản ở máy này mới hơn */
+        _stxSys[k] = { sloc:sloc, lot:lot, c3:_stxN(v.c3), c4:_stxN(v.c4),
+                       by:String(v.by||''), ts:ts };
+      });
+      /* Bản nháp đã bị máy khác xoá (vì đã lưu xong vào Tank Log) thì bỏ
+         luôn ở đây — trừ bản đang chờ ghi của chính máy này. */
+      Object.keys(_stxSys).forEach(k=>{ if(!seen[k] && !_stxPushT[k]) delete _stxSys[k]; });
+      if(stale.length){
+        console.warn('[INV] stx draft: dọn '+stale.length+' bản nháp quá hạn');
+        stale.forEach(fk=>{ try{ _stxFbRef.child(fk).remove().catch(()=>{}); }catch(_){} });
+      }
+      _stxSyncViews(true);
+    }, err=>{
+      console.warn('[INV] stx draft listen', err);
+      if(typeof fbErr === 'function') fbErr(err, 'Load reconciliation drafts');
+    });
   }
   /* Vẽ lại CẢ HAI cửa sổ. Bảng đối chiếu chỉ vẽ khi đang mở, để việc gõ ở
      ô thông báo không phải trả giá cho một modal đang đóng. */
@@ -1109,9 +1199,10 @@ const INV = (function(){
     renderStx(false);
     try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
   }
-  /* ⟳ — bỏ số gõ tay, quay lại số SAP tự lấy */
+  /* ⟳ — bỏ số gõ tay, quay lại số SAP tự lấy. v4.113: xoá luôn bản nháp
+     trên Firebase, nếu không lần nạp sau nó lại đẩy con số vừa bỏ trở về. */
   function stxSysReset(sloc){
-    _stxStore(sloc, '', '', '');
+    try{ const ctx = _stxCtx(sloc); _stxDrop(sloc, ctx.lot); }catch(_){}
     renderStx(true);
     try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
   }
@@ -1297,6 +1388,12 @@ const INV = (function(){
     ENG.setStxRecon(F.lot, F.tank,
       { gap3:F.gapC3, gap4:F.gapC4, adj3:F.xC3, adj4:F.xC4 },
       (ok, why)=>{
+        /* ══ v4.113 — LƯU XONG THÌ BỎ BẢN NHÁP ═══════════════════════
+           Tank Log mới là nơi lưu chính thức. Giữ lại bản nháp vừa thừa
+           vừa nguy hiểm: lần sau mở lên nó đè số SAP bằng con số cũ mà
+           không ai nhớ vì sao. Chỉ xoá khi ghi THÀNH CÔNG — thất bại thì
+           GIỮ nguyên để nhân viên bấm 💾 lại, không mất công gõ. */
+        if(ok){ try{ _stxDrop(F.sloc, F.lot); }catch(_){} }
         if(!o.quiet){
           if(ok) toast('💾 Saved to the Tank Log · lot ' + F.lot + ' (' + F.tank + ') — gap '
                      + Math.round(F.gapC3).toLocaleString('en-US') + ' / '
@@ -1413,7 +1510,11 @@ const INV = (function(){
     let cls = 'na', txt = '';
     if(tag === 'manual'){
       cls = 'man';
-      txt = '<b>Manual entry</b> — typed by the operator'
+      const man = ctx ? _stxManualOf(sloc, ctx.lot) : null;
+      const who = man && man.by ? String(man.by) : '';
+      const whn = man && man.ts ? _stxWhen(man.ts) : '';
+      txt = '<b>Manual entry</b> — typed by ' + (who ? _esc2(who) : 'the operator')
+          + (whn ? ' at ' + whn : '')
           + ' <button class="stx-mini" onclick="INV.stxSysReset(\'' + sloc + '\')" '
           + 'title="Discard the typed figures and reload from SAP">⟳ reload</button>'
           + (day && day.ok && sap && sap.has
@@ -1422,7 +1523,11 @@ const INV = (function(){
                 + ' kg</span>' + _stxSapStamp(sap)
               : '')
           + '<span class="why">The same figure is shown on the Tank Mix notification — editing it in '
-          + 'either place changes both.</span>';
+          + 'either place changes both.</span>'
+          /* v4.113 — nói rõ số đang gõ ĐÃ được giữ hộ, để nhân viên yên tâm
+             bỏ dở đi làm việc khác rồi quay lại. */
+          + '<span class="why">Held on the server for this lot, so it survives a refresh, a shift change '
+          + 'and a new mix on the same tank. It is cleared the moment the figures are saved to the Tank Log.</span>';
     } else if(tag === 'none'){
       cls = 'na'; txt = 'No lot selected.';
     } else if(tag === 'sap'){

@@ -3870,3 +3870,17 @@ input.ntx-inp::placeholder{font-weight:400;color:#b9c6d3;font-size:11px;}
   .ntx-k{grid-column:1 / -1;}
   .ntx-t{grid-column:1 / -1;text-align:left;}
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v4.112 — MULTI-DO: dò tìm ở trạm + gộp thật sự
+   ═════════════════════════════════════════════════════════════════════ */
+/* Cảnh báo tổng quá 27 MT trong hộp hỏi multi-DO — vẫn cho gộp, nhưng
+   nhân viên cân phải NHÌN THẤY con số trước khi bấm. */
+.sc-mdo-warn{margin-top:9px;padding:7px 10px;border-radius:7px;font-size:11px;line-height:1.45;
+  background:#fdecea;color:#8a2019;border:1px solid #f0c7c4;font-weight:600;}
+/* Dòng nhắc trên thẻ trạm: xe thuộc nhóm 🔗 MULTI-DO nhưng đang chở 1 DO. */
+.sc-warn-line.sc-warn-mdo{background:#eef5ff;color:#1e3a8a;border:1px solid #cddffa;cursor:help;}
+
+/* v4.113 — dòng "còn N thông báo nữa" dưới 4 ô Tank Mix */
+.ntx-more{margin-top:9px;padding:6px 10px;border-radius:7px;font-size:11px;line-height:1.45;
+  background:#fff8e6;color:#8a5a09;border:1px solid #f2dfb0;font-weight:600;text-align:center;}

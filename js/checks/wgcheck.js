@@ -1045,22 +1045,41 @@ function _pttShowOverlay(d){
   const lotStr = _pfLotStack(d.lotFull||'');
   const e=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
   const ce=(id,v)=>'<span contenteditable="true" id="pttov-'+id+'">'+e(v)+'</span>';
+  /* ══ v4.112 — PHIẾU GỘP NHIỀU DO ═════════════════════════════════════
+     `d.doRows` = [{doNum, qty, customer}] do SCALE.pttPrint dựng từ
+     station._linkedRows. Có nó thì ô DO Info liệt kê TỪNG DO kèm số của
+     nó, và ô Loading Q'ty được đánh dấu "(total)" để không ai nhầm tổng
+     với số của một đơn. Không có thì phiếu giữ NGUYÊN hình dạng cũ —
+     tuyệt đại đa số phiếu vẫn là một DO. */
+  const mdRows = (Array.isArray(d.doRows) && d.doRows.length > 1) ? d.doRows : null;
+  const doTxt  = mdRows ? mdRows.map(x=>String(x.doNum||'')).join('\n') : String(d.doNum||'');
+  const doQTxt = mdRows ? mdRows.map(x=>String(x.qty||'')).join('\n')   : String(d.qty||'');
   let h='';
   /* ── Render A5 PTT paper ── */
   h+='<div class="pf-ptt-paper" id="pttOvPaper" style="box-shadow:none;width:100%"><div class="pf-ptt">';
   /* Header */
-  h+='<div class="pf-ptt-hdr"><div style="line-height:1.15"><div style="font-family:\'Arial Black\',Arial,sans-serif;font-size:18pt;font-weight:900;color:#000;letter-spacing:0.5px">HYOSUNG</div><div style="font-family:Arial,sans-serif;font-size:10pt;font-weight:700;color:#1a3a5c;letter-spacing:1px;margin-top:1px">VINA CHEMICALS</div></div><div><div class="pf-ptt-titl">LPG LOADING INFORMATION</div></div></div>';
+  h+='<div class="pf-ptt-hdr"><div style="line-height:1.15"><div style="font-family:\'Arial Black\',Arial,sans-serif;font-size:18pt;font-weight:900;color:#000;letter-spacing:0.5px">HYOSUNG</div><div style="font-family:Arial,sans-serif;font-size:10pt;font-weight:700;color:#1a3a5c;letter-spacing:1px;margin-top:1px">VINA CHEMICALS</div></div><div style="text-align:right"><div class="pf-ptt-titl">LPG LOADING INFORMATION</div>'
+    + (mdRows ? '<div style="font-size:8pt;font-weight:700;color:#0077b6;margin-top:2pt;letter-spacing:.5px">COMBINED · '+mdRows.length+' DO</div>' : '')
+    + '</div></div>';
   /* Info grid */
   h+='<div class="pf-ig">';
   h+='<div class="pf-il">Customer</div><div class="pf-iv" style="grid-column:span 3;border-right:none;font-size:10.5pt">'+ce('cust',d.customer)+'</div>';
   h+='<div class="pf-il">Truck No.</div><div class="pf-iv" style="font-size:13pt;font-weight:900;font-family:\'Courier New\',monospace">'+ce('plate',d.plate)+'</div>';
   h+='<div class="pf-il" style="border-left:none">Rmooc No.</div><div class="pf-iv norb" style="font-size:13pt;font-weight:900;font-family:\'Courier New\',monospace">'+ce('rmooc',d.rmooc)+'</div>';
   h+='<div class="pf-il-qty">Loading Q\'ty</div>';
-  h+='<div style="padding:3px 6px;border-right:1px solid #888;border-bottom:2px solid #333;display:flex;align-items:center"><span contenteditable="true" id="pttov-qty" style="font-size:20pt;font-weight:900;font-family:\'Courier New\',monospace">'+e(dX>0?dX:'')+'</span><span style="font-size:11pt;color:#666;margin:0 4px">Ton /</span><span contenteditable="true" id="pttov-maxqty" style="font-size:20pt;font-weight:900;font-family:\'Courier New\',monospace">'+e(dY>0?dY:'')+'</span><span style="font-size:11pt;color:#666;margin-left:4px">Ton</span></div>';
+  h+='<div style="padding:3px 6px;border-right:1px solid #888;border-bottom:2px solid #333;display:flex;align-items:center"><span contenteditable="true" id="pttov-qty" style="font-size:20pt;font-weight:900;font-family:\'Courier New\',monospace">'+e(dX>0?dX:'')+'</span><span style="font-size:11pt;color:#666;margin:0 4px">Ton /</span><span contenteditable="true" id="pttov-maxqty" style="font-size:20pt;font-weight:900;font-family:\'Courier New\',monospace">'+e(dY>0?dY:'')+'</span><span style="font-size:11pt;color:#666;margin-left:4px">Ton</span>'+(mdRows?'<span style="font-size:8pt;color:#888;font-weight:600;margin-left:5px">(total)</span>':'')+'</div>';
   h+='<div class="pf-il-qty" style="border-left:none;font-size:8pt">Product Type</div><div style="padding:3px 6px;border-bottom:2px solid #333;display:flex;align-items:center"><span contenteditable="true" id="pttov-prodtype" style="font-size:12pt;font-weight:800;color:#1a5276;letter-spacing:0.5px">'+e(prodType)+'</span></div>';
   h+='<div class="pf-il" style="font-size:8pt;padding:2px 4px">Safe Fill Allow</div><div class="pf-iv" style="font-family:\'Courier New\',monospace;padding:2px 5px;display:flex;align-items:center"><span contenteditable="true" id="pttov-sf" style="font-size:20pt;font-weight:900;font-family:\'Courier New\',monospace">'+e(sfStr)+'</span><span style="font-size:9pt;color:#666;margin-left:4px;font-weight:600">kg</span></div>';
   h+='<div class="pf-il" style="border-left:none;font-size:8pt;padding:2px 4px">Lot / Tank</div><div class="pf-iv norb" style="font-family:\'Courier New\',monospace;font-size:12pt;font-weight:700;padding:2px 5px;line-height:1.15;white-space:pre-line">'+ce('lot',lotStr)+'</div>';
-  h+='<div class="pf-il nobb" style="font-size:8pt;padding:2px 4px">DO Info</div><div class="pf-iv nobb" style="font-family:\'Courier New\',monospace;padding:2px 5px;line-height:1.2;display:block"><div contenteditable="true" id="pttov-do" style="font-size:12pt;font-weight:900;white-space:pre-line">'+e(d.doNum)+'</div><div style="font-size:12pt;font-weight:900;color:#000"><span contenteditable="true" id="pttov-doqty">'+e(d.qty||'')+'</span><span style="font-size:9pt;color:#666;margin-left:3px;font-weight:600">Ton</span></div></div>';
+  h+='<div class="pf-il nobb" style="font-size:8pt;padding:2px 4px">DO Info</div>'
+    + (mdRows
+        /* Gộp: DO và số của nó đứng THÀNH HAI CỘT, mỗi DO một dòng — đọc
+           ngang là ra "đơn nào bao nhiêu tấn". Vẫn sửa tay được như cũ. */
+        ? '<div class="pf-iv nobb" style="font-family:\'Courier New\',monospace;padding:2px 5px;line-height:1.25;display:flex;gap:10px;align-items:flex-start">'
+          + '<div contenteditable="true" id="pttov-do" style="font-size:12pt;font-weight:900;white-space:pre-line">'+e(doTxt)+'</div>'
+          + '<div contenteditable="true" id="pttov-doqty" style="font-size:12pt;font-weight:900;color:#000;white-space:pre-line;text-align:right;min-width:34px">'+e(doQTxt)+'</div>'
+          + '<span style="font-size:9pt;color:#666;font-weight:600;padding-top:3px">Ton</span></div>'
+        : '<div class="pf-iv nobb" style="font-family:\'Courier New\',monospace;padding:2px 5px;line-height:1.2;display:block"><div contenteditable="true" id="pttov-do" style="font-size:12pt;font-weight:900;white-space:pre-line">'+e(doTxt)+'</div><div style="font-size:12pt;font-weight:900;color:#000"><span contenteditable="true" id="pttov-doqty">'+e(doQTxt)+'</span><span style="font-size:9pt;color:#666;margin-left:3px;font-weight:600">Ton</span></div></div>');
   h+='<div class="pf-il nobb" style="border-left:none;font-size:8pt;padding:2px 4px">Bay</div><div class="pf-iv norb nobb" style="font-size:15pt;font-weight:900;padding:2px 5px">'+ce('bay',bayStr)+'</div>';
   h+='</div>';
   /* Weigh table */

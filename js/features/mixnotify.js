@@ -233,7 +233,10 @@ const MIXNOTIFY = (function(){
             + '</div>';
     } else {
       const hs = F.hasSys;
-      const srcTxt = ({ sap:'from SAP End Stock', manual:'typed by the operator',
+      const srcTxt = ({ sap:'from SAP End Stock',
+                        /* v4.113 — số gõ tay được giữ hộ trên server theo TỪNG LOT,
+                           nên bồn trộn tiếp mẻ mới cũng không nuốt mất nó. */
+                        manual:'typed by the operator and held on the server for this lot',
                         'sap-missing':'SAP End Stock for that day is not loaded — type it in',
                         'manual-required':'must be typed in (mixing finished inside operating hours)',
                         none:'—' })[F.sysTag] || '';
@@ -346,6 +349,20 @@ const MIXNOTIFY = (function(){
           + '</span><button class="sc-r5-mix-ok" onclick="MIXNOTIFY.confirm(\''
           + String(item._pk||'').replace(/'/g,"\\'") + '\')">✅</button></div></div>';
       }
+    }
+    /* ── v4.113 — CÓ HƠN 4 THÔNG BÁO THÌ PHẢI NÓI RA ───────────────────
+       Bảng chỉ có 4 ô. Thông báo thứ 5 trở đi vẫn nằm nguyên trên
+       /mix_notify (khoá theo TỪNG LOT nên không cái nào đè cái nào), nhưng
+       trước đây không hiện ở đâu cả — nhìn vào tưởng đã hết việc. */
+    const more = document.getElementById('notif-tankmix-more');
+    if(more){
+      const n = Object.keys(PEND).length;
+      if(n > 4){
+        more.textContent = '+ ' + (n - 4) + ' more mix notification'
+          + ((n - 4) > 1 ? 's are' : ' is') + ' waiting — nothing is lost, '
+          + 'confirm one above to free a slot.';
+        more.style.display = '';
+      } else { more.textContent = ''; more.style.display = 'none'; }
     }
     _focusBack(snap);
     _syncBadge();

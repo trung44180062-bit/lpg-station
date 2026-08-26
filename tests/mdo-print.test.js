@@ -50,6 +50,7 @@ let _displayTurn = 5;
 global.getDisplayTurn = ()=>_displayTurn;
 const _tlTurnFreeze = {};
 eval(grab(SC, '_tlFreezeTurn'));
+eval(grab(SC, '_mdoGroupKey'));   /* v4.112 — khoá nhóm multi-DO ghi xuống TL */
 eval(grab(SC, '_mdoBuildPayloadFor'));
 eval(grab(SC, '_mdoMaxTol'));
 const _mdoPayloadsByStation = {};

@@ -1228,6 +1228,34 @@ function _makePlanModule(opts){
       setTimeout(_lnkRender, 120);
     }
   }
+  /* ══ v4.112 — LINK MULTI-DO TỪ TAB SCALE (không qua hộp thoại) ══════
+     Sáng nhiều xe quá, sale chưa kịp bấm 🔗 Link Orders. Nhân viên cân
+     phát hiện xe nhiều DO ngay lúc assign và chọn "bán gộp" — lựa chọn đó
+     PHẢI quay ngược về kế hoạch, nếu không Today Plan vẫn coi đây là hai
+     đơn rời và hai bên nói khác nhau.
+     Khác `lnkApply`: không đọc ô tick, không hỏi confirm (nhân viên cân vừa
+     trả lời đúng câu đó ở trạm rồi), không bao giờ tự gỡ link người khác đã
+     đặt. Trả 'created' | 'updated' | 'noop' | '' (không làm được). */
+  function lnkLinkMdo(oids, printMode){
+    const list = (oids||[]).map(o=>String(o||'').trim()).filter(o=>PLAN[o]);
+    if(list.length < 2) return '';
+    const pm   = (printMode === 'separate') ? 'separate' : 'combined';
+    const rows = list.map(o=>PLAN[o]);
+    const gids = new Set(rows.map(r=>lnkGid(r)).filter(Boolean));
+    /* Cả nhóm đã nằm sẵn trong MỘT nhóm 🔗 ⇒ chỉ cập nhật cách in. */
+    if(gids.size === 1 && rows.every(lnkIsLinked)){
+      const gid = Array.from(gids)[0];
+      if(lnkKind(rows[0]) !== LNK_MDO) return '';       /* nhóm ALT — KHÔNG đụng */
+      if(rows.some(r=>lnkGid(r) !== gid)) return '';
+      const cur = (String(rows[0]._lnkPrint||'') === 'separate') ? 'separate' : 'combined';
+      if(cur === pm) return 'noop';
+      return lnkSetPrint(gid, pm) ? 'updated' : '';
+    }
+    /* Có dòng đang thuộc một nhóm KHÁC ⇒ dừng. Gỡ link của người khác để
+       tự lập nhóm mới là việc quá tay, phải do người dùng quyết định. */
+    if(gids.size) return '';
+    return lnkWrite(list, LNK_MDO, pm) ? 'created' : '';
+  }
   function lnkUnlink(gid){
     const ms = lnkMembers(gid);
     if(!ms.length) return;
@@ -3095,6 +3123,9 @@ function _makePlanModule(opts){
                    gộp thẳng khi assign, khỏi hỏi "load together?". */
     openLink, closeLink, lnkToggleSel, lnkApply, lnkUnlink,
     lnkSetPrint(gid, mode){ const ok = lnkSetPrint(gid, mode); if(ok) setTimeout(_lnkRender, 120); return ok; },
+    /* v4.112 — SCALE gọi khi nhân viên cân chọn "bán gộp" ngay lúc assign:
+       nhóm 🔗 MULTI-DO được lập / cập nhật ngay trên Today Plan. */
+    lnkLinkMdo(oids, mode){ const r = lnkLinkMdo(oids, mode); if(r) setTimeout(_lnkRender, 120); return r; },
     lnkMembers, lnkTotals, lnkCollapse, lnkKind, lnkGid,
     lnkIsLinked, lnkIsParked, lnkBadgeHtml, lnkSyncAlt,
     getEffectiveActual,   /* RAM-only ACTUAL loaded (kg) for a row from TL weights.

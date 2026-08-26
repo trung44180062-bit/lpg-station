@@ -149,7 +149,13 @@ const TL = (function(){
     {k:'custFull', h:'Customer WMS',   w:150, ed:true},
     {k:'cw',       h:'Contract Wt',    w:68,  ed:true,  num:true},
     {k:'maxTol',   h:'Max Tol',        w:52,  ed:true,  num:true},
-    {k:'price',    h:'Price',          w:72,  ed:true,  num:true}
+    {k:'price',    h:'Price',          w:72,  ed:true,  num:true},
+    /* v4.112 — DẤU NỐI MULTI-DO. Một xe chở nhiều DO đẻ ra nhiều dòng TL
+       nhưng ngoài bãi chỉ có MỘT lượt xe; mấy dòng đi chung một chuyến
+       mang cùng một khoá ở đây (SCALE dựng: ngày · trạm · turn · biển số).
+       Ô trống = xe chở một DO như bình thường. KHÔNG sửa tay — sửa là báo
+       cáo đếm sai số lượt xe. */
+    {k:'mdoG',     h:'Multi-DO',       w:150, ed:false}
   ];
   const DATE_FIELDS = new Set(['date','giDate']);
   const NUM_FIELDS  = new Set(COLS.filter(c=>c.num).map(c=>c.k));

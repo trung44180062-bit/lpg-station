@@ -560,6 +560,126 @@ console.log('\n   · Chữ trên thẻ thông báo là TIẾNG ANH');
 const nViet = cTxt().match(/[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]/gi);
 ok('không còn chữ tiếng Việt trên thẻ thông báo', !nViet, nViet ? nViet.join('') : 'sạch');
 
+
+/* ═════════ J. v4.113 — BẢN NHÁP TỒN ĐẦU LƯU TẠM TRÊN FIREBASE ═════════
+   Nỗi lo của vận hành: nhân viên gõ tồn đầu hệ thống ở ô thông báo nhưng
+   chưa kịp ✅, bồn lại trộn xong mẻ mới và đẩy thông báo lot mới vào →
+   số của lot cũ có mất không? Bốn thứ phải đúng:
+     ① thông báo /mix_notify khoá theo TỪNG LOT nên không cái nào đè cái nào
+     ② số gõ tay cũng khoá theo BỒN + LOT (v4.113; trước đây một ô/bồn)
+     ③ số đó được ghi tạm lên /stx_draft nên sống sót qua F5 / đổi máy
+     ④ lưu vào Tank Log xong thì bản nháp bị XOÁ, không tích lại            */
+console.log('\n── J. Bản nháp tồn đầu hệ thống (v4.113) ──');
+{
+  /* Firebase giả — chỉ đủ cho INV.attachFirebase + node stx_draft */
+  const FBDB = { stx_draft:Object.create(null) };
+  let draftCb = null;
+  const P = ()=>{ const t = { then(f){ if(f) f(); return t; }, catch(){ return t; },
+                              finally(f){ if(f) f(); return t; } }; return t; };
+  const ENGDB = Object.create(null);
+  function refFor(path){
+    const p = String(path||'');
+    return {
+      on(ev, cb){
+        if(p === 'stx_draft'){ draftCb = cb; cb({ val:()=>FBDB.stx_draft }); }
+        else if(ev === 'value') cb({ val:()=>null });
+      },
+      child(k){ return {
+        set(v){ if(p === 'stx_draft') FBDB.stx_draft[k] = v; else ENGDB[k] = v; return P(); },
+        remove(){ if(p === 'stx_draft') delete FBDB.stx_draft[k]; else delete ENGDB[k]; return P(); }
+      }; }
+      /* CỐ Ý không có orderByChild/once: ENG._initialLoadAndAttach sẽ ném lỗi
+         và bị chính init() bắt — nhưng _fbRef đã được gán TRƯỚC đó, nên lệnh
+         ghi dòng Tank Log vẫn chạy được. Đúng thứ test này cần. */
+    };
+  }
+  w.firebase = { database(){ return { ref:(pth)=>refFor(pth) }; } };
+  try{ w.ENG.init(); }catch(e){ console.log('  (ENG.init: '+e.message+')'); }
+  try{ w.INV.init(); }catch(e){ console.log('  (INV.init: '+e.message+')'); }
+  ok('INV gắn được listener bản nháp', draftCb !== null);
+  ok('ENG ghi được xuống Firebase giả (để thử đường lưu THÀNH CÔNG)',
+     !!(w.ENG.ROWS.length));
+
+  /* SAP + hai lot của CÙNG một bồn */
+  Object.keys(R).forEach(k=>delete R[k]);
+  put('j1', { date:'2026-08-09', sloc:'2100', mat:'C3', batch:'D', end:20000 });
+  put('j2', { date:'2026-08-09', sloc:'2100', mat:'C4', batch:'D', end:20000 });
+  const lotB = mkRow({ lot:'LPG-2026-905', tank:'TK-3501', date:'09/08/26',
+    start:'19:00', finish:'23:00', iv:IV, fv:FV,
+    den:DEN, w3:'50', iden:DEN, iw3:'50', qc3:100, qc4:100 });
+  w.ENG.upsertRow(lotB);
+  w.MIXNOTIFY = { PENDING:{} };
+
+  /* gõ tay cho LOT 900 — chạy ngay, khỏi chờ 700 ms gộp ghi */
+  const _st = w.setTimeout;
+  w.setTimeout = f => { try{ f(); }catch(_){} return 0; };
+  w.INV.stxSetSys('2100', 'LPG-2026-900', 15000, 15000);
+  w.setTimeout = _st;
+
+  const keys = Object.keys(FBDB.stx_draft);
+  ok('⭐ số gõ tay được ghi tạm lên Firebase', keys.length === 1, keys.join(','));
+  ok('… khoá đọc được, gồm cả bồn lẫn LOT', keys[0] === 'TK-3501_LPG-2026-900', keys[0]);
+  ok('… lưu đủ bồn / lot / hai con số',
+     FBDB.stx_draft[keys[0]].sloc === '2100' && FBDB.stx_draft[keys[0]].lot === 'LPG-2026-900'
+     && FBDB.stx_draft[keys[0]].c3 === 15000);
+  ok('… kèm người gõ và thời điểm', !!FBDB.stx_draft[keys[0]].ts);
+
+  /* BỒN TRỘN XONG MẺ MỚI — thông báo lot 905 đẩy vào, người ta gõ cho lot đó */
+  w.setTimeout = f => { try{ f(); }catch(_){} return 0; };
+  w.INV.stxSetSys('2100', 'LPG-2026-905', 8000, 8000);
+  w.setTimeout = _st;
+  ok('⭐ lot MỚI KHÔNG đè bản nháp của lot cũ', Object.keys(FBDB.stx_draft).length === 2,
+     Object.keys(FBDB.stx_draft).join(' | '));
+  const f900 = w.INV.stxFigures('2100', 'LPG-2026-900');
+  const f905 = w.INV.stxFigures('2100', 'LPG-2026-905');
+  near('… lot 900 vẫn giữ đúng 15 000', f900.sysC3, 15000, 0);
+  near('… lot 905 giữ số của riêng nó',  f905.sysC3,  8000, 0);
+  ok('… và hai lot cho ra hai con số đề xuất khác nhau', f900.xC3 !== f905.xC3,
+     f900.xC3 + ' / ' + f905.xC3);
+
+  /* MÁY KHÁC / SAU F5: dựng lại từ Firebase */
+  const snapshot = JSON.parse(JSON.stringify(FBDB.stx_draft));
+  Object.keys(FBDB.stx_draft).forEach(k=>delete FBDB.stx_draft[k]);
+  draftCb({ val:()=>({}) });                        /* server bảo "trống" */
+  ok('server trống ⇒ RAM cũng bỏ theo', w.INV.stxFigures('2100','LPG-2026-900').sysManual === false);
+  Object.assign(FBDB.stx_draft, snapshot);
+  draftCb({ val:()=>FBDB.stx_draft });              /* nạp lại như sau F5 */
+  const back = w.INV.stxFigures('2100', 'LPG-2026-900');
+  ok('⭐ nạp lại từ Firebase là có số ngay', back.sysManual === true);
+  near('… đúng con số đã gõ', back.sysC3, 15000, 0);
+
+  /* LƯU VÀO TANK LOG ⇒ BẢN NHÁP PHẢI BIẾN MẤT */
+  w.setTimeout = f => { try{ f(); }catch(_){} return 0; };
+  w.INV.stxSaveFor('TK-3501', 'LPG-2026-900', null, true);
+  w.setTimeout = _st;
+  ok('⭐ lưu vào Tank Log THÀNH CÔNG thì XOÁ bản nháp',
+     !FBDB.stx_draft['TK-3501_LPG-2026-900'], Object.keys(FBDB.stx_draft).join(' | '));
+  ok('… bản nháp của lot KHÁC không bị đụng tới', !!FBDB.stx_draft['TK-3501_LPG-2026-905']);
+  const rowJ = w.ENG.findRowByLotTank('LPG-2026-900','TK-3501');
+  near('… và số đã nằm trong Tank Log', parseFloat(rowJ[71]), 110000 - 15000, 1);
+
+  /* ⟳ reload cũng phải dọn bản nháp, không thì lần sau nó quay lại */
+  $('stxLot2100').value = '905';
+  w.INV.stxLotChange('2100');
+  w.setTimeout = f => { try{ f(); }catch(_){} return 0; };
+  w.INV.stxSysReset('2100');
+  w.setTimeout = _st;
+  ok('⭐ bấm ⟳ reload cũng xoá bản nháp trên server',
+     !FBDB.stx_draft['TK-3501_LPG-2026-905'], Object.keys(FBDB.stx_draft).join(' | '));
+
+  /* Nháp quá hạn bị dọn khi nạp — không để tích lại theo thời gian */
+  FBDB.stx_draft['TK-3502_LPG-2025-1'] = { sloc:'2101', lot:'LPG-2025-1', c3:1, c4:1,
+    by:'old', ts: Date.now() - 60*24*3600*1000 };
+  FBDB.stx_draft['TK-3502_LPG-2026-910'] = { sloc:'2101', lot:'LPG-2026-910', c3:2, c4:2,
+    by:'now', ts: Date.now() };
+  draftCb({ val:()=>FBDB.stx_draft });
+  ok('⭐ nháp quá hạn 30 ngày bị dọn', !FBDB.stx_draft['TK-3502_LPG-2025-1'],
+     Object.keys(FBDB.stx_draft).join(' | '));
+  ok('… nháp còn hạn thì GIỮ nguyên', !!FBDB.stx_draft['TK-3502_LPG-2026-910']);
+  Object.keys(FBDB.stx_draft).forEach(k=>delete FBDB.stx_draft[k]);
+  draftCb({ val:()=>FBDB.stx_draft });
+}
+
 console.log('\n─────────────────────────────────────');
 console.log(fail ? ('❌ '+fail+' assert THẤT BẠI') : '✅ TẤT CẢ ASSERT PASS');
 process.exit(fail ? 1 : 0);

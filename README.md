@@ -60,6 +60,81 @@ assign) và **phiếu cân / Delivery Note** (lúc cân xong).
 
 Test canh: `tests/mdo-print.test.js`.
 
+## 💾 THÔNG BÁO TRỘN — mất dữ liệu hay không? (v4.113)
+
+Câu hỏi vận hành: nhân viên gõ dở tồn đầu hệ thống ở ô thông báo, chưa kịp ✅, thì bồn
+lại trộn xong mẻ mới và đẩy thông báo lot mới vào — có mất số của lot cũ không?
+
+| Dữ liệu | Nằm ở đâu | Có bị đè khi lot mới vào? |
+|---|---|---|
+| Thông báo C3/C4 gửi Check Booth | `/mix_notify/<TK>_<LOT>` | **Không** — khoá theo TỪNG LOT, đã vậy từ đầu. Chỉ mất khi bấm ✅ hoặc ✕ |
+| Tồn đầu hệ thống gõ tay | `/stx_draft/<TK>_<LOT>` (**v4.113**) | **Không** — cũng khoá theo từng lot |
+| Kết quả đối chiếu chính thức | 4 cột Tank Log (v4.111) | — nơi lưu chính thức |
+
+**Trước v4.113 con số gõ tay CHỈ nằm trong RAM và chỉ MỘT ô cho mỗi bồn** ⇒ trộn mẻ mới
+là mất, F5 là mất, người bấm ✅ ngồi máy khác thì không thấy. Nay nó được ghi tạm lên
+`/stx_draft` (ghi gộp 700 ms để gõ từng chữ số không thành một lượt ghi), kèm **người gõ
+và thời điểm** — dòng nguồn dưới ô nhập nói rõ cả hai.
+
+**Bản nháp bị xoá ngay khi** kết quả đã lưu vào Tank Log (nút 💾 hoặc ✅ ở ô thông báo),
+hoặc khi bấm ⟳ reload. Ghi Tank Log **thất bại** thì bản nháp được **giữ nguyên** — không
+bắt gõ lại. Nháp quá **30 ngày** bị dọn lúc nạp (một thông báo trộn được trả lời trong vài
+giờ; nháp cả tháng chỉ còn là rác).
+
+Bảng thông báo chỉ có **4 ô**; từ thông báo thứ 5 trở đi vẫn nằm nguyên trên Firebase và
+nay có dòng `+ N more mix notifications are waiting` bên dưới — trước đây nhìn vào tưởng
+đã hết việc.
+
+⚠ Nếu Firebase Security Rules của dự án liệt kê từng node thì nhớ **mở quyền ghi cho
+`/stx_draft`**; ghi hỏng thì app toast cảnh báo và giữ số trong RAM chứ không im lặng.
+
+Test canh: `tests/stx-recon-dom.smoke.js` mục **J**.
+
+## 🚚 MULTI-DO: hai đường phát hiện chạy SONG SONG (v4.112)
+
+Một xe chở nhiều DO có **hai** cách được nhận ra, và từ v4.112 cả hai đều dùng được
+cùng lúc — sáng nhiều xe quá không kịp link thì trạm vẫn tự dò ra.
+
+| Đường | Khi nào | Phần mềm hỏi gì |
+|---|---|---|
+| 🔗 **Link Orders** (Today Plan) | sale khai trước từ sáng | chỉ hỏi **in gộp hay in tách** |
+| 🔍 **Dò tìm ở trạm** (lúc assign) | chưa kịp link | hỏi đủ: **bán gộp hay chỉ lấy DO này**, rồi **in gộp hay in tách** |
+
+**Chọn "bán gộp" ở trạm thì Today Plan tự lập nhóm 🔗 MULTI-DO** (`TP.lnkLinkMdo`),
+nên kế hoạch, thẻ PLAN và mọi tổng đều hiểu ngay đây là MỘT xe — không phải chờ ai
+vào link lại bằng tay. Nhóm đã có sẵn thì chỉ cập nhật cách in, và **không bao giờ**
+tự gỡ link người khác đã đặt.
+
+### ⚠ Bốn cửa chặn IM LẶNG đã gỡ — gốc của lỗi "đã link mà vẫn chỉ hiện 1 đơn"
+
+1. **Anh em đang xếp HÀNG ĐỢI bị tính là "đã cam kết"** ⇒ nhóm co lại còn một dòng ⇒
+   assign lặng lẽ thành đơn lẻ. Nay xe chờ vẫn gộp được, và anh em được gộp thì bị dọn
+   khỏi hàng đợi ngay sau khi trạm nhận.
+2. **Phép dò tìm đòi trùng TÀI XẾ tuyệt đối** — kế hoạch thật hay bỏ trống ô tài xế ở
+   dòng thứ hai. Nay biển số + ngày là bắt buộc, tài xế chỉ dùng để LOẠI khi hai tên
+   khác hẳn nhau.
+3. **Cửa chặn `tổng ≤ 27 MT`** nuốt luôn popup. Quá tải chính là lúc cần hỏi nhất —
+   nay popup vẫn hiện, kèm dòng cảnh báo đỏ, và vẫn chọn được "chỉ lấy DO này".
+4. **Nhóm còn nhưng hết anh em gộp được thì không nói gì.** Nay nêu đích danh lý do
+   (đã done / đã huỷ / đang ở trạm khác). Thẻ trạm cũng hiện dòng nhắc
+   `🔗 MULTI-DO — N more DO not on this load` khi sale link SAU lúc xe đã vào trạm.
+
+### Phiếu PTT của xe gộp
+
+`pttPrint` nay đọc `station._linkedRows`: ô **DO Info** liệt kê **từng DO kèm số của
+nó** (hai cột, mỗi DO một dòng), tiêu đề có nhãn `COMBINED · N DO`, ô Loading Q'ty
+ghi thêm `(total)`. Xe một DO giữ **nguyên** hình dạng phiếu cũ. Ô sửa tay
+`#pttov-do` / `#pttov-doqty` vẫn còn nguyên.
+
+### TL Data: cột `Multi-DO` (mdoG)
+
+Một lượt xe gộp ghi thành **nhiều dòng TL** (mỗi DO một dòng) nhưng ngoài bãi chỉ có
+**một** lượt xe. Mấy dòng đi chung một chuyến nay mang cùng một khoá
+`MDO-<ddmmyy>-S<trạm>-T<turn>-<biển số>`. Cột **Trips** của báo cáo gộp theo khoá này
+⇒ không còn đếm dư đúng bằng số DO phụ. Cột **không cho sửa tay**.
+
+Test canh: `tests/mdo-station-detect.test.js` + `tests/mdo-print.test.js`.
+
 ## ⚖ ĐỐI CHIẾU CHUYỂN KHO — lưu lại thành dữ liệu (v4.111)
 
 Bảng **📏 Stock-transfer reconciliation** (nút 📏 trên thẻ tank, tab Inventory) từ
