@@ -504,6 +504,10 @@ const mnSrc = fs.readFileSync(path.join(ROOT,'js/features/mixnotify.js'),'utf8')
 try{ w.eval(mnSrc); }catch(e){ console.log('❌ LOAD mixnotify.js → '+e.message); process.exit(1); }
 ok('nạp được module MIXNOTIFY thật', typeof w.MIXNOTIFY.render === 'function');
 
+/* v4.114 — INV chỉ vẽ lại ô thông báo KHI modal 🔔 đang mở (vẽ một modal
+   đóng là công toi: 4 thẻ, mỗi thẻ quét lại Tank Log, mỗi lần gõ một chữ
+   số). Test phải mở nó ra thì mới thấy được chiều đồng bộ ngược. */
+$('notif-modal').classList.add('on');
 const PK = 'TK-3501_LPG-2026-900';
 w.MIXNOTIFY.PENDING[PK] = { _pk:PK, lot:'LPG-2026-900', c3:100000, c4:100000,
                             tkName:'TK-3501', key:'tk1', _ts:1 };
@@ -678,6 +682,77 @@ console.log('\n── J. Bản nháp tồn đầu hệ thống (v4.113) ──')
   ok('… nháp còn hạn thì GIỮ nguyên', !!FBDB.stx_draft['TK-3502_LPG-2026-910']);
   Object.keys(FBDB.stx_draft).forEach(k=>delete FBDB.stx_draft[k]);
   draftCb({ val:()=>FBDB.stx_draft });
+}
+
+
+/* ═════════ K. v4.114 — GÕ TỒN ĐẦU HỆ THỐNG KHÔNG ĐƯỢC "ĐƠ" ═════════════
+   User báo: "nhập tay số opening stock của WMS, mỗi số nhập vào lại đơ ra
+   ngay". Nguyên nhân: `oninput` gọi renderStx → ghi đè body.innerHTML, mà
+   trước đó phải KÉO hai ô <input> ra kho ẩn rồi gắn lại. Element vẫn sống,
+   nhưng CHUYỂN một element đang focus sang cha khác là trình duyệt CẮT
+   FOCUS ⇒ gõ đúng một chữ số rồi ô chết.                                */
+console.log('\n── K. Gõ tồn đầu hệ thống (v4.114) ──');
+{
+  Object.keys(R).forEach(k=>delete R[k]);
+  put('k1', { date:'2026-08-09', sloc:'2100', mat:'C3', batch:'D', end:20000 });
+  put('k2', { date:'2026-08-09', sloc:'2100', mat:'C4', batch:'D', end:20000 });
+  w.MIXNOTIFY.PENDING && Object.keys(w.MIXNOTIFY.PENDING).forEach(k=>delete w.MIXNOTIFY.PENDING[k]);
+  w.INV.openStx(1);
+  $('stxLot2100').value = '900';
+  w.INV.stxLotChange('2100');
+  w.INV.stxSysReset('2100');
+
+  const e3 = $('stxSys32100');
+  ok('ô nhập KHÔNG còn là type=number', e3.getAttribute('type') === 'text',
+     e3.getAttribute('type'));
+  ok('… và khai inputmode để bàn phím số vẫn hiện trên máy tính bảng',
+     e3.getAttribute('inputmode') === 'decimal');
+
+  const tblBefore = $('stxBody2100').querySelector('.stx-tbl');
+  const parentBefore = e3.parentNode;
+  ok('bảng đã dựng, ô nhập nằm trong bảng', !!tblBefore && !!parentBefore);
+
+  /* gõ từng chữ số như người thật */
+  e3.focus();
+  ok('ô đang được focus trước khi gõ', w.document.activeElement === e3);
+  ['1','15','150','1500','15000'].forEach(v=>{ e3.value = v; w.INV.stxSysEdit('2100'); });
+
+  ok('⭐ gõ xong 5 chữ số ô VẪN còn focus (không bị cắt)',
+     w.document.activeElement === e3, 'activeElement = ' + (w.document.activeElement||{}).id);
+  ok('… và giữ nguyên con số đang gõ', e3.value === '15000', e3.value);
+  ok('⭐ bảng KHÔNG bị dựng lại (ô nhập không hề bị chuyển chỗ)',
+     $('stxBody2100').querySelector('.stx-tbl') === tblBefore && e3.parentNode === parentBefore);
+
+  /* nhưng mọi con số phụ thuộc vẫn phải chạy theo */
+  const tb = $('stxBody2100');
+  const cell = k => (tb.querySelector('[data-c="'+k+'"]')||{}).textContent || '';
+  ok('tổng tồn đầu hệ thống cập nhật theo (15 000 gõ tay + 20 000 SAP)',
+     /35,000/.test(cell('sopen-t')), cell('sopen-t'));
+  ok('gap tồn đầu cập nhật theo',           /−5,000/.test(cell('gopen-3')), cell('gopen-3'));
+  ok('nhãn nguồn đổi sang manual entry',    /manual entry/.test(cell('sopen-note')), cell('sopen-note'));
+  const vals = Array.from($('stxFoot2100').querySelectorAll('.stx-sug-vals b')).map(x=>num(x.textContent));
+  near('con số đề xuất C3 chạy theo ngay', vals[0], 110000-15000, 1);
+  ok('nút 💾 Save vẫn còn ở chân bảng', /Save to Tank Log/.test($('stxFoot2100').textContent));
+
+  /* dán "20,000" / gõ "20 000" đều phải ra 20000 */
+  e3.value = '20,000'; w.INV.stxSysEdit('2100');
+  near('dán "20,000" hiểu là 20 000', w.INV.stxFigures('2100').sysC3, 20000, 0);
+  e3.value = '20 000'; w.INV.stxSysEdit('2100');
+  near('gõ "20 000" cũng hiểu là 20 000', w.INV.stxFigures('2100').sysC3, 20000, 0);
+
+  /* một lượt vẽ ĐẦY ĐỦ (máy khác đẩy về) không được nhảy vào sửa ô đang gõ */
+  e3.value = '18';                 /* đang gõ dở, chưa gọi oninput */
+  e3.focus();
+  w.INV.renderStx(true);
+  ok('⭐ lượt vẽ đầy đủ KHÔNG ghi đè ô đang gõ', e3.value === '18', e3.value);
+  ok('… và trả lại focus cho đúng ô đó', w.document.activeElement === e3,
+     'activeElement = ' + (w.document.activeElement||{}).id);
+
+  /* ô KHÔNG focus thì vẫn được nạp lại bình thường */
+  const e4 = $('stxSys42100');
+  e4.value = '';
+  w.INV.stxSysReset('2100');
+  near('ô không focus vẫn tự nạp lại số SAP', parseFloat(e4.value), 20000, 0);
 }
 
 console.log('\n─────────────────────────────────────');

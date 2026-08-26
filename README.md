@@ -60,6 +60,35 @@ assign) và **phiếu cân / Delivery Note** (lúc cân xong).
 
 Test canh: `tests/mdo-print.test.js`.
 
+## ⌨ VÁ LỖI GÕ Ô "SYSTEM OPENING" (v4.114)
+
+User báo: *"nhập tay số opening stock của WMS, mỗi số nhập vào lại đơ ra ngay."*
+
+**Nguyên nhân.** `oninput` gọi `renderStx()` → hàm này ghi đè `body.innerHTML`, mà trước
+đó phải **kéo hai ô `<input>` ra kho ẩn** rồi gắn lại (`_stxPark` / `_stxMountInputs`).
+Element vẫn sống và giữ nguyên giá trị — chú thích cũ nói đúng phần đó — nhưng **chuyển
+một element ĐANG FOCUS sang cha khác là trình duyệt cắt focus**. Gõ được đúng một chữ số
+là ô chết, chữ số sau rơi ra ngoài.
+
+**Đã sửa, ba lớp:**
+
+1. **Đường gõ không đụng tới `innerHTML` của bảng nữa.** `_stxLive(sloc)` chỉ ghi lại đúng
+   mấy ô số phụ thuộc (đánh dấu `data-c="sopen-t"`, `sclose-*`, `gopen-*`, `gclose-*`) và
+   dựng lại phần chân. Ô nhập đứng yên tuyệt đối ⇒ focus và con trỏ không bao giờ mất.
+2. **Lượt vẽ ĐẦY ĐỦ vẫn có thể rơi đúng lúc đang gõ** (máy khác đẩy về, bản nháp vừa nạp).
+   `renderStx` nay **chụp focus + vị trí con trỏ TRƯỚC** mọi lượt `_stxPark` và trả lại
+   sau khi gắn ô về chỗ; và hàm đổ số **không bao giờ ghi đè ô đang gõ**.
+3. **Ô nhập đổi `type=number` → `type=text` + `inputmode=decimal`.** Ô `number` không cho
+   đọc/đặt vị trí con trỏ (`selectionStart` ném lỗi), lăn chuột lên là tự đổi số, và một
+   ký tự lỡ tay làm ô trả về **chuỗi rỗng** — mất luôn con số đang nhập. Phần mềm tự tách
+   số nên `20,000` và `20 000` đều nhận. Ô nhập trên thẻ thông báo Tank Mix cũng vậy.
+
+Tiện thể: INV chỉ vẽ lại thẻ thông báo **khi modal 🔔 đang mở** — trước đây mỗi chữ số gõ
+ra là dựng lại 4 thẻ, mỗi thẻ quét lại Tank Log, dù chẳng ai nhìn.
+
+Test canh: `tests/stx-recon-dom.smoke.js` mục **K** (jsdom tái hiện đúng việc mất focus khi
+chuyển node, nên test này bắt được lỗi thật).
+
 ## 💾 THÔNG BÁO TRỘN — mất dữ liệu hay không? (v4.113)
 
 Câu hỏi vận hành: nhân viên gõ dở tồn đầu hệ thống ở ô thông báo, chưa kịp ✅, thì bồn

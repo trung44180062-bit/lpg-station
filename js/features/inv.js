@@ -815,7 +815,9 @@ const INV = (function(){
   }
   function _stxN(v){
     if(v === '' || v === null || v === undefined) return null;
-    const x = parseFloat(String(v).replace(/,/g,''));
+    /* Bỏ cả dấu phẩy LẪN khoảng trắng: nhân viên hay gõ "20 000" hoặc dán
+       "20,000" từ SAP. Ô nhập là type=text nên hai dạng đó tới được đây. */
+    const x = parseFloat(String(v).replace(/[,\s]/g,''));
     return isFinite(x) ? x : null;
   }
   /* Số gõ tay ĐANG CÓ HIỆU LỰC cho đúng bồn + lot này, hoặc null. */
@@ -905,14 +907,24 @@ const INV = (function(){
       if(typeof fbErr === 'function') fbErr(err, 'Load reconciliation drafts');
     });
   }
-  /* Vẽ lại CẢ HAI cửa sổ. Bảng đối chiếu chỉ vẽ khi đang mở, để việc gõ ở
-     ô thông báo không phải trả giá cho một modal đang đóng. */
+  /* Vẽ lại CẢ HAI cửa sổ — mỗi cửa sổ CHỈ vẽ khi đang mở. Vẽ một modal
+     đang đóng là công toi, và với ô thông báo thì mỗi lượt vẽ là 4 thẻ,
+     mỗi thẻ quét lại Tank Log. NOTIF.open() tự gọi MIXNOTIFY.render() lúc
+     mở nên không sợ mở ra thấy số cũ. */
+  function _stxNotifOpen(){
+    try{ const m = document.getElementById('notif-modal');
+         return !!(m && m.classList.contains('on')); }catch(_){ return false; }
+  }
+  function _stxRenderNotif(){
+    if(!_stxNotifOpen()) return;
+    try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
+  }
   function _stxSyncViews(refillModal){
     try{
       const m = document.getElementById('stxModal');
       if(m && m.classList.contains('on')) renderStx(refillModal !== false);
     }catch(_){}
-    try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
+    _stxRenderNotif();
   }
   /* API cho MIXNOTIFY: gõ ở ô thông báo = gõ ở bảng đối chiếu. */
   function stxSetSys(sloc, lot, c3, c4){ _stxStore(sloc, lot, c3, c4); _stxSyncViews(true); }
@@ -1156,11 +1168,19 @@ const INV = (function(){
     if(v === null || v === undefined || !isFinite(v)) return '';
     return Math.abs(v) < 1 ? 'z' : (v > 0 ? 'p' : 'm');
   }
-  function _stxRow(cls, label, note, vol, c3, c4, lpg){
+  /* v4.114 — `key` gắn nhãn data-c lên từng ô số, để lúc nhân viên đang GÕ
+     ta cập nhật đúng mấy ô đó thay vì dựng lại cả bảng (dựng lại là phải
+     chuyển hai ô <input> đi chỗ khác, và chuyển ô đang focus trong DOM là
+     trình duyệt cắt focus — gõ một chữ số là ô "đơ" ra). */
+  function _stxRow(cls, label, note, vol, c3, c4, lpg, key){
+    const dk = k => key ? (' data-c="'+key+'-'+k+'"') : '';
+    const noteHtml = (note || key)
+      ? ('<i'+(key ? ' data-c="'+key+'-note"' : '')+'>'+(note||'')+'</i>') : '';
     return '<tr class="'+cls+'">'
-      + '<td class="lbl">'+label+(note ? '<i>'+note+'</i>' : '')+'</td>'
-      + '<td class="n vol">'+vol+'</td>'
-      + '<td class="n">'+c3+'</td><td class="n">'+c4+'</td><td class="n tot">'+lpg+'</td></tr>';
+      + '<td class="lbl">'+label+noteHtml+'</td>'
+      + '<td class="n vol"'+dk('v')+'>'+vol+'</td>'
+      + '<td class="n"'+dk('3')+'>'+c3+'</td><td class="n"'+dk('4')+'>'+c4+'</td>'
+      + '<td class="n tot"'+dk('t')+'>'+lpg+'</td></tr>';
   }
 
   function openStx(n){
@@ -1187,7 +1207,7 @@ const INV = (function(){
     const li = document.getElementById('stxLot'+sloc);
     _stxLotIn[sloc] = li ? li.value.trim() : '';
     renderStx(true);
-    try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
+    _stxRenderNotif();
   }
   /* Gõ ở ô System opening của bảng → cất vào kho dùng chung → ô thông báo
      Tank Mix đổi theo ngay. refill=false để không giật con trỏ đang gõ. */
@@ -1196,26 +1216,133 @@ const INV = (function(){
     const e4 = document.getElementById('stxSys4'+sloc);
     const ctx = _stxCtx(sloc);
     _stxStore(sloc, ctx.lot, e3 ? e3.value : '', e4 ? e4.value : '');
-    renderStx(false);
-    try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
+    /* v4.114 — cập nhật TẠI CHỖ. renderStx() ở đây là thứ đã làm ô nhập
+       mất focus sau mỗi chữ số (xem chú thích ở _stxLive). */
+    _stxLive(sloc);
+    _stxRenderNotif();
   }
   /* ⟳ — bỏ số gõ tay, quay lại số SAP tự lấy. v4.113: xoá luôn bản nháp
      trên Firebase, nếu không lần nạp sau nó lại đẩy con số vừa bỏ trở về. */
   function stxSysReset(sloc){
     try{ const ctx = _stxCtx(sloc); _stxDrop(sloc, ctx.lot); }catch(_){}
     renderStx(true);
-    try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
+    _stxRenderNotif();
   }
 
   /* refill = có được phép ghi đè ô System opening bằng số SAP hay không.
      Khi người dùng đang gõ thì KHÔNG bao giờ ghi đè (mất số đang gõ). */
+  /* ── v4.114 — CHÂN VÙNG (khối đề xuất) tách riêng ─────────────────────
+     Dùng chung cho lượt vẽ đầy đủ và lượt cập nhật-khi-đang-gõ, nên hai
+     đường không thể hiện ra hai con số khác nhau. */
+  function _stxFootHtml(sloc, F){
+    const saved = _stxSavedOf(F.ctx);
+    if(!F.hasSys){
+      return '<div class="stx-sug stx-sug-off">Enter the <b>system opening stock</b> above to get the suggested '
+        + 'transfer quantity.'
+        + (saved.has ? '<div class="stx-saved on">'+saved.txt+'</div>' : '')
+        + '</div>';
+    }
+    const N   = v => _stxNum(v, 0);
+    const xC3 = F.xC3, xC4 = F.xC4, xL = xC3 + xC4;
+    const fC3 = F.fC3, fC4 = F.fC4;
+    return '<div class="stx-sug">'
+      + '<div class="stx-sug-hd">➜ SUGGESTED STOCK TRANSFER'
+      +   '<span>actual closing − system opening</span></div>'
+      + '<div class="stx-sug-vals">'
+      +   '<div class="v c3"><span class="k">C3</span><b>'+N(xC3)+'</b><i>kg</i></div>'
+      +   '<div class="v c4"><span class="k">C4</span><b>'+N(xC4)+'</b><i>kg</i></div>'
+      +   '<div class="v lpg"><span class="k">LPG</span><b>'+N(xL)+'</b><i>kg</i></div>'
+      + '</div>'
+      + '<div class="stx-sug-t">= '+_stxNum(xC3/1000,3)+' t C3 · '+_stxNum(xC4/1000,3)+' t C4 · '
+      +   _stxNum(xL/1000,3)+' t LPG</div>'
+      + '<div class="stx-sug-vs">COQ figure is <b>'+N(fC3)+'</b> / <b>'+N(fC4)+'</b> kg → adjust by '
+      +   '<b class="'+_stxSignCls(xC3-fC3)+'">'+_stxSigned(xC3-fC3)+'</b> / '
+      +   '<b class="'+_stxSignCls(xC4-fC4)+'">'+_stxSigned(xC4-fC4)+'</b> kg'
+      +   ((xC3 < 0 || xC4 < 0)
+            ? '<br><span class="warn">⚠ A suggested figure is NEGATIVE — the system already holds more than '
+              + 'the tank actually contains. Check the system opening figure before posting.</span>' : '')
+      + '</div>'
+      + '<div class="stx-save-row">'
+      +   '<button class="stx-save" onclick="INV.stxSave(\'' + sloc + '\')" '
+      +     'title="Write the opening gap and the adjusted transfer quantity onto this lot in the Tank Log '
+      +     '(columns Gap C3 / Gap C4 / Adj ST C3 / Adj ST C4), so the figure can be reviewed and cross-checked later">'
+      +     '💾 Save to Tank Log</button>'
+      +   '<span class="stx-saved '+(saved.has?'on':'')+'">'+saved.txt+'</span>'
+      + '</div>'
+      + '</div>';
+  }
+
+  /* ══ v4.114 — CẬP NHẬT TẠI CHỖ KHI ĐANG GÕ ═════════════════════════════
+     LỖI ĐÃ SỬA: mỗi lần gõ một chữ số, `oninput` gọi renderStx → hàm này
+     ghi đè `body.innerHTML`, mà trước đó phải KÉO hai ô <input> ra kho ẩn
+     rồi gắn lại (`_stxPark`/`_stxMountInputs`). Element thì vẫn sống, NHƯNG
+     chuyển một element ĐANG FOCUS sang cha khác là trình duyệt cắt focus —
+     nên gõ được đúng một chữ số rồi ô "đơ", chữ số sau rơi ra ngoài.
+     Nay đường gõ KHÔNG đụng tới innerHTML của bảng nữa: chỉ ghi lại đúng
+     mấy ô số phụ thuộc (đánh dấu bằng data-c) và dựng lại phần chân. Ô nhập
+     đứng yên tuyệt đối ⇒ focus và con trỏ không bao giờ mất.
+     Bảng chưa dựng (lần đầu, hoặc vừa đổi lot) thì lùi về vẽ đầy đủ. */
+  function _stxLive(sloc){
+    const body = document.getElementById('stxBody'+sloc);
+    const foot = document.getElementById('stxFoot'+sloc);
+    if(!body || !foot) return;
+    const tbl = body.querySelector('.stx-tbl');
+    const F   = _stxFigures(sloc);
+    if(!tbl || !F.ok){ renderStx(false); return; }
+    const sysInfo = _stxSysFill(sloc, F.ctx, F, false);   /* refill=false: KHÔNG đụng ô nhập */
+    const N  = v => _stxNum(v, 0);
+    const SG = v => '<span class="'+_stxSignCls(v)+'">'+_stxSigned(v)+'</span>';
+    const hasSys = F.hasSys;
+    const sOpL  = hasSys ? F.sysC3 + F.sysC4 : null;
+    const sClC3 = hasSys ? F.sysC3 + F.fC3 : null;
+    const sClC4 = hasSys ? F.sysC4 + F.fC4 : null;
+    const sClL  = hasSys ? sClC3 + sClC4 : null;
+    const gClC3 = hasSys ? F.aClC3 - sClC3 : null;
+    const gClC4 = hasSys ? F.aClC4 - sClC4 : null;
+    const set = (k, html)=>{ const el = tbl.querySelector('[data-c="'+k+'"]'); if(el) el.innerHTML = html; };
+    set('sopen-note',  _esc2(sysInfo.label || ''));
+    set('sopen-t',     N(sOpL));
+    set('sclose-3',    N(sClC3));  set('sclose-4', N(sClC4));  set('sclose-t', N(sClL));
+    set('gopen-3',     SG(F.gapC3)); set('gopen-4', SG(F.gapC4));
+    set('gopen-t',     SG(hasSys ? F.gapC3 + F.gapC4 : null));
+    set('gclose-3',    SG(gClC3));   set('gclose-4', SG(gClC4));
+    set('gclose-t',    SG(hasSys ? gClC3 + gClC4 : null));
+    foot.innerHTML = _stxFootHtml(sloc, F);
+    _stxTsvRebuild();
+  }
+
+  /* Dòng TSV của một bồn — tách ra để lượt gõ cũng làm mới được nút Copy. */
+  function _stxLineFor(sloc){
+    const F = _stxFigures(sloc);
+    if(!F.ok) return null;
+    const ctx = F.ctx, hasSys = F.hasSys;
+    const saved = _stxSavedOf(ctx);
+    return [ctx.tank, ctx.lot, (ctx.day && ctx.day.finishTxt) || '',
+            (ctx.day && ctx.day.sapDate) ? _stxDmy(ctx.day.sapDate) : '',
+            Math.round(F.aOpC3), Math.round(F.aOpC4), Math.round(F.aClC3), Math.round(F.aClC4),
+            Math.round(F.fC3), Math.round(F.fC4),
+            hasSys ? Math.round(F.sysC3) : '', hasSys ? Math.round(F.sysC4) : '', F.sysTag,
+            (ctx.sap && ctx.sap.lastAt)
+              ? _stxWhen(ctx.sap.lastAt) + (ctx.sap.lastBy ? ' ' + ctx.sap.lastBy : '') : '',
+            hasSys ? Math.round(F.gapC3) : '', hasSys ? Math.round(F.gapC4) : '',
+            hasSys ? Math.round(F.xC3) : '', hasSys ? Math.round(F.xC4) : '',
+            hasSys ? Math.round(F.xC3 - F.fC3) : '', hasSys ? Math.round(F.xC4 - F.fC4) : '',
+            saved.has ? 'yes' : 'no'].join('\t');
+  }
+  const _STX_TSV_HEAD = ['Tank','Lot','Finish','SAP_date','Actual_open_C3_kg','Actual_open_C4_kg',
+                         'Actual_close_C3_kg','Actual_close_C4_kg','COQ_fill_C3_kg','COQ_fill_C4_kg',
+                         'System_open_C3_kg','System_open_C4_kg','System_open_source','SAP_data_pasted',
+                         'Gap_open_C3_kg','Gap_open_C4_kg',
+                         'Suggest_C3_kg','Suggest_C4_kg','Adjust_C3_kg','Adjust_C4_kg',
+                         'Saved_to_TankLog'].join('\t');
+  function _stxTsvRebuild(){
+    const lines = [_STX_TSV_HEAD];
+    _STX_SLOCS.forEach(sl=>{ const l = _stxLineFor(sl); if(l) lines.push(l); });
+    _stxTSV = lines.length > 1 ? lines.join('\n') : '';
+  }
+
   function renderStx(refill){
-    const lines = [['Tank','Lot','Finish','SAP_date','Actual_open_C3_kg','Actual_open_C4_kg',
-                    'Actual_close_C3_kg','Actual_close_C4_kg','COQ_fill_C3_kg','COQ_fill_C4_kg',
-                    'System_open_C3_kg','System_open_C4_kg','System_open_source','SAP_data_pasted',
-                    'Gap_open_C3_kg','Gap_open_C4_kg',
-                    'Suggest_C3_kg','Suggest_C4_kg','Adjust_C3_kg','Adjust_C4_kg',
-                    'Saved_to_TankLog'].join('\t')];
+    _stxFocusKeep = _stxSnapFocus();     /* v4.114 — chụp TRƯỚC mọi lượt _stxPark */
     _STX_SLOCS.forEach(sloc=>{
       const F   = _stxFigures(sloc);
       const ctx = F.ctx;
@@ -1280,64 +1407,23 @@ const INV = (function(){
         + '<tr class="grp"><td colspan="5">SYSTEM — what SAP holds for this tank</td></tr>'
         + _stxRow('s', 'Opening stock', sysInfo.label, '',
                   '<span class="stx-inp-slot" data-for="stxSys3'+sloc+'"></span>',
-                  '<span class="stx-inp-slot" data-for="stxSys4'+sloc+'"></span>', N(sOpL))
-        + _stxRow('s', 'Closing if COQ posted', 'system opening + filled', '', N(sClC3), N(sClC4), N(sClL))
+                  '<span class="stx-inp-slot" data-for="stxSys4'+sloc+'"></span>', N(sOpL), 'sopen')
+        + _stxRow('s', 'Closing if COQ posted', 'system opening + filled', '',
+                  N(sClC3), N(sClC4), N(sClL), 'sclose')
         + '<tr class="grp"><td colspan="5">GAP — actual minus system</td></tr>'
-        + _stxRow('g', 'At opening', 'measured vs SAP', '', SG(gOpC3), SG(gOpC4), SG(hasSys?gOpC3+gOpC4:null))
+        + _stxRow('g', 'At opening', 'measured vs SAP', '',
+                  SG(gOpC3), SG(gOpC4), SG(hasSys?gOpC3+gOpC4:null), 'gopen')
         + _stxRow('g', 'At closing if COQ posted', 'the gap simply carries over', '',
-                  SG(gClC3), SG(gClC4), SG(hasSys?gClC3+gClC4:null))
+                  SG(gClC3), SG(gClC4), SG(hasSys?gClC3+gClC4:null), 'gclose')
         + '</tbody></table>';
       /* Hai ô nhập là element THẬT, không dựng lại theo innerHTML —
          nếu không thì mỗi lần gõ một chữ số là ô bị huỷ, mất con trỏ. */
       _stxMountInputs(sloc, body);
 
-      /* v4.111 — trạng thái đã lưu vào Tank Log của chính lot này */
-      const saved = _stxSavedOf(ctx);
-
-      foot.innerHTML = hasSys
-        ? '<div class="stx-sug">'
-          + '<div class="stx-sug-hd">➜ SUGGESTED STOCK TRANSFER'
-          +   '<span>actual closing − system opening</span></div>'
-          + '<div class="stx-sug-vals">'
-          +   '<div class="v c3"><span class="k">C3</span><b>'+N(xC3)+'</b><i>kg</i></div>'
-          +   '<div class="v c4"><span class="k">C4</span><b>'+N(xC4)+'</b><i>kg</i></div>'
-          +   '<div class="v lpg"><span class="k">LPG</span><b>'+N(xL)+'</b><i>kg</i></div>'
-          + '</div>'
-          + '<div class="stx-sug-t">= '+_stxNum(xC3/1000,3)+' t C3 · '+_stxNum(xC4/1000,3)+' t C4 · '
-          +   _stxNum(xL/1000,3)+' t LPG</div>'
-          + '<div class="stx-sug-vs">COQ figure is <b>'+N(fC3)+'</b> / <b>'+N(fC4)+'</b> kg → adjust by '
-          +   '<b class="'+_stxSignCls(xC3-fC3)+'">'+_stxSigned(xC3-fC3)+'</b> / '
-          +   '<b class="'+_stxSignCls(xC4-fC4)+'">'+_stxSigned(xC4-fC4)+'</b> kg'
-          +   ((xC3 < 0 || xC4 < 0)
-                ? '<br><span class="warn">⚠ A suggested figure is NEGATIVE — the system already holds more than '
-                  + 'the tank actually contains. Check the system opening figure before posting.</span>' : '')
-          + '</div>'
-          + '<div class="stx-save-row">'
-          +   '<button class="stx-save" onclick="INV.stxSave(\'' + sloc + '\')" '
-          +     'title="Write the opening gap and the adjusted transfer quantity onto this lot in the Tank Log '
-          +     '(columns Gap C3 / Gap C4 / Adj ST C3 / Adj ST C4), so the figure can be reviewed and cross-checked later">'
-          +     '💾 Save to Tank Log</button>'
-          +   '<span class="stx-saved '+(saved.has?'on':'')+'">'+saved.txt+'</span>'
-          + '</div>'
-        + '</div>'
-        : '<div class="stx-sug stx-sug-off">Enter the <b>system opening stock</b> above to get the suggested '
-          + 'transfer quantity.'
-          + (saved.has ? '<div class="stx-saved on">'+saved.txt+'</div>' : '')
-        + '</div>';
-
-      lines.push([ctx.tank, ctx.lot, (ctx.day && ctx.day.finishTxt) || '',
-                  (ctx.day && ctx.day.sapDate) ? _stxDmy(ctx.day.sapDate) : '',
-                  Math.round(aOpC3), Math.round(aOpC4), Math.round(aClC3), Math.round(aClC4),
-                  Math.round(fC3), Math.round(fC4),
-                  hasSys ? Math.round(sOpC3) : '', hasSys ? Math.round(sOpC4) : '', sysInfo.tag,
-                  (ctx.sap && ctx.sap.lastAt)
-                    ? _stxWhen(ctx.sap.lastAt) + (ctx.sap.lastBy ? ' ' + ctx.sap.lastBy : '') : '',
-                  hasSys ? Math.round(gOpC3) : '', hasSys ? Math.round(gOpC4) : '',
-                  hasSys ? Math.round(xC3) : '', hasSys ? Math.round(xC4) : '',
-                  hasSys ? Math.round(xC3-fC3) : '', hasSys ? Math.round(xC4-fC4) : '',
-                  saved.has ? 'yes' : 'no'].join('\t'));
+      foot.innerHTML = _stxFootHtml(sloc, F);
     });
-    _stxTSV = lines.length > 1 ? lines.join('\n') : '';
+    _stxFocusKeep = null;
+    _stxTsvRebuild();
   }
 
   /* ── v4.111 — ĐÃ LƯU VÀO TANK LOG CHƯA ──────────────────────────────
@@ -1499,6 +1585,13 @@ const INV = (function(){
     if(refill !== false){
       const put = (el, v)=>{
         if(!el) return;
+        /* v4.114 — TUYỆT ĐỐI không ghi đè ô người ta ĐANG GÕ. Một lượt vẽ
+           lại do máy khác đẩy về (hoặc do bản nháp vừa ghi xong) mà nhảy
+           vào sửa ô đang gõ là con trỏ nhảy về cuối và mất chữ đang nhập. */
+        try{
+          if(_stxFocusKeep && _stxFocusKeep.id === el.id) return;
+          if(typeof document !== 'undefined' && el === document.activeElement) return;
+        }catch(_){}
         const want = (v === null || v === undefined) ? '' : String(Math.round(v));
         if(el.value !== want) el.value = want;
       };
@@ -1563,6 +1656,21 @@ const INV = (function(){
      Vì thế: _stxPark() kéo ô về lại kho ẩn TRƯỚC khi đụng innerHTML, rồi
      _stxMountInputs() mới gắn lại vào ô mới. Cùng một element sống suốt
      phiên nên giá trị đang gõ và vị trí con trỏ không bao giờ mất. */
+  /* v4.114 — ô nhập nào đang được gõ, và con trỏ ở đâu. Phải chụp TRƯỚC
+     khi _stxPark() chuyển ô đi (chuyển là mất focus ngay lúc đó, chụp sau
+     là đã muộn). Giữ ở mức module vì một lượt renderStx đi qua cả hai bồn. */
+  let _stxFocusKeep = null;
+  function _stxSnapFocus(){
+    try{
+      const act = document.activeElement;
+      if(act && act.id && /^stxSys[34]/.test(act.id)){
+        const k = { id:act.id, ss:null, se:null };
+        try{ k.ss = act.selectionStart; k.se = act.selectionEnd; }catch(_){}
+        return k;
+      }
+    }catch(_){}
+    return null;
+  }
   function _stxPark(sloc){
     const pool = document.querySelector('.stx-inp-pool');
     if(!pool) return;
@@ -1577,6 +1685,17 @@ const INV = (function(){
       const inp  = document.getElementById('stxSys'+k+sloc);
       if(slot && inp) slot.appendChild(inp);
     });
+    /* v4.114 — LƯỚI AN TOÀN: đường gõ đã không đi qua renderStx nữa, nhưng
+       một lượt vẽ ĐẦY ĐỦ (máy khác đẩy về, bản nháp vừa nạp…) vẫn có thể
+       rơi đúng lúc nhân viên đang gõ. Trả lại focus + con trỏ cho đúng ô. */
+    const keep = _stxFocusKeep;
+    if(keep && keep.id.slice(-4) === String(sloc)){
+      const el = document.getElementById(keep.id);
+      if(el){
+        try{ el.focus(); }catch(_){}
+        try{ if(keep.ss !== null && keep.ss !== undefined) el.setSelectionRange(keep.ss, keep.se); }catch(_){}
+      }
+    }
   }
 
   function copyStx(){

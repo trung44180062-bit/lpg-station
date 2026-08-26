@@ -198,7 +198,10 @@ const MIXNOTIFY = (function(){
   /* Ô nhập tồn đầu hệ thống — oninput đẩy thẳng vào kho dùng chung của INV */
   function _sysInp(pk, sloc, lot, k, v){
     const id = 'ntxSys' + k + _sanitizePk(pk);
-    return '<input class="ntx-inp c' + k + '" id="' + id + '" type="number" step="any" '
+    /* v4.114 — type=text + inputmode=decimal (KHÔNG dùng type=number: ô đó
+       không cho đặt lại vị trí con trỏ sau mỗi lượt vẽ lại, lăn chuột là tự
+       đổi số, và một ký tự lỡ tay làm ô trả về chuỗi rỗng). */
+    return '<input class="ntx-inp c' + k + '" id="' + id + '" type="text" inputmode="decimal" autocomplete="off" '
          + 'placeholder="C' + k + ' kg" value="' + (v === null || v === undefined ? '' : Math.round(v)) + '" '
          + 'title="System opening stock in SAP, C' + k + ' part (kg). '
          + 'This is the same figure as in the ⚖ Stock-transfer reconciliation table — editing it here edits it there." '

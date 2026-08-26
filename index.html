@@ -4073,11 +4073,16 @@
 
       <!-- Ô nhập System opening sống ở đây và được CHUYỂN vào đúng ô của bảng
            mỗi lần vẽ lại, nên gõ liên tục không bị mất con trỏ. -->
+      <!-- v4.114 — type=text + inputmode=decimal, KHÔNG dùng type=number:
+           ô number không cho đọc/đặt vị trí con trỏ (selectionStart ném lỗi),
+           lăn chuột lên là tự đổi số, và gõ một ký tự lỡ tay là ô trả về
+           chuỗi RỖNG — mất luôn con số đang nhập. Phần mềm tự tách số ở
+           _stxN nên "20,000" hay "20 000" đều nhận. -->
       <div class="stx-inp-pool" aria-hidden="true">
-        <input type="number" step="any" id="stxSys32100" class="stx-inp c3" placeholder="C3 kg" oninput="INV.stxSysEdit('2100')">
-        <input type="number" step="any" id="stxSys42100" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxSysEdit('2100')">
-        <input type="number" step="any" id="stxSys32101" class="stx-inp c3" placeholder="C3 kg" oninput="INV.stxSysEdit('2101')">
-        <input type="number" step="any" id="stxSys42101" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxSysEdit('2101')">
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxSys32100" class="stx-inp c3" placeholder="C3 kg" oninput="INV.stxSysEdit('2100')">
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxSys42100" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxSysEdit('2100')">
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxSys32101" class="stx-inp c3" placeholder="C3 kg" oninput="INV.stxSysEdit('2101')">
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxSys42101" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxSysEdit('2101')">
       </div>
 
       <div class="stx-legend">
@@ -4586,7 +4591,7 @@
 <script src="js/features/rpt.js?v=4112"></script><!-- v4.112 — cột Trips: dòng TL mang chung khoá mdoG chỉ tính MỘT lượt xe -->
 <script src="js/features/mthr.js"></script>
 <script src="js/features/bond.js?v=4109"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
-<script src="js/features/inv.js?v=4113"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh · v4.111 — lot đang tính hiện cạnh tên bồn, nút 💾 Save to Tank Log, tồn đầu hệ thống dùng chung với ô thông báo Tank Mix · v4.113 — số tồn đầu gõ tay lưu tạm lên /stx_draft theo TỪNG LOT (sống sót qua F5 / đổi máy / bồn trộn mẻ mới) và tự xoá khi đã lưu vào Tank Log -->
+<script src="js/features/inv.js?v=4114"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh · v4.111 — lot đang tính hiện cạnh tên bồn, nút 💾 Save to Tank Log, tồn đầu hệ thống dùng chung với ô thông báo Tank Mix · v4.113 — số tồn đầu gõ tay lưu tạm lên /stx_draft theo TỪNG LOT (sống sót qua F5 / đổi máy / bồn trộn mẻ mới) và tự xoá khi đã lưu vào Tank Log · v4.114 — VÁ LỖI GÕ: ô System opening không còn bị cắt focus sau mỗi chữ số (cập nhật tại chỗ, type=text) -->
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
 <script src="js/features/plog.js"></script>
@@ -4594,7 +4599,7 @@
 <script src="js/features/mixctrl.js?v=4111"></script><!-- v4.107 — MIX PLANNER: ô tuần hoàn đường ống MẶC ĐỊNH TẮT (trước là bật sẵn và tự trừ 74 m³) -->
 <!-- v4.101 — ★ MIX PLANNER: chọn CÓ/KHÔNG tuần hoàn đường ống (mặc định CÓ) + ô PIPE VOL; hàng tỉ lệ cũ trong ống được tính vào phần phải đưa về tỉ lệ thường -->
 <script src="js/features/vmix.js"></script>
-<script src="js/features/mixnotify.js?v=4113"></script><!-- v4.111 — thẻ thông báo Tank Mix hiện thêm System opening (sửa được tại chỗ), Gap và số chuyển kho ĐÃ ĐIỀU CHỈNH; ✅ ghi luôn kết quả đối chiếu vào 4 cột mới của Tank Log · v4.113 — hiện dòng "+N thông báo nữa đang chờ" khi vượt quá 4 ô -->
+<script src="js/features/mixnotify.js?v=4114"></script><!-- v4.111 — thẻ thông báo Tank Mix hiện thêm System opening (sửa được tại chỗ), Gap và số chuyển kho ĐÃ ĐIỀU CHỈNH; ✅ ghi luôn kết quả đối chiếu vào 4 cột mới của Tank Log · v4.113 — hiện dòng "+N thông báo nữa đang chờ" khi vượt quá 4 ô · v4.114 — ô nhập đổi sang type=text để giữ được con trỏ -->
 <script src="js/features/cav.js"></script>
 <script src="js/features/vs.js"></script>
 <script src="js/features/scx2.js?v=4108"></script><!-- v4.108 — nút 📏 trên thẻ tank mở bảng đối chiếu chuyển kho -->
