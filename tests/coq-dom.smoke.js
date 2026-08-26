@@ -6,7 +6,8 @@
        AUTO không ghi đè nữa
      • MC.altCalc chạy trên đúng các ô nhập của form TK-3501
      • bảng so sánh chỉ còn 2 dòng GC / COQ và chọn được số gửi Scale
-     • Tank Log render đủ 56 cột (khớp thead & tfoot), chip phương pháp
+     • Tank Log render đủ 60 cột (khớp thead & tfoot), chip phương pháp
+       (56 ở v4.86 → 60 ở v4.111: thêm Gap C3/C4 + Adj ST C3/C4)
      • cờ Stock Transfer KHÔNG bị mất khi ghi đè dòng (ROW_W vẫn 69)
      • modal ◈ COQ AUDIT liệt kê đúng lot thiếu số và back-fill được
      npm i jsdom && node tests/coq-dom.smoke.js
@@ -51,10 +52,10 @@ ok('không còn ô MID VOL / temp / pres',
 ok('index.html không còn gọi DENS.', html.indexOf('DENS.') < 0);
 ok('index.html không còn nạp density.js', html.indexOf('src="js/data/density.js') < 0);
 ok('không còn cột ▣Table trên thead', html.indexOf('▣Table') < 0);
-ok('thead Tank Log còn đúng 56 cột',
+ok('thead Tank Log còn đúng 60 cột',
    (function(){
      const t = w.document.querySelector('#engTbl thead tr');
-     return t && t.querySelectorAll('th').length === 56;
+     return t && t.querySelectorAll('th').length === 60;
    })());
 
 console.log('\n── 2. AUTO trạng thái ĐẦU của cách COQ ──');
@@ -111,12 +112,12 @@ row[63] = 0.5415; row[64] = 50.46; row[66] = 139.548; row[67] = 138.296;
 w.ENG.upsertRow(row);
 const tb = $('engTbody');
 ok('bảng render 2 dòng', (tb.innerHTML.match(/<tr/g) || []).length === 2);
-ok('mỗi dòng có đúng 56 ô (khớp thead)', tb.querySelector('tr').querySelectorAll('td').length === 56);
+ok('mỗi dòng có đúng 60 ô (khớp thead)', tb.querySelector('tr').querySelectorAll('td').length === 60);
 ok('hiện số cách COQ 139.548', tb.innerHTML.indexOf('139.548') >= 0);
 ok('không còn ô td-dens (cột Density gốc vẫn giữ)', tb.innerHTML.indexOf('"td-r td-dens"') < 0);
 let span = 0;
 $('engTfoot').querySelector('tr').querySelectorAll('td').forEach(td=> span += parseInt(td.getAttribute('colspan') || 1));
-ok('tfoot cộng đủ 56 cột', span === 56);
+ok('tfoot cộng đủ 60 cột', span === 60);
 
 const idx = w.ENG.ROWS.findIndex(r=> String(r[1]) === 'LPG-2026-342');
 ok('chip mặc định là GC', w.ENG.methodOf(w.ENG.ROWS[idx]) === 'gc');

@@ -60,6 +60,43 @@ assign) và **phiếu cân / Delivery Note** (lúc cân xong).
 
 Test canh: `tests/mdo-print.test.js`.
 
+## ⚖ ĐỐI CHIẾU CHUYỂN KHO — lưu lại thành dữ liệu (v4.111)
+
+Bảng **📏 Stock-transfer reconciliation** (nút 📏 trên thẻ tank, tab Inventory) từ
+v4.108 đã gợi ý được con số chuyển kho đúng. v4.111 biến nó từ *máy tính tạm* thành
+*dữ liệu có thể tra cứu*, và đưa phần cần dùng hằng ngày ra ngay chỗ nhân viên cân
+đang đứng.
+
+* **Lot đang tính nằm cùng hàng với TK-3501 / TK-3502.** Ô nhập LOT hầu như luôn để
+  trống vì lot được lấy tự động, nên trước đây nhìn bảng không biết mấy con số thuộc
+  mẻ nào. Nay có chip `LOT LPG-2026-xxx` ngay cạnh tên bồn — gõ số trần "900" thì chip
+  vẫn in **lot đầy đủ** đúng như Tank Log lưu.
+* **Nút 💾 Save to Tank Log** ghi kết quả xuống **4 cột mới** của Tank Log (đơn vị **kg**):
+
+  | Cột | Ý nghĩa |
+  |---|---|
+  | `[69]` Gap C3 | tồn đầu THỰC TẾ − tồn đầu HỆ THỐNG, phần C3 |
+  | `[70]` Gap C4 | như trên, phần C4 |
+  | `[71]` Adj ST C3 | số chuyển kho ĐÃ ĐIỀU CHỈNH = tồn cuối thực − tồn đầu hệ thống |
+  | `[72]` Adj ST C4 | như trên, phần C4 |
+
+  Ô trống nghĩa là **chưa ai đối chiếu lot đó**, không phải "lệch 0" — bảng in dấu `·`
+  chứ không in số 0. Phần mềm không bao giờ tự điền; chỉ ghi khi có người bấm.
+  `ROW_W` 69 → **73** (phải khớp ở cả `eng.js` lẫn `mixctrl.js`).
+* **✅ ở ô thông báo Tank Mix cũng ghi.** Xác nhận đã chuyển kho trên WMS là đúng thời
+  điểm chốt số, nên nút đó ghi 4 ô trên **trước**, rồi mới tick cờ ST. Thiếu tồn đầu hệ
+  thống thì chỉ nhắc bằng toast — **không bao giờ chặn** việc tick ST.
+* **Ô thông báo Tank Mix hiện đủ 4 dòng**: NOTIFIED (COQ) · SYSTEM OPENING (**sửa được
+  tại chỗ**) · GAP AT OPENING · ADJUSTED TRANSFER. Nhân viên cân xử lý gọn ngay trong ô
+  thông báo, chỉ mở bảng 📏 khi cần xem chi tiết.
+* **Tồn đầu hệ thống chỉ có MỘT nguồn** (`INV._stxSys`, khoá theo bồn + lot): gõ ở ô
+  thông báo đúng bằng gõ trong bảng đối chiếu, hai màn hình không thể nói khác nhau.
+* **⚠ Bẫy đã vá sẵn:** `ENG.upsertRow` giữ lại 4 ô này khi MC/paste ghi đè dòng — y như
+  cách nó giữ cờ ST từ v4.68. Không có nó thì mỗi lần *CALC + SAVE* lại một lot là xoá
+  sạch kết quả đối chiếu.
+
+Test canh: `tests/stx-recon-dom.smoke.js` (mục F–I).
+
 ## Chạy / xuất bản
 
 Đây là web tĩnh, **không cần build**. Đẩy repo lên GitHub rồi bật **Settings → Pages**

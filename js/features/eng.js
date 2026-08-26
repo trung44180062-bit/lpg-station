@@ -58,9 +58,23 @@ const ENG = (function(){
      đang chọn 'dens' sẽ tự lùi về 'gc'.
      Cột [13]/[14] (Filled C3/C4 theo GC) GIỮ NGUYÊN vai trò cũ — cách COQ
      chỉ để đối chiếu và để chọn con số gửi sang Check Booth.
+     v4.111: +4 -> 73 cho ĐỐI CHIẾU CHUYỂN KHO (⚖ Stock-transfer
+     reconciliation — xem INV.stxSave / MIXNOTIFY.confirm):
+       [69] Gap C3 ở TỔN ĐẦU (kg) = tồn đầu THỰC TẾ − tồn đầu HỆ THỐNG
+       [70] Gap C4 ở tồn đầu (kg)
+       [71] Số chuyển kho ĐÃ ĐIỀU CHỈNH C3 (kg) = tồn cuối thực − tồn đầu hệ thống
+       [72] Số chuyển kho đã điều chỉnh C4 (kg)
+     BỐN Ô NÀY ĐƠN VỊ KG (khác mọi cột khối lượng khác của Tank Log —
+     vì đây là con số được gõ thẳng vào SAP/WMS và hiển thị trên thông
+     báo Check Booth, đều là kg). Chỉ được ghi khi nhân viên BẤM SAVE ở
+     bảng đối chiếu hoặc BẤM ✅ XÁC NHẬN ở ô thông báo — phần mềm KHÔNG
+     tự điền, để trống nghĩa là "chưa ai đối chiếu lot này".
+     Mục đích: làm cơ sở dữ liệu để review / kiểm tra chéo / tra cứu sau này.
      Old shorter rows load fine (missing cells default ''). */
-  const ROW_W = 69;
+  const ROW_W = 73;
   const C_ST = 53, C_ST_TS = 54, C_ST_BY = 55;
+  /* v4.111 — 4 cột đối chiếu chuyển kho (kg) */
+  const S_GAP3 = 69, S_GAP4 = 70, S_ADJ3 = 71, S_ADJ4 = 72;
   /* v4.85 — cột của 2 cách tính bổ sung (PHẢI khớp mixctrl.js) */
   const A_MID = 56, A_T3 = 57, A_P3 = 58, A_T4 = 59, A_P4 = 60,   /* RETIRED v4.86 */
         A_DC3 = 61, A_DC4 = 62,                                     /* RETIRED v4.86 */
@@ -379,6 +393,11 @@ const ENG = (function(){
           (String(c[C_ST])==='1'
              ? '<span class="eng-st eng-st-on">✔</span>'
              : '<span class="eng-st eng-st-off">○</span>') + '</td>' +
+        /* v4.111 — bốn ô đối chiếu chuyển kho, đứng ngay sau cờ ST vì cùng
+           kể một câu chuyện: đã chuyển kho chưa · lệch bao nhiêu · chuyển
+           đi con số nào. */
+        _reconTd(c, S_GAP3) + _reconTd(c, S_GAP4) +
+        _reconTd(c, S_ADJ3) + _reconTd(c, S_ADJ4) +
         '<td class="td-r">'+_fmtNum(c[6],3)+'</td>' +
         '<td class="td-r" style="font-weight:700;color:var(--green)">'+_fmtNum(c[7],2)+'</td>' +
         '<td class="td-r td-c3" style="font-weight:600">'+_fmtPct(c[8])+'</td>' +
@@ -436,6 +455,11 @@ const ENG = (function(){
           _totNoSum('td-split td-split-e') + _totNoSum('td-split td-split-e') +
           '<td></td>' +
           '<td class="td-c" style="font-size:9px;color:var(--green)">'+T.stOn+'/'+filtered.length+'</td>' +
+          /* v4.111 — Gap là số TẠI MỘT MỐC của từng lot ⇒ không cộng dồn.
+             Số chuyển kho đã điều chỉnh thì cộng được (tổng kg đã post). */
+          _totNoSum('td-stx td-stx-g') + _totNoSum('td-stx td-stx-g') +
+          '<td class="td-r td-stx td-stx-a">'+(T.nAdj ? Math.round(T.adj3).toLocaleString('en-US') : '—')+'</td>' +
+          '<td class="td-r td-stx td-stx-a">'+(T.nAdj ? Math.round(T.adj4).toLocaleString('en-US') : '—')+'</td>' +
           '<td class="td-r">'+_fmtNum(T.vol,3)+'</td>' +
           '<td class="td-r" style="color:var(--green)">'+_fmtNum(T.qty,2)+'</td>' +
           '<td colspan="11"></td>' +
@@ -618,6 +642,35 @@ const ENG = (function(){
       '">·</td>';
   }
 
+  /* ══ v4.111 — 4 ô ĐỐI CHIẾU CHUYỂN KHO (kg) ═════════════════════════
+     Ô TRỐNG = chưa ai đối chiếu lot này, KHÔNG phải "lệch 0". Vì thế ô
+     rỗng in dấu "·" xám kèm tooltip nói rõ, y như cột Open/End ◈ — không
+     bao giờ in số 0 thay cho "chưa có dữ liệu". */
+  function _reconTd(c, col){
+    const isGap = (col === S_GAP3 || col === S_GAP4);
+    const isC3  = (col === S_GAP3 || col === S_ADJ3);
+    const cls = 'td-r td-stx ' + (isGap ? 'td-stx-g' : 'td-stx-a') + (isC3 ? ' k3' : ' k4');
+    const v = _num(c[col]);
+    if(v === null)
+      return '<td class="' + cls + ' td-stx-na" title="' + _esc(
+        'Chưa đối chiếu chuyển kho cho lot này. Mở 📏 Stock-transfer reconciliation '
+        + '(hoặc ✅ xác nhận ở ô thông báo Tank Mix) để ghi số vào đây.')
+        + '">·</td>';
+    const r = Math.round(v);
+    /* Dấu trừ dùng ký tự − (U+2212) y như bảng đối chiếu — cùng một con số
+       thì phải nhìn giống nhau ở hai màn hình. */
+    const sgn = isGap
+      ? ((r > 0 ? '+' : r < 0 ? '−' : '') + Math.abs(r).toLocaleString('en-US'))
+      : r.toLocaleString('en-US');
+    const scls = isGap ? (Math.abs(v) < 1 ? ' z' : (v > 0 ? ' p' : ' m')) : '';
+    return '<td class="' + cls + scls + '" title="' + _esc(
+      isGap ? 'Gap ở tồn đầu (kg) = tồn đầu THỰC TẾ (đo được × nền COQ) − tồn đầu HỆ THỐNG (SAP). '
+              + 'Số âm = hệ thống đang giữ nhiều hơn thực tế.'
+            : 'Số chuyển kho ĐÃ ĐIỀU CHỈNH (kg) = tồn cuối thực tế − tồn đầu hệ thống. '
+              + 'Đây là con số nên gõ vào SAP/WMS để tồn cuối hệ thống khớp tồn cuối thực tế.')
+      + '">' + sgn + '</td>';
+  }
+
   function _totNoSum(cls){
     return '<td class="td-r ' + cls + '" style="color:#c4cfda" ' +
       'title="Stock level at one point in time — adding it up across lots is meaningless, so no total is shown.">—</td>';
@@ -745,7 +798,9 @@ const ENG = (function(){
   }
   function _sumRows(list){
     const T = { fc3:0, fc4:0, flpg:0, vol:0, qty:0, odo:0, stOn:0, n:0,
-                qc3:0, qc4:0, oc3:0, oc4:0, nGc:0 };
+                qc3:0, qc4:0, oc3:0, oc4:0, nGc:0,
+                /* v4.111 — tổng số chuyển kho đã điều chỉnh (kg) + số lot đã đối chiếu */
+                adj3:0, adj4:0, nAdj:0 };
     (list||[]).forEach(r=>{
       T.n++;
       const a = _num(r[13]); if(a !== null) T.fc3  += a;
@@ -756,6 +811,12 @@ const ENG = (function(){
       const j = _num(r[A_QC4]); if(j !== null) T.qc4 += j;
       const o = _offC3C4(r); T.oc3 += o.c3; T.oc4 += o.c4;
       if(o.src === 'gc') T.nGc++;
+      const x3 = _num(r[S_ADJ3]), x4 = _num(r[S_ADJ4]);
+      if(x3 !== null || x4 !== null){
+        T.nAdj++;
+        if(x3 !== null) T.adj3 += x3;
+        if(x4 !== null) T.adj4 += x4;
+      }
       const d = _num(r[6]);  if(d !== null) T.vol  += d;
       const e = _num(r[7]);  if(e !== null) T.qty  += e;
       const f = _num(r[26]); if(f !== null) T.odo  += f;
@@ -984,6 +1045,21 @@ const ENG = (function(){
         safe[C_ST] = prev[C_ST]||''; safe[C_ST_TS] = prev[C_ST_TS]||''; safe[C_ST_BY] = prev[C_ST_BY]||'';
       }
     }
+    /* v4.111 — GIỮ LUÔN 4 Ô ĐỐI CHIẾU CHUYỂN KHO, cùng lý do với cờ ST.
+       MC/paste dựng mảng đủ 73 ô nhưng bốn ô cuối là chuỗi rỗng; nếu không
+       chặn thì mỗi lần tính lại + SAVE một lot đã đối chiếu là xoá sạch số
+       gap / số chuyển kho đã điều chỉnh — mất đúng phần dữ liệu lập ra để
+       sau này review và kiểm tra chéo. Chỉ ghi đè khi caller CHỦ ĐỘNG gửi
+       số mới; muốn xoá thì đi đường ENG.setStxRecon({clear:true}). */
+    {
+      const prev = RID_MAP[rid];
+      if(prev){
+        [S_GAP3, S_GAP4, S_ADJ3, S_ADJ4].forEach(col=>{
+          if(String(safe[col] == null ? '' : safe[col]).trim() === '' && prev[col] !== '' && prev[col] != null)
+            safe[col] = prev[col];
+        });
+      }
+    }
     _setRowLocal(rid, safe);
     _saveCache();
     _pushRowFb(rid, safe);
@@ -1081,6 +1157,71 @@ const ENG = (function(){
     }
     return fin(false, 'notfound');
   }
+  /* ══ v4.111 — GHI KẾT QUẢ ĐỐI CHIẾU CHUYỂN KHO VÀO TANK LOG ═════════
+     Gọi từ: nút 💾 SAVE của bảng ⚖ Stock-transfer reconciliation, và từ
+     MIXNOTIFY.confirm khi nhân viên cân bấm ✅ ở ô thông báo Tank Mix.
+       fig = { gap3, gap4, adj3, adj4 }  — KG, có thể null/undefined
+     Quy ước: giá trị null/undefined/'' ⇒ KHÔNG đụng vào ô đó (giữ số cũ),
+     chứ không ghi đè thành rỗng — để một lần lưu thiếu dữ liệu không xoá
+     mất kết quả đối chiếu đã có. Muốn xoá thì truyền chuỗi rỗng có chủ ý
+     qua fig.clear = true.
+     cb(ok, why) — why: 'ok' | 'nochange' | 'notfound' | 'fb-error'. Dùng
+     ĐÚNG cách của setStockTransfer: lot cũ chưa nằm trong RAM thì loadAll
+     rồi thử lại một lần, KHÔNG báo thành công sớm. */
+  function setStxRecon(lot, tank, fig, cb){
+    const fin = (ok, why) => {
+      if(!ok) console.warn('[ENG] setStxRecon FAILED', lot, tank, why);
+      if(typeof cb === 'function'){ try{ cb(!!ok, why); }catch(e){ console.warn('[ENG] stx cb', e); } }
+      return !!ok;
+    };
+    const f = fig || {};
+    const pick = v => {
+      if(v === null || v === undefined || v === '') return null;
+      const n = parseFloat(String(v).replace(/,/g,''));
+      return isFinite(n) ? Math.round(n) : null;
+    };
+    const want = { [S_GAP3]:pick(f.gap3), [S_GAP4]:pick(f.gap4),
+                   [S_ADJ3]:pick(f.adj3), [S_ADJ4]:pick(f.adj4) };
+    const commit = (row) => {
+      while(row.length < ROW_W) row.push('');
+      const before = [row[S_GAP3], row[S_GAP4], row[S_ADJ3], row[S_ADJ4]].join('/');
+      let changed = false;
+      Object.keys(want).forEach(k=>{
+        const col = +k, v = want[k];
+        if(f.clear === true && v === null){ if(row[col] !== ''){ row[col] = ''; changed = true; } return; }
+        if(v === null) return;                       /* không có số → giữ nguyên ô cũ */
+        if(String(row[col]) !== String(v)){ row[col] = v; changed = true; }
+      });
+      if(!changed) return fin(true, 'nochange');
+      _saveCache();
+      _pushRowFb(row._rid, row, (ok)=> fin(ok, ok ? 'ok' : 'fb-error'));
+      try{ render(); }catch(_){}
+      try{ logAudit('eng:tank_log:stx_recon', row._rid, 'stxRecon', before,
+                    [row[S_GAP3], row[S_GAP4], row[S_ADJ3], row[S_ADJ4]].join('/'),
+                    'stock-transfer reconciliation'); }catch(_){}
+      return true;
+    };
+    const row = findRowByLotTank(lot, tank);
+    if(row) return commit(row);
+    if(!_allLoaded){
+      loadAll(()=>{
+        const r2 = findRowByLotTank(lot, tank);
+        if(!r2){ fin(false, 'notfound'); return; }
+        commit(r2);
+      });
+      return null;
+    }
+    return fin(false, 'notfound');
+  }
+  /* Đọc lại 4 ô đối chiếu của một dòng (kg) — null = chưa đối chiếu. */
+  function stxReconOf(row){
+    if(!row) return { gap3:null, gap4:null, adj3:null, adj4:null, has:false };
+    const o = { gap3:_num(row[S_GAP3]), gap4:_num(row[S_GAP4]),
+                adj3:_num(row[S_ADJ3]), adj4:_num(row[S_ADJ4]) };
+    o.has = (o.gap3 !== null || o.gap4 !== null || o.adj3 !== null || o.adj4 !== null);
+    return o;
+  }
+
   /* Danh sách lot CHƯA chuyển kho — ALLOC dùng để cộng thêm vào bồn. */
   function pendingTransfers(){
     return ROWS.filter(r => String(r[C_ST]||'') !== '1');
@@ -2189,7 +2330,9 @@ const ENG = (function(){
       /* v4.85 — 13 cột của 2 cách tính bổ sung, khớp ROW_W=69 */
       'MidVol_retired','C3Temp_retired','C3Pres_retired','C4Temp_retired','C4Pres_retired',
       'FilledC3_Table_retired','FilledC4_Table_retired',
-      'IniCoqDensity','IniCoqC3wt','IniCoqSource','FilledC3_COQ','FilledC4_COQ','NotifyMethod'];
+      'IniCoqDensity','IniCoqC3wt','IniCoqSource','FilledC3_COQ','FilledC4_COQ','NotifyMethod',
+      /* v4.111 — 4 cột đối chiếu chuyển kho, đơn vị KG */
+      'ReconGapC3_kg','ReconGapC4_kg','AdjTransferC3_kg','AdjTransferC4_kg'];
     const csvLines = [headers.join(',')];
     /* v4.63 — export theo thứ tự lot MỚI NHẤT → CŨ NHẤT (khớp bảng) */
     const ordered = ROWS.slice().sort((a,b)=> _lotKey(b[1]) - _lotKey(a[1]));
@@ -3148,6 +3291,9 @@ const ENG = (function(){
     /* v4.68 — Stock Transfer (đồng bộ chuyển kho WMS) */
     toggleST, setStockTransfer, pendingTransfers,
     ST_COL: C_ST, ST_TS_COL: C_ST_TS, ST_BY_COL: C_ST_BY,
+    /* v4.111 — 4 cột đối chiếu chuyển kho (kg) */
+    setStxRecon, stxReconOf,
+    STX_COLS: { gap3:S_GAP3, gap4:S_GAP4, adj3:S_ADJ3, adj4:S_ADJ4 },
     /* v4.85 — phương pháp lấy số Filled C3/C4 gửi sang Scale */
     cycleMethod, pickMethod, methodOf: _mthOf, filledBy: _filledBy,
     /* v4.107 — cột LPG = ΣCOQ (lùi GC khi lot chưa có COQ) */

@@ -199,7 +199,11 @@ const MC = (function(){
      [64] %wt C3 đầu  [65] nguồn COQ đầu  [66] Filled C3 (COQ)  [67] Filled C4 (COQ)
      [68] phương pháp gửi Scale ('gc'|'coq')  — 'dens' đã gỡ ở v4.86
      ⚠ PHẢI khớp ROW_W trong eng.js. */
-  const ROW_W = 69;
+  /* v4.111 — ROW_W nới 69 → 73 (4 cột đối chiếu chuyển kho ở eng.js:
+     [69] gap C3 · [70] gap C4 · [71] adj ST C3 · [72] adj ST C4, đơn vị kg).
+     PHẢI khớp ENG.ROW_W, nếu không mảng do MC dựng sẽ ngắn hơn và mọi ô
+     đối chiếu đã lưu bị cắt mất khi MC ghi lại dòng. */
+  const ROW_W = 73;
 
   /* v4.55 — COQ metadata captured on import (sampling time / analysis date) */
   const CQM = { '1':null, '2':null };

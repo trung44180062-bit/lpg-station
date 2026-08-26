@@ -99,6 +99,11 @@ const MIXNOTIFY = (function(){
     }
 
     _busy[pk] = true;
+
+    /* v4.111 — TICK ST là phần việc THẬT SỰ QUAN TRỌNG, nên nó nằm trong
+       runST() và luôn được chạy, dù việc ghi đối chiếu ở dưới có thành
+       công hay không. */
+    const runST = function(){
     let settled = false;
     const finish = (ok, why) => {
       if(settled) return; settled = true;
@@ -128,6 +133,25 @@ const MIXNOTIFY = (function(){
       console.warn('[MIXNOTIFY] setStockTransfer', e);
       finish(false, 'exception');
     }
+    };   /* ── hết runST ── */
+
+    /* ══ v4.111 — GHI ĐỐI CHIẾU CHUYỂN KHO TRƯỚC, RỒI MỚI TICK ST ══════
+       ✅ ở đây nghĩa là "tôi đã chuyển kho trên WMS". Đúng lúc đó phải
+       chốt luôn: lệch tồn đầu bao nhiêu và rốt cuộc đã chuyển đi con số
+       nào — ghi thẳng vào 4 cột mới của Tank Log để sau này review, kiểm
+       tra chéo hay tra cứu đều có số. Chạy TRƯỚC (tuần tự) để hai đường
+       ghi không cùng lúc kéo Tank Log về và đụng nhau.
+       Thiếu tồn đầu hệ thống thì INV chỉ nhắc bằng toast và TICK ST VẪN
+       CHẠY — không bao giờ chặn thao tác chính vì một ô còn trống. */
+    let moved = false;
+    const go = ()=>{ if(moved) return; moved = true; runST(); };
+    let started = false;
+    try{
+      if(typeof INV !== 'undefined' && INV.stxSaveFor)
+        started = (INV.stxSaveFor(item.tkName, item.lot, go, false) === true);
+    }catch(e){ console.warn('[MIXNOTIFY] stxSaveFor', e); }
+    if(started) setTimeout(go, 8000);    /* lưới an toàn nếu callback không về */
+    else go();
   }
 
   function cancel(pk){
@@ -148,13 +172,159 @@ const MIXNOTIFY = (function(){
     render();
   }
 
+  /* ══ v4.111 — THẺ THÔNG BÁO GỘP LUÔN PHẦN ĐỐI CHIẾU CHUYỂN KHO ═══════
+     Trước đây thẻ chỉ có con số Filled C3/C4 rồi ✅. Nhân viên cân muốn
+     biết tồn đầu hệ thống / lệch bao nhiêu / rốt cuộc phải chuyển bao
+     nhiêu thì phải mở bảng 📏 ở tab Inventory — quá xa cho một thao tác
+     làm mỗi mẻ. Giờ thẻ hiện đủ bốn dòng và Ô TỒN ĐẦU HỆ THỐNG SỬA ĐƯỢC
+     NGAY TẠI ĐÂY: gõ ở đây đúng bằng gõ trong bảng đối chiếu (cùng một
+     kho số của INV). Bảng 📏 chỉ còn để xem chi tiết khi cần.
+     Mọi số lấy từ INV.stxFigures — MỘT hàm tính duy nhất, nên thẻ và bảng
+     không thể nói khác nhau. INV chưa sẵn sàng thì thẻ lùi về dạng cũ
+     thay vì vỡ. */
+  function _kg(v){
+    return (v === null || v === undefined || !isFinite(v))
+      ? '—' : Math.round(v).toLocaleString('en-US');
+  }
+  function _sgn(v){
+    if(v === null || v === undefined || !isFinite(v)) return '—';
+    const r = Math.round(v);
+    return (r > 0 ? '+' : r < 0 ? '−' : '') + Math.abs(r).toLocaleString('en-US');
+  }
+  function _sgnCls(v){
+    if(v === null || v === undefined || !isFinite(v)) return '';
+    return Math.abs(v) < 1 ? 'z' : (v > 0 ? 'p' : 'm');
+  }
+  /* Ô nhập tồn đầu hệ thống — oninput đẩy thẳng vào kho dùng chung của INV */
+  function _sysInp(pk, sloc, lot, k, v){
+    const id = 'ntxSys' + k + _sanitizePk(pk);
+    return '<input class="ntx-inp c' + k + '" id="' + id + '" type="number" step="any" '
+         + 'placeholder="C' + k + ' kg" value="' + (v === null || v === undefined ? '' : Math.round(v)) + '" '
+         + 'title="System opening stock in SAP, C' + k + ' part (kg). '
+         + 'This is the same figure as in the ⚖ Stock-transfer reconciliation table — editing it here edits it there." '
+         + 'oninput="MIXNOTIFY.sysEdit(\'' + String(pk).replace(/'/g, "\\'") + '\')">';
+  }
+  function _mixCard(item){
+    const total  = (item.c3||0) + (item.c4||0);
+    const lotRaw = String(item.lot||'');
+    /* v4.28.3 — chỉ hiện phần số đuôi của lot ("LPG-2026-7" → "7") */
+    const lotMatch = lotRaw.match(/(\d+)$/);
+    const lotDisp = lotMatch ? lotMatch[1] : lotRaw;
+    const pkJs = String(item._pk||'').replace(/'/g,"\\'");
+
+    let F = null, sloc = '';
+    try{
+      if(typeof INV !== 'undefined' && INV.stxFigures && INV.stxSlocOf){
+        sloc = INV.stxSlocOf(item.tkName);
+        if(sloc) F = INV.stxFigures(sloc, lotRaw);
+      }
+    }catch(e){ console.warn('[MIXNOTIFY] stxFigures', e); }
+
+    let recon = '';
+    if(!F){
+      recon = '<div class="ntx-note">Reconciliation figures unavailable — the Inventory module is not ready yet.</div>';
+    } else if(!F.ok){
+      recon = '<div class="ntx-note warn">'
+            + (F.why === 'no-row'
+                ? 'No Tank Log row found for lot <b>' + _esc(lotRaw) + '</b> yet, so the opening gap and the '
+                  + 'adjusted transfer quantity cannot be computed. Confirming still ticks Stock Transfer.'
+                : 'Lot <b>' + _esc(lotRaw) + '</b> has no COQ basis yet (missing: ' + _esc(F.miss) + '), '
+                  + 'so the gap cannot be computed. Run ◈ CALC COQ on the lot in the Tank Log.')
+            + '</div>';
+    } else {
+      const hs = F.hasSys;
+      const srcTxt = ({ sap:'from SAP End Stock', manual:'typed by the operator',
+                        'sap-missing':'SAP End Stock for that day is not loaded — type it in',
+                        'manual-required':'must be typed in (mixing finished inside operating hours)',
+                        none:'—' })[F.sysTag] || '';
+      recon =
+        '<div class="ntx-grid">'
+        + '<div class="ntx-r r-s"><span class="ntx-k">SYSTEM OPENING</span>'
+        +   '<span class="ntx-v">' + _sysInp(item._pk, sloc, lotRaw, '3', F.sysC3) + '</span>'
+        +   '<span class="ntx-v">' + _sysInp(item._pk, sloc, lotRaw, '4', F.sysC4) + '</span>'
+        +   '<span class="ntx-t">' + (hs ? _kg(F.sysC3 + F.sysC4) + ' kg' : '') + '</span></div>'
+        + '<div class="ntx-r r-g"><span class="ntx-k">GAP AT OPENING</span>'
+        +   '<span class="ntx-v ' + _sgnCls(F.gapC3) + '">' + _sgn(F.gapC3) + '</span>'
+        +   '<span class="ntx-v ' + _sgnCls(F.gapC4) + '">' + _sgn(F.gapC4) + '</span>'
+        +   '<span class="ntx-t">actual − system</span></div>'
+        + '<div class="ntx-r r-a"><span class="ntx-k">ADJUSTED TRANSFER</span>'
+        +   '<span class="ntx-v b">' + _kg(F.xC3) + '</span>'
+        +   '<span class="ntx-v b">' + _kg(F.xC4) + '</span>'
+        +   '<span class="ntx-t">' + (hs ? '= ' + _kg(F.xC3 + F.xC4) + ' kg' : '') + '</span></div>'
+        + '</div>'
+        + '<div class="ntx-note' + (hs ? '' : ' warn') + '">'
+        +   (hs
+              ? 'System opening ' + _esc(srcTxt) + '. Post <b>' + _kg(F.xC3) + '</b> / <b>' + _kg(F.xC4)
+                + '</b> kg instead of the notified figure so the system end stock lands on the measured one. '
+                + '✅ writes the gap and this quantity onto the lot in the Tank Log.'
+              : 'Enter the system opening stock to get the adjusted transfer quantity — '
+                + _esc(srcTxt) + '.')
+        + '</div>';
+      if((F.xC3 !== null && F.xC3 < 0) || (F.xC4 !== null && F.xC4 < 0))
+        recon += '<div class="ntx-note warn">⚠ The adjusted quantity is NEGATIVE — the system already holds '
+               + 'more than the tank actually contains. Check the system opening figure before posting.</div>';
+    }
+
+    return '<div class="ntx">'
+      + '<div class="ntx-hd">'
+      +   '<span class="ntx-tk">' + _esc(item.tkName) + '</span>'
+      +   '<span class="ntx-lot">LOT ' + _esc(lotDisp) + '</span>'
+      +   '<button class="sc-r5-mix-ok" onclick="MIXNOTIFY.confirm(\'' + pkJs + '\')" '
+      +     'title="Confirm stock transferred on WMS — ticks Stock Transfer and saves the reconciliation '
+      +     'onto this lot in the Tank Log">✅</button>'
+      + '</div>'
+      + '<div class="ntx-grid">'
+      +   '<div class="ntx-r r-n"><span class="ntx-k">NOTIFIED (COQ)</span>'
+      +     '<span class="ntx-v c3">' + (item.c3||0).toLocaleString('en-US') + '</span>'
+      +     '<span class="ntx-v c4">' + (item.c4||0).toLocaleString('en-US') + '</span>'
+      +     '<span class="ntx-t">= ' + total.toLocaleString('en-US') + ' kg</span></div>'
+      + '</div>'
+      + recon
+      + '</div>';
+  }
+
+  /* Ô nhập bị dựng lại mỗi lần render ⇒ nhớ ô đang focus + vị trí con trỏ
+     rồi trả lại sau khi vẽ, không thì gõ một chữ số là mất con trỏ. */
+  function _focusSnap(host){
+    const el = (typeof document !== 'undefined') ? document.activeElement : null;
+    if(!el || !host || !host.contains(el) || el.tagName !== 'INPUT') return null;
+    let ss = null, se = null;
+    try{ ss = el.selectionStart; se = el.selectionEnd; }catch(_){}
+    return { id:el.id, ss:ss, se:se };
+  }
+  function _focusBack(snap){
+    if(!snap || !snap.id) return;
+    const el = document.getElementById(snap.id);
+    if(!el) return;
+    try{
+      el.focus();
+      if(snap.ss !== null && snap.ss !== undefined) el.setSelectionRange(snap.ss, snap.se);
+    }catch(_){}
+  }
+
+  /* Nhân viên gõ tồn đầu hệ thống ngay trên thẻ thông báo → cất vào kho
+     dùng chung của INV. Bảng ⚖ (nếu đang mở) và thẻ này đổi theo cùng lúc. */
+  function sysEdit(pk){
+    const item = PEND[pk]; if(!item) return;
+    const sfx = _sanitizePk(pk);
+    const e3 = document.getElementById('ntxSys3'+sfx);
+    const e4 = document.getElementById('ntxSys4'+sfx);
+    try{
+      if(typeof INV === 'undefined' || !INV.stxSetSys || !INV.stxSlocOf) return;
+      const sloc = INV.stxSlocOf(item.tkName); if(!sloc) return;
+      INV.stxSetSys(sloc, String(item.lot||''), e3 ? e3.value : '', e4 ? e4.value : '');
+    }catch(e){ console.warn('[MIXNOTIFY] sysEdit', e); }
+  }
+
   function render(){
     /* v4.30.0 — Row 5 retired. Tank mix slots now live inside the
        Notifications modal at #notif-tankmix-host. Same 4-slot oldest-
-       first layout; identical HTML per cell. Also pushes the pending
-       count to NOTIF so the Engineer-Notification badge updates live. */
+       first layout. Also pushes the pending count to NOTIF so the
+       Engineer-Notification badge updates live. */
+    const host  = document.getElementById('notif-tankmix-host');
     const cells = document.querySelectorAll('#notif-tankmix-host .sc-r5-cell');
     if(!cells || cells.length < 4) return;
+    const snap = _focusSnap(host);
     /* Oldest first — first mix that came in fills slot 1 */
     const list = Object.values(PEND)
       .sort((a,b) => (a._ts||0) - (b._ts||0))
@@ -168,26 +338,16 @@ const MIXNOTIFY = (function(){
         continue;
       }
       cell.className = 'sc-r5-cell sc-r5-cell-on';
-      const total  = (item.c3||0) + (item.c4||0);
-      const lotRaw = String(item.lot||'');
-      /* v4.28.3 — show only the trailing lot number (e.g. "LPG-2026-7" → "7").
-         Falls back to the raw string if no trailing digits found. */
-      const lotMatch = lotRaw.match(/(\d+)$/);
-      const lotDisp = lotMatch ? lotMatch[1] : lotRaw;
-      const pkJs = String(item._pk||'').replace(/'/g,"\\'");
-      cell.innerHTML =
-        '<div class="sc-r5-mix">'+
-          '<div class="sc-r5-mix-hd">'+_esc(item.tkName)+' · '+_esc(lotDisp)+'</div>'+
-          '<div class="sc-r5-mix-vals">'+
-            '<span class="sc-r5-mix-c3">C3: '+(item.c3||0).toLocaleString('en-US')+'</span>'+
-            '<span class="sc-r5-mix-c4">C4: '+(item.c4||0).toLocaleString('en-US')+'</span>'+
-            '<span class="sc-r5-mix-tot">= '+total.toLocaleString('en-US')+' kg</span>'+
-          '</div>'+
-          '<button class="sc-r5-mix-ok" '+
-                  'onclick="MIXNOTIFY.confirm(\''+pkJs+'\')" '+
-                  'title="Confirm stock transferred">✅</button>'+
-        '</div>';
+      try{ cell.innerHTML = _mixCard(item); }
+      catch(e){
+        console.warn('[MIXNOTIFY] card', e);
+        cell.innerHTML = '<div class="ntx"><div class="ntx-hd"><span class="ntx-tk">'
+          + _esc(item.tkName) + '</span><span class="ntx-lot">LOT ' + _esc(String(item.lot||''))
+          + '</span><button class="sc-r5-mix-ok" onclick="MIXNOTIFY.confirm(\''
+          + String(item._pk||'').replace(/'/g,"\\'") + '\')">✅</button></div></div>';
+      }
     }
+    _focusBack(snap);
     _syncBadge();
   }
 
@@ -213,6 +373,8 @@ const MIXNOTIFY = (function(){
 
   return {
     init, pushNotify, confirm, cancel, render,
+    /* v4.111 — ô tồn đầu hệ thống gõ ngay trên thẻ thông báo */
+    sysEdit,
     get PENDING(){ return PEND; }
   };
 })();

@@ -374,6 +374,192 @@ ok('không còn chữ tiếng Việt nào trong bảng', !viet, viet ? viet.join
 const copyBtn = w.document.querySelector('#stxModal .modal-foot .btn-green');
 ok('nút copy bằng tiếng Anh', /Copy/.test(copyBtn.textContent), copyBtn.textContent.trim());
 
+
+/* ═════════ F. v4.111 — 4 CỘT ĐỐI CHIẾU CHUYỂN KHO TRÊN TANK LOG ═════════ */
+console.log('\n── F. Bốn cột Gap / Adj ST trên bảng Tank Log ──');
+w.ENG.render();
+const th2  = w.document.querySelectorAll('#engTbl thead th');
+const hdr2 = Array.from(th2).map(x=>x.textContent.trim());
+ok('có cột Gap C3 (kg)',    hdr2.indexOf('Gap C3 (kg)') >= 0);
+ok('có cột Gap C4 (kg)',    hdr2.indexOf('Gap C4 (kg)') >= 0);
+ok('có cột Adj ST C3 (kg)', hdr2.indexOf('Adj ST C3 (kg)') >= 0);
+ok('có cột Adj ST C4 (kg)', hdr2.indexOf('Adj ST C4 (kg)') >= 0);
+ok('bốn cột đứng NGAY SAU cờ ST và trước Vol (m³)',
+   hdr2.indexOf('ST') < hdr2.indexOf('Gap C3 (kg)')
+   && hdr2.indexOf('Adj ST C4 (kg)') < hdr2.indexOf('Vol (m³)'),
+   hdr2.slice(hdr2.indexOf('ST'), hdr2.indexOf('Vol (m³)')+1).join(' | '));
+ok('ROW_W đã nới lên 73 (mảng dòng đủ chỗ cho 4 ô mới)',
+   w.ENG.STX_COLS.gap3 === 69 && w.ENG.STX_COLS.adj4 === 72,
+   JSON.stringify(w.ENG.STX_COLS));
+const tr900 = Array.from(w.document.querySelectorAll('#engTbl tbody tr'))
+  .find(x=>x.children[2] && x.children[2].textContent.trim()==='LPG-2026-900');
+ok('dòng 900 có trên bảng', !!tr900);
+const nTd2 = tr900.children.length;
+const nTf2 = Array.from(w.document.querySelectorAll('#engTfoot td'))
+  .reduce((a,c)=>a+(parseInt(c.getAttribute('colspan'))||1),0);
+ok('thead = tbody = tfoot (không lệch cột sau khi thêm 4 cột)',
+   th2.length === nTd2 && th2.length === nTf2, th2.length+' / '+nTd2+' / '+nTf2);
+ok('lot chưa đối chiếu → ô in dấu ·, KHÔNG in 0',
+   tr900.children[hdr2.indexOf('Gap C3 (kg)')].textContent.trim() === '·',
+   tr900.children[hdr2.indexOf('Gap C3 (kg)')].textContent.trim());
+ok('… tooltip nói rõ là CHƯA đối chiếu, không phải lệch 0',
+   /Chưa đối chiếu/.test(tr900.children[hdr2.indexOf('Adj ST C3 (kg)')].getAttribute('title')||''));
+
+/* ═════════ G. NÚT 💾 SAVE — ghi kết quả vào Tank Log ═════════ */
+console.log('\n── G. 💾 Save to Tank Log ──');
+Object.keys(R).forEach(k=>delete R[k]);
+put('g1', { date:'2026-08-09', sloc:'2100', mat:'C3', batch:'D', end:20000 });
+put('g2', { date:'2026-08-09', sloc:'2100', mat:'C4', batch:'D', end:20000 });
+w.MIXNOTIFY = { PENDING:{} };
+w.INV.openStx(1);
+$('stxLot2100').value = '900';
+w.INV.stxLotChange('2100');
+w.INV.stxSysReset('2100');                 /* bỏ mọi số gõ tay còn sót */
+const Fg = w.INV.stxFigures('2100');
+ok('stxFigures tính được',           Fg.ok === true && Fg.hasSys === true);
+near('… gap tồn đầu C3 = −10 000',   Fg.gapC3, -10000, 1);
+near('… số chuyển kho điều chỉnh C3 = 90 000', Fg.xC3, 90000, 1);
+ok('có nút 💾 Save to Tank Log trên bảng',
+   /Save to Tank Log/.test($('stxFoot2100').textContent));
+ok('trước khi lưu, bảng nói rõ CHƯA lưu',
+   /Not saved to the Tank Log yet/.test($('stxFoot2100').textContent));
+w.INV.stxSave('2100');
+const rowSaved = w.ENG.findRowByLotTank('LPG-2026-900','TK-3501');
+ok('tìm lại được dòng lot 900', !!rowSaved);
+near('ô [69] Gap C3  = −10 000', parseFloat(rowSaved[69]), -10000, 1);
+near('ô [70] Gap C4  = −10 000', parseFloat(rowSaved[70]), -10000, 1);
+near('ô [71] Adj ST C3 = 90 000', parseFloat(rowSaved[71]),  90000, 1);
+near('ô [72] Adj ST C4 = 90 000', parseFloat(rowSaved[72]),  90000, 1);
+const rec = w.ENG.stxReconOf(rowSaved);
+ok('ENG.stxReconOf đọc lại đúng', rec.has === true && Math.round(rec.adj3) === 90000);
+ok('Firebase không có → báo lỗi thẳng, không im lặng',
+   LOG.some(x=>/Could not save to the Tank Log/.test(x)), LOG[LOG.length-1]);
+w.ENG.render();
+const tr900b = Array.from(w.document.querySelectorAll('#engTbl tbody tr'))
+  .find(x=>x.children[2] && x.children[2].textContent.trim()==='LPG-2026-900');
+ok('bảng Tank Log in gap có dấu − (U+2212, giống bảng đối chiếu)',
+   tr900b.children[hdr2.indexOf('Gap C3 (kg)')].textContent.trim() === '−10,000',
+   tr900b.children[hdr2.indexOf('Gap C3 (kg)')].textContent.trim());
+ok('bảng Tank Log in số chuyển kho đã điều chỉnh',
+   tr900b.children[hdr2.indexOf('Adj ST C3 (kg)')].textContent.trim() === '90,000',
+   tr900b.children[hdr2.indexOf('Adj ST C3 (kg)')].textContent.trim());
+w.INV.renderStx(true);
+ok('bảng đối chiếu đổi sang trạng thái ĐÃ LƯU',
+   /✔ Saved on this lot/.test($('stxFoot2100').textContent), $('stxFoot2100').textContent.slice(-90));
+/* thiếu tồn đầu hệ thống thì KHÔNG được lưu bừa */
+Object.keys(R).forEach(k=>delete R[k]);
+$('stxLot2100').value = '901';            /* lot xong 14:30 — trong giờ làm việc */
+w.INV.stxLotChange('2100');
+const nLog = LOG.length;
+w.INV.stxSave('2100');
+ok('chưa có tồn đầu hệ thống → TỪ CHỐI lưu và nói rõ',
+   LOG.slice(nLog).some(x=>/Enter the system opening stock first/.test(x)),
+   LOG.slice(nLog).join(' | '));
+const row901 = w.ENG.findRowByLotTank('LPG-2026-901','TK-3501');
+ok('… và KHÔNG ghi gì vào dòng đó', String(row901[69]) === '' && String(row901[71]) === '');
+
+/* Tính lại + SAVE lot (đường MC/paste đi qua) KHÔNG được xoá số đã đối chiếu */
+console.log('\n   · upsertRow không được xoá 4 ô đã đối chiếu');
+const again = mkRow({ lot:'LPG-2026-900', tank:'TK-3501', date:'09/08/26',
+  start:'19:00', finish:'23:00', iv:IV, fv:FV,
+  den:DEN, w3:'50', iden:DEN, iw3:'50', qc3:100, qc4:100 });
+w.ENG.upsertRow(again);
+const rowAgain = w.ENG.findRowByLotTank('LPG-2026-900','TK-3501');
+near('SAVE lại lot vẫn GIỮ gap C3', parseFloat(rowAgain[69]), -10000, 1);
+near('SAVE lại lot vẫn GIỮ số chuyển kho đã điều chỉnh C3', parseFloat(rowAgain[71]), 90000, 1);
+
+/* ═════════ H. LOT ĐANG TÍNH HIỆN CẠNH TÊN BỒN ═════════ */
+console.log('\n── H. Lot đang tính đứng cùng hàng với TK-3501 ──');
+Object.keys(R).forEach(k=>delete R[k]);
+put('h1', { date:'2026-08-09', sloc:'2100', mat:'C3', batch:'D', end:20000 });
+put('h2', { date:'2026-08-09', sloc:'2100', mat:'C4', batch:'D', end:20000 });
+$('stxLot2100').value = '900';
+w.INV.stxLotChange('2100');
+const lotNow = $('stxLotNow2100');
+ok('có chip LOT trong khối tiêu đề', !!lotNow);
+ok('chip nằm CÙNG HÀNG với tên bồn TK-3501',
+   lotNow.parentElement === w.document.querySelector('#stxPane2100 .stx-hdr'),
+   lotNow.parentElement ? lotNow.parentElement.className : '—');
+ok('gõ số trần "900" vẫn in ra LOT ĐẦY ĐỦ của Tank Log',
+   /LPG-2026-900/.test(lotNow.textContent), lotNow.textContent.trim());
+ok('… và đứng SAU tên bồn, TRƯỚC ô nhập lot',
+   Array.from(lotNow.parentElement.children).indexOf(w.document.querySelector('#stxPane2100 .stx-hdr .nm'))
+   < Array.from(lotNow.parentElement.children).indexOf(lotNow));
+ok('tooltip nói rõ mọi số bên dưới thuộc lot này',
+   /belongs to lot LPG-2026-900/.test(lotNow.title||''), lotNow.title);
+$('stxLot2100').value = '';
+w.INV.stxLotChange('2100');
+w.INV.renderStx(true);
+ok('lot lấy tự động vẫn được in ra chip (không để trống)',
+   /LPG-2026-/.test($('stxLotNow2100').textContent), $('stxLotNow2100').textContent.trim());
+
+/* ═════════ I. Ô THÔNG BÁO TANK MIX ═════════ */
+console.log('\n── I. Thông báo Tank Mix: opening · gap · số đã adjust ──');
+/* Nạp module thật. Đổi `const MIXNOTIFY` thành `window.MIXNOTIFY` để nó
+   nằm ở global — không thì binding const của eval che mất window và INV
+   lại đọc nhầm object giả của các phần test trước. */
+const mnSrc = fs.readFileSync(path.join(ROOT,'js/features/mixnotify.js'),'utf8')
+  .replace('const MIXNOTIFY = (function(){', 'window.MIXNOTIFY = (function(){')
+  .replace('window.MIXNOTIFY = MIXNOTIFY;', '');
+try{ w.eval(mnSrc); }catch(e){ console.log('❌ LOAD mixnotify.js → '+e.message); process.exit(1); }
+ok('nạp được module MIXNOTIFY thật', typeof w.MIXNOTIFY.render === 'function');
+
+const PK = 'TK-3501_LPG-2026-900';
+w.MIXNOTIFY.PENDING[PK] = { _pk:PK, lot:'LPG-2026-900', c3:100000, c4:100000,
+                            tkName:'TK-3501', key:'tk1', _ts:1 };
+w.INV.stxSysReset('2100');
+w.MIXNOTIFY.render();
+const cell = w.document.querySelectorAll('#notif-tankmix-host .sc-r5-cell')[0];
+const cTxt = () => cell.textContent.replace(/\s+/g,' ');
+ok('thẻ hiện tên bồn + lot',      /TK-3501/.test(cTxt()) && /LOT 900/.test(cTxt()), cTxt().slice(0,70));
+ok('vẫn hiện con số đang báo cho Check Booth', /NOTIFIED \(COQ\)/.test(cTxt()));
+ok('có dòng SYSTEM OPENING',      /SYSTEM OPENING/.test(cTxt()));
+ok('có dòng GAP AT OPENING',      /GAP AT OPENING/.test(cTxt()));
+ok('có dòng ADJUSTED TRANSFER',   /ADJUSTED TRANSFER/.test(cTxt()));
+const nIn3 = cell.querySelector('input.ntx-inp.c3');
+const nIn4 = cell.querySelector('input.ntx-inp.c4');
+ok('tồn đầu hệ thống SỬA ĐƯỢC ngay tại ô thông báo', !!nIn3 && !!nIn4);
+near('… tự điền 20 000 kg từ SAP', parseFloat(nIn3.value), 20000, 0);
+ok('gap in ra −10,000',      /−10,000/.test(cTxt()), cTxt().slice(0,220));
+ok('số chuyển kho đã adjust in ra 90,000', /90,000/.test(cTxt()));
+ok('nói rõ nên post số nào thay cho số đã báo', /Post/.test(cTxt()));
+ok('nói rõ ✅ sẽ ghi vào Tank Log',
+   /writes the gap and this quantity onto the lot in the Tank Log/.test(cTxt()));
+
+console.log('\n   · Sửa ở thông báo = sửa ở bảng đối chiếu');
+nIn3.value = '15000';
+w.MIXNOTIFY.sysEdit(PK);
+ok('ô System opening của BẢNG đổi theo ngay', $('stxSys32100').value === '15000', $('stxSys32100').value);
+const vals3 = Array.from($('stxFoot2100').querySelectorAll('.stx-sug-vals b')).map(x=>num(x.textContent));
+near('… bảng đề xuất lên 95 000',   vals3[0], 95000, 1);
+ok('bảng ghi nguồn là Manual entry', /Manual entry/.test($('stxSrc2100').textContent));
+ok('… và nói rõ hai chỗ dùng chung một số',
+   /editing it in either place changes both/i.test($('stxSrc2100').textContent));
+w.MIXNOTIFY.render();
+ok('thẻ thông báo cũng lên 95,000', /95,000/.test(cTxt()));
+/* và ngược lại: gõ ở bảng → thẻ thông báo đổi theo */
+$('stxSys32100').value = '12000';
+w.INV.stxSysEdit('2100');
+ok('gõ ở BẢNG → ô của thông báo đổi theo',
+   w.document.querySelector('#notif-tankmix-host input.ntx-inp.c3').value === '12000',
+   w.document.querySelector('#notif-tankmix-host input.ntx-inp.c3').value);
+
+console.log('\n   · ✅ xác nhận ghi kết quả đối chiếu vào Tank Log');
+w.INV.stxSysReset('2100');
+w.MIXNOTIFY.render();
+/* Chính là đường mà MIXNOTIFY.confirm đi qua */
+let cbOk = null;
+w.INV.stxSaveFor('TK-3501', 'LPG-2026-900', (o)=>{ cbOk = o; }, true);
+const rowC = w.ENG.findRowByLotTank('LPG-2026-900','TK-3501');
+near('✅ ghi gap C3 vào Tank Log',        parseFloat(rowC[69]), -10000, 1);
+near('✅ ghi số chuyển kho đã adjust C3', parseFloat(rowC[71]),  90000, 1);
+ok('callback có được gọi (confirm biết lúc nào ghi xong)', cbOk !== null);
+ok('MIXNOTIFY.confirm gọi được', typeof w.MIXNOTIFY.confirm === 'function');
+
+console.log('\n   · Chữ trên thẻ thông báo là TIẾNG ANH');
+const nViet = cTxt().match(/[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ]/gi);
+ok('không còn chữ tiếng Việt trên thẻ thông báo', !nViet, nViet ? nViet.join('') : 'sạch');
+
 console.log('\n─────────────────────────────────────');
 console.log(fail ? ('❌ '+fail+' assert THẤT BẠI') : '✅ TẤT CẢ ASSERT PASS');
 process.exit(fail ? 1 : 0);

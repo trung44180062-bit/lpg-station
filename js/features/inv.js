@@ -786,7 +786,52 @@ const INV = (function(){
   const _STX_TKNUM = { '2100':'3501', '2101':'3502' };
   let _stxTSV    = '';
   const _stxLotIn  = { '2100':'', '2101':'' };   // lot người dùng gõ đè
-  const _stxManual = { '2100':false, '2101':false }; // đã gõ tay System opening
+
+  /* ── v4.111 — TỒN ĐẦU HỆ THỐNG GÕ TAY: MỘT NGUỒN DUY NHẤT ────────────
+     Trước đây con số này chỉ sống trong hai ô <input> của bảng đối chiếu,
+     nên ô thông báo Tank Mix không thể đọc hay sửa được. Giờ nó nằm ở đây
+     và hai màn hình chỉ là HAI CỬA SỔ nhìn vào cùng một chỗ: gõ ở thông
+     báo cũng đúng bằng gõ ở bảng đối chiếu.
+     Khoá theo BỒN + LOT — đổi lot thì số gõ tay của lot cũ KHÔNG được
+     dùng nhầm cho lot mới (đó là số tồn đầu của một mẻ cụ thể).
+       lot = ''  ⇒ chưa ai gõ tay ⇒ lấy SAP End Stock theo luật giờ finish. */
+  const _stxSys = { '2100':{ lot:'', c3:null, c4:null },
+                    '2101':{ lot:'', c3:null, c4:null } };
+  function _stxN(v){
+    if(v === '' || v === null || v === undefined) return null;
+    const x = parseFloat(String(v).replace(/,/g,''));
+    return isFinite(x) ? x : null;
+  }
+  /* Số gõ tay ĐANG CÓ HIỆU LỰC cho đúng bồn + lot này, hoặc null. */
+  function _stxManualOf(sloc, lot){
+    const m = _stxSys[sloc];
+    if(!m || !m.lot) return null;
+    if(String(m.lot) !== String(lot || '')) return null;
+    /* CỐ Ý: xoá trắng cả hai ô VẪN là "đang gõ tay" — người dùng đang tự
+       nhập, đừng lặng lẽ nhét số SAP trở lại vào ô họ vừa xoá. */
+    return m;
+  }
+  function _stxStore(sloc, lot, c3, c4){
+    if(!_stxSys[sloc]) return;
+    _stxSys[sloc] = { lot:String(lot || ''), c3:_stxN(c3), c4:_stxN(c4) };
+  }
+  /* Vẽ lại CẢ HAI cửa sổ. Bảng đối chiếu chỉ vẽ khi đang mở, để việc gõ ở
+     ô thông báo không phải trả giá cho một modal đang đóng. */
+  function _stxSyncViews(refillModal){
+    try{
+      const m = document.getElementById('stxModal');
+      if(m && m.classList.contains('on')) renderStx(refillModal !== false);
+    }catch(_){}
+    try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
+  }
+  /* API cho MIXNOTIFY: gõ ở ô thông báo = gõ ở bảng đối chiếu. */
+  function stxSetSys(sloc, lot, c3, c4){ _stxStore(sloc, lot, c3, c4); _stxSyncViews(true); }
+  function stxSlocOf(tkName){
+    const d = String(tkName || '').replace(/\D/g, '');
+    if(d.indexOf('3501') >= 0) return '2100';
+    if(d.indexOf('3502') >= 0) return '2101';
+    return '';
+  }
 
   /* ---------- helpers ---------- */
   function _stxLotKey(s){
@@ -922,14 +967,24 @@ const INV = (function(){
                   : 'finished at '+fi.txt+' (after '+STX_CLOSE_H+':00) → SAP End Stock of the same day' };
   }
 
-  /* ── Gom toàn bộ dữ liệu của MỘT BỒN ── */
-  function _stxCtx(sloc){
-    const pick = _stxPickLot(sloc);
+  /* ── Gom toàn bộ dữ liệu của MỘT BỒN ──
+     lotOverride: phía gọi đã biết chắc lot (ô thông báo Tank Mix cầm sẵn
+     lot của chính thông báo đó) ⇒ khỏi đoán lại. */
+  function _stxCtx(sloc, lotOverride){
+    const pick = (lotOverride != null && String(lotOverride).trim())
+      ? { lot:String(lotOverride).trim(), src:'given', srcTxt:'the notification being handled' }
+      : _stxPickLot(sloc);
     const row  = pick.lot ? _stxFindRow(sloc, pick.lot) : null;
     const ctx  = { sloc:sloc, tank:TKNAME[sloc], lot:pick.lot, lotSrc:pick.src, lotSrcTxt:pick.srcTxt,
                    row:row, split:null, notify:_stxNotify(sloc), sap:null, day:null,
                    coqC3:null, coqC4:null };
     if(!row) return ctx;
+    /* v4.111 — CHUẨN HOÁ LOT VỀ ĐÚNG CHUỖI TRONG TANK LOG.
+       Nhân viên quen gõ số trần ("900") trong khi Tank Log lưu đủ
+       "LPG-2026-900". Chip lot trên tiêu đề, thông báo lưu và lệnh ghi vào
+       Tank Log đều phải nói ĐÚNG tên lot chính thức, không phải mấy chữ số
+       vừa gõ — nếu không, nhìn lại lịch sử sẽ không biết là lot nào. */
+    if(row[1]) ctx.lot = String(row[1]).trim();
     try{ ctx.split = (typeof ENG !== 'undefined' && ENG.actualSplit) ? ENG.actualSplit(row) : null; }catch(_){}
     const q3 = parseFloat(row[66]), q4 = parseFloat(row[67]);
     ctx.coqC3 = isFinite(q3) ? q3 : null;
@@ -941,6 +996,60 @@ const INV = (function(){
       }catch(_){ ctx.sap = null; }
     }
     return ctx;
+  }
+
+  /* ── TỒN ĐẦU HỆ THỐNG: gõ tay đè, không thì SAP theo luật giờ finish ──
+     THUẦN TÍNH — không đụng DOM, để ô thông báo dùng chung được. */
+  function _stxSysPick(sloc, ctx){
+    const lot = ctx && ctx.lot ? ctx.lot : '';
+    const man = _stxManualOf(sloc, lot);
+    const day = ctx && ctx.day, sap = ctx && ctx.sap;
+    if(man) return { c3:man.c3, c4:man.c4, tag:'manual', manual:true };
+    if(!ctx || !ctx.row)             return { c3:null, c4:null, tag:'none', manual:false };
+    if(day && day.ok && sap && sap.has)
+      return { c3:Math.round(sap.c3), c4:Math.round(sap.c4), tag:'sap', manual:false };
+    if(day && day.ok)                return { c3:null, c4:null, tag:'sap-missing', manual:false };
+    return { c3:null, c4:null, tag:'manual-required', manual:false };
+  }
+
+  /* ══ v4.111 — MỘT HÀM TÍNH DUY NHẤT CHO CẢ HAI MÀN HÌNH ══════════════
+     Bảng ⚖ đối chiếu và ô thông báo Tank Mix trước đây tính rời nhau nên
+     rất dễ trôi lệch. Giờ cả hai gọi đúng hàm này. THUẦN TÍNH, không đụng
+     DOM, đơn vị KG (cùng đơn vị SAP và thông báo Check Booth).
+       ok=false ⇒ `why` nói rõ vì sao chưa tính được:
+         'no-row'  chưa tìm ra dòng Tank Log của lot
+         'no-coq'  dòng có rồi nhưng thiếu nền COQ (miss = ô còn thiếu)   */
+  function _stxFigures(sloc, lotOverride){
+    const ctx = _stxCtx(sloc, lotOverride);
+    const F = { ctx:ctx, sloc:sloc, lot:ctx.lot, tank:ctx.tank,
+                ok:false, why:'', miss:'',
+                aOpC3:null, aOpC4:null, aClC3:null, aClC4:null,
+                fC3:null, fC4:null, fSrc:'',
+                sysC3:null, sysC4:null, sysTag:'none', sysManual:false, hasSys:false,
+                gapC3:null, gapC4:null, xC3:null, xC4:null };
+    const sys = _stxSysPick(sloc, ctx);
+    F.sysC3 = sys.c3; F.sysC4 = sys.c4; F.sysTag = sys.tag; F.sysManual = sys.manual;
+    F.hasSys = (sys.c3 !== null && sys.c4 !== null);
+    if(!ctx.row){ F.why = 'no-row'; return F; }
+    const s = ctx.split;
+    if(!s || !s.openOk || !s.endOk){
+      F.why  = 'no-coq';
+      F.miss = (s && s.miss.length) ? s.miss.join(' · ') : 'COQ density / %wt C3';
+      return F;
+    }
+    const T = v => (v === null ? null : v * 1000);      /* tấn → kg */
+    F.aOpC3 = T(s.openC3); F.aOpC4 = T(s.openC4);
+    F.aClC3 = T(s.endC3);  F.aClC4 = T(s.endC4);
+    /* Filled: ưu tiên cột [66]/[67] đã lưu (số COQ CHÍNH THỨC) */
+    F.fC3 = ctx.coqC3 !== null ? ctx.coqC3*1000 : (F.aClC3 - F.aOpC3);
+    F.fC4 = ctx.coqC4 !== null ? ctx.coqC4*1000 : (F.aClC4 - F.aOpC4);
+    F.fSrc = ctx.coqC3 !== null ? 'Tank Log C3/C4 ◈COQ' : 'closing − opening';
+    F.ok = true;
+    if(F.hasSys){
+      F.gapC3 = F.aOpC3 - F.sysC3;   F.gapC4 = F.aOpC4 - F.sysC4;
+      F.xC3   = F.aClC3 - F.sysC3;   F.xC4   = F.aClC4 - F.sysC4;
+    }
+    return F;
   }
 
   /* ---------- render ---------- */
@@ -966,7 +1075,10 @@ const INV = (function(){
 
   function openStx(n){
     const first = (n === 2 || n === '2101') ? '2101' : '2100';
-    _STX_SLOCS.forEach(sl=>{ _stxLotIn[sl] = ''; _stxManual[sl] = false; });
+    /* v4.111 — CHỈ xoá lot gõ đè. Số tồn đầu gõ tay thì GIỮ: nhân viên có
+       thể vừa gõ nó ở ô thông báo Tank Mix rồi mới mở bảng này lên xem chi
+       tiết — mở bảng mà mất số vừa gõ là hỏng đúng luồng làm việc đó. */
+    _STX_SLOCS.forEach(sl=>{ _stxLotIn[sl] = ''; });
     const wrap = document.getElementById('stxGrid');
     if(wrap){
       const a = document.getElementById('stxPane2100'), b = document.getElementById('stxPane2101');
@@ -984,12 +1096,25 @@ const INV = (function(){
   function stxLotChange(sloc){
     const li = document.getElementById('stxLot'+sloc);
     _stxLotIn[sloc] = li ? li.value.trim() : '';
-    _stxManual[sloc] = false;
     renderStx(true);
+    try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
   }
-  function stxSysEdit(sloc){ _stxManual[sloc] = true; renderStx(false); }
+  /* Gõ ở ô System opening của bảng → cất vào kho dùng chung → ô thông báo
+     Tank Mix đổi theo ngay. refill=false để không giật con trỏ đang gõ. */
+  function stxSysEdit(sloc){
+    const e3 = document.getElementById('stxSys3'+sloc);
+    const e4 = document.getElementById('stxSys4'+sloc);
+    const ctx = _stxCtx(sloc);
+    _stxStore(sloc, ctx.lot, e3 ? e3.value : '', e4 ? e4.value : '');
+    renderStx(false);
+    try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
+  }
   /* ⟳ — bỏ số gõ tay, quay lại số SAP tự lấy */
-  function stxSysReset(sloc){ _stxManual[sloc] = false; renderStx(true); }
+  function stxSysReset(sloc){
+    _stxStore(sloc, '', '', '');
+    renderStx(true);
+    try{ if(typeof MIXNOTIFY !== 'undefined' && MIXNOTIFY.render) MIXNOTIFY.render(); }catch(_){}
+  }
 
   /* refill = có được phép ghi đè ô System opening bằng số SAP hay không.
      Khi người dùng đang gõ thì KHÔNG bao giờ ghi đè (mất số đang gõ). */
@@ -997,48 +1122,44 @@ const INV = (function(){
     const lines = [['Tank','Lot','Finish','SAP_date','Actual_open_C3_kg','Actual_open_C4_kg',
                     'Actual_close_C3_kg','Actual_close_C4_kg','COQ_fill_C3_kg','COQ_fill_C4_kg',
                     'System_open_C3_kg','System_open_C4_kg','System_open_source','SAP_data_pasted',
-                    'Suggest_C3_kg','Suggest_C4_kg','Adjust_C3_kg','Adjust_C4_kg'].join('\t')];
+                    'Gap_open_C3_kg','Gap_open_C4_kg',
+                    'Suggest_C3_kg','Suggest_C4_kg','Adjust_C3_kg','Adjust_C4_kg',
+                    'Saved_to_TankLog'].join('\t')];
     _STX_SLOCS.forEach(sloc=>{
-      const ctx = _stxCtx(sloc);
-      _stxHead(ctx);
+      const F   = _stxFigures(sloc);
+      const ctx = F.ctx;
+      _stxHead(ctx, F);
       const body = document.getElementById('stxBody'+sloc);
       const foot = document.getElementById('stxFoot'+sloc);
       if(!body || !foot) return;
       _stxPark(sloc);        /* cứu hai ô nhập trước khi ghi đè innerHTML */
 
-      if(!ctx.row){
+      if(!F.ok && F.why === 'no-row'){
         body.innerHTML = '<div class="stx-empty">No Tank Log row found'
-          + (ctx.lot ? ' for lot <b>'+ctx.lot+'</b>' : '')
+          + (ctx.lot ? ' for lot <b>'+_esc2(ctx.lot)+'</b>' : '')
           + '. Type a lot number above, or press <b>📥 Load All</b> in the Tank Log if it is an older lot.</div>';
         foot.innerHTML = '';
-        _stxSysFill(sloc, null, refill);
+        _stxSysFill(sloc, ctx, F, refill);
         return;
       }
-      const s = ctx.split;
-      if(!s || !s.openOk || !s.endOk){
+      if(!F.ok){
         body.innerHTML = '<div class="stx-empty">Lot <b>'+_esc2(ctx.lot)+'</b> has no COQ basis yet, so the actual '
           + 'C3 / C4 split cannot be computed.<br><span class="miss">Missing: '
-          + _esc2((s && s.miss.length) ? s.miss.join(' · ') : 'COQ density / %wt C3')
+          + _esc2(F.miss)
           + '</span><br>Open the lot in the Tank Log and press <b>◈ CALC COQ</b>, or run <b>◈ COQ audit</b>.</div>';
         foot.innerHTML = '';
-        _stxSysFill(sloc, null, refill);
+        _stxSysFill(sloc, ctx, F, refill);
         return;
       }
 
-      /* ── số thực tế (tấn → kg) ── */
-      const T = v => v === null ? null : v * 1000;
-      const aOpC3 = T(s.openC3), aOpC4 = T(s.openC4), aOpL = aOpC3 + aOpC4;
-      const aClC3 = T(s.endC3),  aClC4 = T(s.endC4),  aClL = aClC3 + aClC4;
-      /* Filled: ưu tiên cột [66]/[67] đã lưu (số COQ CHÍNH THỨC), không có
-         thì lấy hiệu End − Open vừa tính — hai đường phải ra cùng số. */
-      const fC3 = ctx.coqC3 !== null ? ctx.coqC3*1000 : (aClC3 - aOpC3);
-      const fC4 = ctx.coqC4 !== null ? ctx.coqC4*1000 : (aClC4 - aOpC4);
-      const fSrc = ctx.coqC3 !== null ? 'Tank Log C3/C4 ◈COQ' : 'closing − opening';
+      const s = ctx.split;
+      const aOpC3 = F.aOpC3, aOpC4 = F.aOpC4, aOpL = aOpC3 + aOpC4;
+      const aClC3 = F.aClC3, aClC4 = F.aClC4, aClL = aClC3 + aClC4;
+      const fC3 = F.fC3, fC4 = F.fC4, fSrc = F.fSrc;
 
-      /* ── tồn hệ thống (SAP tự lấy hoặc gõ tay) ── */
-      const sysInfo = _stxSysFill(sloc, ctx, refill);
-      const sOpC3 = sysInfo.c3, sOpC4 = sysInfo.c4;
-      const hasSys = sOpC3 !== null && sOpC4 !== null;
+      /* ── tồn hệ thống (SAP tự lấy hoặc gõ tay) — nhãn nguồn + đổ ô nhập ── */
+      const sysInfo = _stxSysFill(sloc, ctx, F, refill);
+      const sOpC3 = F.sysC3, sOpC4 = F.sysC4, hasSys = F.hasSys;
       const sOpL  = hasSys ? sOpC3 + sOpC4 : null;
 
       /* ── nếu cứ chuyển đúng số COQ ── */
@@ -1046,13 +1167,11 @@ const INV = (function(){
       const sClC4 = hasSys ? sOpC4 + fC4 : null;
       const sClL  = hasSys ? sClC3 + sClC4 : null;
       /* ── lệch ── */
-      const gOpC3 = hasSys ? aOpC3 - sOpC3 : null;
-      const gOpC4 = hasSys ? aOpC4 - sOpC4 : null;
+      const gOpC3 = F.gapC3, gOpC4 = F.gapC4;
       const gClC3 = hasSys ? aClC3 - sClC3 : null;
       const gClC4 = hasSys ? aClC4 - sClC4 : null;
-      /* ── số đề xuất: chuyển bao nhiêu để tồn cuối hệ thống = tồn cuối thực ── */
-      const xC3 = hasSys ? aClC3 - sOpC3 : null;
-      const xC4 = hasSys ? aClC4 - sOpC4 : null;
+      /* ── số đề xuất ── */
+      const xC3 = F.xC3, xC4 = F.xC4;
       const xL  = hasSys ? xC3 + xC4 : null;
 
       const N  = v => _stxNum(v, 0);
@@ -1081,6 +1200,9 @@ const INV = (function(){
          nếu không thì mỗi lần gõ một chữ số là ô bị huỷ, mất con trỏ. */
       _stxMountInputs(sloc, body);
 
+      /* v4.111 — trạng thái đã lưu vào Tank Log của chính lot này */
+      const saved = _stxSavedOf(ctx);
+
       foot.innerHTML = hasSys
         ? '<div class="stx-sug">'
           + '<div class="stx-sug-hd">➜ SUGGESTED STOCK TRANSFER'
@@ -1099,9 +1221,18 @@ const INV = (function(){
                 ? '<br><span class="warn">⚠ A suggested figure is NEGATIVE — the system already holds more than '
                   + 'the tank actually contains. Check the system opening figure before posting.</span>' : '')
           + '</div>'
+          + '<div class="stx-save-row">'
+          +   '<button class="stx-save" onclick="INV.stxSave(\'' + sloc + '\')" '
+          +     'title="Write the opening gap and the adjusted transfer quantity onto this lot in the Tank Log '
+          +     '(columns Gap C3 / Gap C4 / Adj ST C3 / Adj ST C4), so the figure can be reviewed and cross-checked later">'
+          +     '💾 Save to Tank Log</button>'
+          +   '<span class="stx-saved '+(saved.has?'on':'')+'">'+saved.txt+'</span>'
+          + '</div>'
         + '</div>'
         : '<div class="stx-sug stx-sug-off">Enter the <b>system opening stock</b> above to get the suggested '
-          + 'transfer quantity.</div>';
+          + 'transfer quantity.'
+          + (saved.has ? '<div class="stx-saved on">'+saved.txt+'</div>' : '')
+        + '</div>';
 
       lines.push([ctx.tank, ctx.lot, (ctx.day && ctx.day.finishTxt) || '',
                   (ctx.day && ctx.day.sapDate) ? _stxDmy(ctx.day.sapDate) : '',
@@ -1110,10 +1241,83 @@ const INV = (function(){
                   hasSys ? Math.round(sOpC3) : '', hasSys ? Math.round(sOpC4) : '', sysInfo.tag,
                   (ctx.sap && ctx.sap.lastAt)
                     ? _stxWhen(ctx.sap.lastAt) + (ctx.sap.lastBy ? ' ' + ctx.sap.lastBy : '') : '',
+                  hasSys ? Math.round(gOpC3) : '', hasSys ? Math.round(gOpC4) : '',
                   hasSys ? Math.round(xC3) : '', hasSys ? Math.round(xC4) : '',
-                  hasSys ? Math.round(xC3-fC3) : '', hasSys ? Math.round(xC4-fC4) : ''].join('\t'));
+                  hasSys ? Math.round(xC3-fC3) : '', hasSys ? Math.round(xC4-fC4) : '',
+                  saved.has ? 'yes' : 'no'].join('\t'));
     });
     _stxTSV = lines.length > 1 ? lines.join('\n') : '';
+  }
+
+  /* ── v4.111 — ĐÃ LƯU VÀO TANK LOG CHƯA ──────────────────────────────
+     Đọc thẳng 4 ô trên dòng Tank Log, không giữ trạng thái riêng: nguồn
+     sự thật duy nhất là dữ liệu đã ghi, nên máy khác lưu thì máy này cũng
+     thấy ngay sau khi Firebase đồng bộ về. */
+  function _stxSavedOf(ctx){
+    const out = { has:false, txt:'Not saved to the Tank Log yet', gap3:null, gap4:null, adj3:null, adj4:null };
+    try{
+      if(!ctx || !ctx.row || typeof ENG === 'undefined' || !ENG.stxReconOf) return out;
+      const r = ENG.stxReconOf(ctx.row);
+      if(!r.has) return out;
+      const n = v => v === null ? '—' : _stxNum(v, 0);
+      out.has = true; out.gap3 = r.gap3; out.gap4 = r.gap4; out.adj3 = r.adj3; out.adj4 = r.adj4;
+      out.txt = '✔ Saved on this lot — gap ' + _stxSigned(r.gap3) + ' / ' + _stxSigned(r.gap4)
+              + ' · transfer ' + n(r.adj3) + ' / ' + n(r.adj4) + ' kg';
+    }catch(_){}
+    return out;
+  }
+
+  /* ══ v4.111 — 💾 LƯU KẾT QUẢ ĐỐI CHIẾU VÀO TANK LOG ══════════════════
+     Ghi 4 ô [69]–[72] của ĐÚNG dòng lot đang xét. Chỉ ghi khi đã có đủ
+     tồn đầu hệ thống — không có số thì không đoán, và nói rõ vì sao.
+     Dùng chung cho nút 💾 của bảng và cho ✅ ở ô thông báo Tank Mix. */
+  function _stxSaveCore(sloc, lot, opt){
+    const o = opt || {};
+    const done = (ok, why) => { if(typeof o.cb === 'function'){ try{ o.cb(ok, why); }catch(_){} } return ok; };
+    const F = _stxFigures(sloc, lot);
+    if(!F.ok){
+      if(!o.quiet) toast(F.why === 'no-row'
+        ? '❌ No Tank Log row for lot ' + (F.lot || '—') + ' — nothing to save'
+        : '❌ Lot ' + (F.lot || '—') + ' has no COQ basis yet (' + F.miss + ') — nothing to save', 'er');
+      return done(false, F.why);
+    }
+    if(!F.hasSys){
+      if(!o.quiet) toast('⚠ Enter the system opening stock first — the gap and the adjusted transfer '
+                       + 'cannot be computed without it', 'warn');
+      return done(false, 'no-system-opening');
+    }
+    if(typeof canWrite === 'function' && !canWrite('eng_tkmix')){
+      if(!o.quiet) toast('❌ No permission to write to the Tank Log', 'er');
+      return done(false, 'no-permission');
+    }
+    if(typeof ENG === 'undefined' || !ENG.setStxRecon){
+      if(!o.quiet) toast('❌ Tank Log module not ready — wait a few seconds and press 💾 again', 'er');
+      return done(false, 'eng-not-ready');
+    }
+    ENG.setStxRecon(F.lot, F.tank,
+      { gap3:F.gapC3, gap4:F.gapC4, adj3:F.xC3, adj4:F.xC4 },
+      (ok, why)=>{
+        if(!o.quiet){
+          if(ok) toast('💾 Saved to the Tank Log · lot ' + F.lot + ' (' + F.tank + ') — gap '
+                     + Math.round(F.gapC3).toLocaleString('en-US') + ' / '
+                     + Math.round(F.gapC4).toLocaleString('en-US') + ' · transfer '
+                     + Math.round(F.xC3).toLocaleString('en-US') + ' / '
+                     + Math.round(F.xC4).toLocaleString('en-US') + ' kg', 'ok');
+          else toast(why === 'notfound'
+                 ? '❌ Lot ' + F.lot + ' (' + F.tank + ') was not found in the Tank Log — nothing was saved'
+                 : '❌ Could not save to the Tank Log (' + why + ') — please try again', 'er');
+        }
+        _stxSyncViews(false);
+        done(ok, why);
+      });
+    return true;
+  }
+  function stxSave(sloc){ return _stxSaveCore(sloc, null, {}); }
+  /* Cho MIXNOTIFY: biết sẵn tên bồn + lot của chính thông báo đang xử lý. */
+  function stxSaveFor(tkName, lot, cb, quiet){
+    const sloc = stxSlocOf(tkName);
+    if(!sloc){ if(typeof cb === 'function') cb(false, 'unknown-tank'); return false; }
+    return _stxSaveCore(sloc, lot, { cb:cb, quiet:!!quiet });
   }
 
   function _esc2(s){
@@ -1121,14 +1325,34 @@ const INV = (function(){
                                .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  /* Đầu mỗi vùng: tên bồn · lot · nguồn lot · giờ finish · thông báo đang treo */
-  function _stxHead(ctx){
+  /* Đầu mỗi vùng: tên bồn · LOT ĐANG TÍNH · nguồn lot · giờ finish · thông báo đang treo */
+  function _stxHead(ctx, F){
     const sloc = ctx.sloc;
     const meta = document.getElementById('stxMeta'+sloc);
     const badge = document.getElementById('stxLotSrc'+sloc);
+    /* ── v4.111 — LOT ĐANG TÍNH ĐỨNG NGAY CẠNH TÊN BỒN ────────────────
+       Ô nhập LOT để trống (placeholder "auto") suốt phần lớn thời gian vì
+       lot được lấy tự động, nên nhìn vào bảng KHÔNG biết con số đang là
+       của mẻ nào. Chip này in thẳng lot đang tính lên cùng hàng với
+       TK-3501 / TK-3502 — nhìn một cái là biết kết quả bên dưới thuộc lot
+       nào, đúng chỗ dễ nhận biết nhất. */
+    const now = document.getElementById('stxLotNow'+sloc);
+    if(now){
+      const hasLot = !!(ctx.lot && String(ctx.lot).trim());
+      now.innerHTML = hasLot
+        ? '<span class="k">LOT</span><b>'+_esc2(ctx.lot)+'</b>'
+        : '<span class="k">LOT</span><b class="none">— none —</b>';
+      now.className = 'stx-lotnow' + (hasLot ? '' : ' empty')
+                    + (F && F.ok === false && F.why ? ' warn' : '');
+      now.title = hasLot
+        ? ('Every figure in this pane belongs to lot ' + ctx.lot
+           + (ctx.lotSrcTxt ? ' — taken from the ' + ctx.lotSrcTxt : '')
+           + '. Type another lot in the box on the right to switch.')
+        : 'No lot could be resolved for this tank — type one in the box on the right.';
+    }
     if(badge){
       const map = { notify:'from mix notification', scale:'from tank card', latest:'latest lot',
-                    typed:'typed in', none:'no lot' };
+                    typed:'typed in', given:'from the notification', none:'no lot' };
       badge.textContent = map[ctx.lotSrc] || '';
       badge.className = 'stx-lotsrc s-'+ctx.lotSrc;
       badge.title = ctx.lotSrcTxt ? ('Lot taken from the '+ctx.lotSrcTxt+' — type another lot to override.') : '';
@@ -1163,51 +1387,53 @@ const INV = (function(){
     meta.innerHTML = html;
   }
 
-  /* System opening: đọc ô nhập, tự nạp SAP khi được phép.
-     Trả { c3, c4, label, tag } — c3/c4 = null nghĩa là chưa có số. */
-  function _stxSysFill(sloc, ctx, refill){
+  /* System opening: đổ số vào ô nhập + viết nhãn nguồn.
+     Số ĐÃ được _stxFigures chốt sẵn (F.sysC3/F.sysC4/F.sysTag) — hàm này
+     chỉ lo phần hiển thị, nên bảng và ô thông báo không thể nói khác nhau. */
+  function _stxSysFill(sloc, ctx, F, refill){
     const e3 = document.getElementById('stxSys3'+sloc);
     const e4 = document.getElementById('stxSys4'+sloc);
     const note = document.getElementById('stxSrc'+sloc);
-    const out = { c3:null, c4:null, label:'', tag:'' };
     const day = ctx && ctx.day;
     const sap = ctx && ctx.sap;
+    const tag = (F && F.sysTag) || 'none';
 
-    /* nạp sẵn số SAP khi: được phép refill, người dùng chưa gõ tay, và SAP có số */
-    if(refill && !_stxManual[sloc] && e3 && e4){
-      if(day && day.ok && sap && sap.has){
-        e3.value = String(Math.round(sap.c3));
-        e4.value = String(Math.round(sap.c4));
-      } else { e3.value = ''; e4.value = ''; }
+    /* đổ số vào ô — chỉ khi được phép và khi CHUỖI khác, để không giật con trỏ */
+    if(refill !== false){
+      const put = (el, v)=>{
+        if(!el) return;
+        const want = (v === null || v === undefined) ? '' : String(Math.round(v));
+        if(el.value !== want) el.value = want;
+      };
+      put(e3, F ? F.sysC3 : null);
+      put(e4, F ? F.sysC4 : null);
     }
-    const v3 = e3 ? parseFloat(String(e3.value||'').replace(/,/g,'')) : NaN;
-    const v4 = e4 ? parseFloat(String(e4.value||'').replace(/,/g,'')) : NaN;
-    if(isFinite(v3)) out.c3 = v3;
-    if(isFinite(v4)) out.c4 = v4;
 
     /* nhãn nguồn — luôn nói rõ số này ở đâu ra, hoặc vì sao chưa có */
-    let cls = 'na', txt = '', tag = 'none';
-    if(_stxManual[sloc]){
-      cls = 'man'; tag = 'manual';
+    let cls = 'na', txt = '';
+    if(tag === 'manual'){
+      cls = 'man';
       txt = '<b>Manual entry</b> — typed by the operator'
-          + ' <button class="stx-mini" onclick="INV.stxSysReset(\''+sloc+'\')" '
+          + ' <button class="stx-mini" onclick="INV.stxSysReset(\'' + sloc + '\')" '
           + 'title="Discard the typed figures and reload from SAP">⟳ reload</button>'
           + (day && day.ok && sap && sap.has
               ? '<span class="why">SAP End Stock of '+_stxDmy(day.sapDate)+' was '
                 + Math.round(sap.c3).toLocaleString('en-US')+' / '+Math.round(sap.c4).toLocaleString('en-US')
                 + ' kg</span>' + _stxSapStamp(sap)
-              : '');
-    } else if(!ctx || !ctx.row){
-      cls = 'na'; tag = 'none'; txt = 'No lot selected.';
-    } else if(day && day.ok && sap && sap.has){
-      cls = 'sap'; tag = 'sap';
+              : '')
+          + '<span class="why">The same figure is shown on the Tank Mix notification — editing it in '
+          + 'either place changes both.</span>';
+    } else if(tag === 'none'){
+      cls = 'na'; txt = 'No lot selected.';
+    } else if(tag === 'sap'){
+      cls = 'sap';
       txt = '<b>SAP End Stock of '+_stxDmy(day.sapDate)+'</b>'
           + (sap.batches.length ? ' · batch '+sap.batches.join('+') : '')
           + ' · '+sap.rows+' row'+(sap.rows>1?'s':'')
           + '<span class="why">'+_esc2(day.why)+'</span>'
           + _stxSapStamp(sap);
-    } else if(day && day.ok){
-      cls = 'miss'; tag = 'sap-missing';
+    } else if(tag === 'sap-missing'){
+      cls = 'miss';
       let have = [];
       try{ have = (typeof SP !== 'undefined' && SP.tankEndDates) ? SP.tankEndDates(sloc) : []; }catch(_){}
       const newest = have.length ? have[have.length-1] : '';
@@ -1216,14 +1442,13 @@ const INV = (function(){
           + (newest ? '<span class="stamp">Latest SAP day loaded for this tank: '+_stxDmy(newest)
                       + ' — do NOT use it as the opening balance for this lot</span>' : '');
     } else {
-      cls = 'need'; tag = 'manual-required';
+      cls = 'need';
       txt = '<b>Enter it manually</b> — '+_esc2((day && day.why) || 'no finish time on the row')+'.';
     }
     if(note){ note.className = 'stx-src s-'+cls; note.innerHTML = txt; }
-    out.label = ({ sap:'SAP End Stock', manual:'manual entry', 'sap-missing':'not available',
-                   'manual-required':'manual entry required', none:'—' })[tag] || '';
-    out.tag = tag;
-    return out;
+    return { c3:F ? F.sysC3 : null, c4:F ? F.sysC4 : null, tag:tag,
+             label:({ sap:'SAP End Stock', manual:'manual entry', 'sap-missing':'not available',
+                      'manual-required':'manual entry required', none:'—' })[tag] || '' };
   }
 
   /* ── Ô nhập System opening: GỬI VỀ KHO TRƯỚC, dựng bảng SAU ───────────
@@ -1283,6 +1508,9 @@ const INV = (function(){
            /* v4.108 — ⚖ Stock-transfer reconciliation (nút 📏 trên thẻ tank) */
            openStx, renderStx, copyStx, stxLotChange, stxSysEdit, stxSysReset,
            stxCtx: _stxCtx, stxSapDate: _stxSapDate,
+           /* v4.111 — dùng chung với ô thông báo Tank Mix + ghi vào Tank Log */
+           stxFigures: _stxFigures, stxSetSys, stxSlocOf, stxSave, stxSaveFor,
+           stxSavedOf: _stxSavedOf,
            openVolChk: openStx,          /* alias cho lối gọi cũ */
            closeAll };
 })();
