@@ -1,5 +1,5 @@
 /* ============================================================
- * BOND — bond.js   (v4.106) · KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP
+ * BOND — bond.js   (v4.115) · KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP
  * ------------------------------------------------------------
  * Tab: LPG Sales ▸ SAP ▸ nút gạt "🛃 Kho ngoại quan (KNQ)"
  * Global: window.BOND
@@ -133,14 +133,15 @@
  * BỐ CỤC CỘT (chốt của người dùng) — khối giữa GIỮ Y HỆT TAB SAP THÔ để
  * đối chiếu bằng mắt không phải dịch cột:
  *
- *   TRÁI  · nhận dạng, người dùng gõ : STT tàu · Tên tàu · TK nhập · TK xuất
+ *   TRÁI  · nhận dạng, người dùng gõ : STT tàu · Tên tàu · TK nhập · NGÀY GET IN
+ *                                      · TK xuất
  *   GIỮA  · nguyên văn SAP, chỉ đọc  : Date · SLoc · Mat · Batch · Batch code
  *                                      · Init · GR · GI · Trs · End
  *   PHẢI  · phần làm việc            : HQ approved · Thực còn · % · VASSCM
  *                                      · VASSCM date · Ghi chú
  * ------------------------------------------------------------
  * Firebase:
- *   knq_info/<mat>_<mã batch>   {vno,vessel,dIn,dOut,hqQty,vas,vasDate,note}
+ *   knq_info/<mat>_<mã batch>   {vno,vessel,dIn,gIn,dOut,hqQty,vas,vasDate,note}
  *   knq_period/<YYYY-MM>        ảnh chụp cả bảng khi bấm 💾 Lưu kỳ
  *   knq_bonded/use/<YYYY-MM-DD> FEED OL1 — dùng chung với tab KNQ cũ
  * ============================================================ */
@@ -159,7 +160,7 @@ const BOND = (function(){
   const AVG_DAYS    = 7;         /* bình quân mấy ngày để suy plan còn thiếu   */
   const WARN_DAYS   = 7;         /* dự kiến hết trong ≤ 7 ngày → tô cảnh báo   */
   const LOW_KG      = 200000;    /* còn dưới 200 T → cảnh báo sắp cạn        */
-  const INFO_FIELDS = ['vno','vessel','dIn','dOut','hqQty','vas','vasDate','note'];
+  const INFO_FIELDS = ['vno','vessel','dIn','gIn','dOut','hqQty','vas','vasDate','note'];
   /* ⭐ VÒNG ĐỜI MỘT LÔ — mỗi lô đúng MỘT trạng thái, đọc từ trên xuống là
      thấy luôn trình tự rút hàng (đã sắp C3→C4, D→E→P→X, cũ trên mới dưới). */
   const ST_NAME = { pumping:'Pumping', wait:'Not started', emptied:'Empty — no VASSCM',
@@ -447,6 +448,64 @@ const BOND = (function(){
   }
 
   /* ============================================================
+     ⭐ THỨ TỰ RÚT HÀNG THẬT — "GET IN DATE" ĐI TRƯỚC MÃ BATCH
+     ------------------------------------------------------------
+     Mã batch (260818X001, 260818X002…) do nhân viên tự đặt, và ĐÃ TỪNG
+     ĐẶT NGƯỢC: tàu GLOBE POLARIS vào SAU lại mang số 001, tàu MAPLE GAS
+     vào TRƯỚC mang 002. Nếu cứ trừ lùi FIFO theo mã thì phần mềm bơm lô
+     vào sau ra trước — sai nguyên tắc vào trước ra trước của kho ngoại quan.
+     Vì thế mỗi lô có thêm ô NGÀY GET IN (ngày tàu bơm hàng vào kho, người
+     dùng gõ, lưu ở knq_info/<key>/gIn).
+
+     Luật (đúng như người dùng chốt) — CHỈ xét trong cùng một NHÓM
+     "cùng Mat · cùng chữ lô · CÙNG NGÀY trong mã batch":
+       · cả nhóm đều đã khai Get in date ⇒ xếp theo NGÀY GET IN,
+         ngày bằng nhau thì mới theo mã batch. Nếu thứ tự này KHÁC thứ tự
+         mã batch ⇒ đánh dấu seq='swap' cho CẢ NHÓM để báo cho nhân viên.
+       · còn lô nào chưa khai ⇒ KHÔNG đảo gì hết, giữ nguyên thứ tự mã
+         batch (đoán mò trên dữ liệu thiếu còn tệ hơn), và đánh seq='ask'
+         để dải cảnh báo nhắc điền nốt.
+     Nhóm chỉ có MỘT lô thì không có gì phải so.
+     ⚠ Trường ord này là NGUỒN DUY NHẤT của thứ tự: cả hàng đợi FIFO ở
+     bước ④ lẫn thứ tự hiển thị ở bước ⑥ đều đọc qua _ordCmp, đừng để hai
+     nơi xếp khác nhau — số thứ tự trên bảng chính là thứ tự bơm.
+  ============================================================ */
+  function _isDate(v){ return /^\d{4}-\d{2}-\d{2}$/.test(String(v||'')); }
+  function _applyOrder(rows){
+    const G={};
+    rows.forEach(r=>{
+      r.ord=0; r.seq=''; r.seqGrp=(r.mat||'')+'|'+(r.letter||'')+'|'+(r.bdate||'');
+      (G[r.seqGrp]=G[r.seqGrp]||[]).push(r);
+    });
+    Object.keys(G).forEach(k=>{
+      const g=G[k];
+      if(g.length<2){ return; }
+      const byCode=g.slice().sort((a,b)=>a.bcode<b.bcode?-1:(a.bcode>b.bcode?1:0));
+      if(!g.every(r=>_isDate(r.gIn))){
+        /* thiếu ngày ⇒ giữ nguyên thứ tự mã, chỉ nhắc khai */
+        byCode.forEach((r,i)=>{ r.ord=i; r.seq='ask'; });
+        return;
+      }
+      const byIn=g.slice().sort((a,b)=>{
+        if(a.gIn!==b.gIn) return a.gIn<b.gIn?-1:1;
+        return a.bcode<b.bcode?-1:(a.bcode>b.bcode?1:0);
+      });
+      byIn.forEach((r,i)=>{ r.ord=i; });
+      const swapped=byIn.some((r,i)=>r!==byCode[i]);
+      if(swapped) g.forEach(r=>{ r.seq='swap'; });
+    });
+    return rows;
+  }
+  /* so sánh DÙNG CHUNG cho hàng đợi FIFO và thứ tự hiển thị */
+  function _ordCmp(a,b){
+    const da=a.bdate||'9999-12-31', db=b.bdate||'9999-12-31';
+    if(da!==db) return da<db?-1:1;
+    const oa=(a.ord==null?0:a.ord), ob=(b.ord==null?0:b.ord);
+    if(oa!==ob) return oa-ob;
+    return a.bcode<b.bcode?-1:(a.bcode>b.bcode?1:0);
+  }
+
+  /* ============================================================
      ⭐ TÍNH — trái tim của module
   ============================================================ */
   function recalc(){
@@ -474,10 +533,12 @@ const BOND = (function(){
         date:_sapDay, sloc:'1100',
         init:r.init, gr:r.gr, gi:r.gi, trs:r.trs, end:r.end,
         /* khối người dùng */
-        vno:inf.vno||'', vessel:inf.vessel||'', dIn:inf.dIn||'', dOut:inf.dOut||'',
+        vno:inf.vno||'', vessel:inf.vessel||'', dIn:inf.dIn||'', gIn:inf.gIn||'',
+        dOut:inf.dOut||'',
         hqQty:(inf.hqQty==null?'':inf.hqQty), vas:!!inf.vas, vasDate:inf.vasDate||'',
         note:inf.note||'',
         /* tính ra */
+        ord:0, seq:'', seqGrp:'',
         left:null, used:null, pct:0, flag:'', st:'', pumping:false, pumpWhy:'', isNew:false,
         noInfo:false, low:false, eta:'', etaDays:null, projected:false,
         inSap:true, hasInfo:_hasInfo(inf)
@@ -494,14 +555,19 @@ const BOND = (function(){
       rows.push({
         key:k, mat:mat, bcode:bcode, letter:_letterOf(bcode), bdate:_batchDate(bcode),
         date:'', sloc:'1100', init:null, gr:null, gi:null, trs:null, end:null,
-        vno:inf.vno||'', vessel:inf.vessel||'', dIn:inf.dIn||'', dOut:inf.dOut||'',
+        vno:inf.vno||'', vessel:inf.vessel||'', dIn:inf.dIn||'', gIn:inf.gIn||'',
+        dOut:inf.dOut||'',
         hqQty:(inf.hqQty==null?'':inf.hqQty), vas:!!inf.vas, vasDate:inf.vasDate||'',
         note:inf.note||'',
+        ord:0, seq:'', seqGrp:'',
         left:null, used:null, pct:0, flag:'gone', st:'gone', pumping:false, pumpWhy:'',
         isNew:false, noInfo:false, low:false, eta:'', etaDays:null, projected:false,
         inSap:false, hasInfo:true
       });
     });
+
+    /* ── ②b THỨ TỰ RÚT HÀNG THẬT — phải chạy TRƯỚC mọi phép trừ lùi ─ */
+    _applyOrder(rows);
 
     /* ── ③ D/E lấy thẳng End Stock ───────────────────────── */
     rows.forEach(r=>{
@@ -519,11 +585,7 @@ const BOND = (function(){
     const AVG={ P:_avgRate('P'), X:_avgRate('X') };
     MATS.forEach(mat=>{
       ['P','X'].forEach(L=>{
-        const q=rows.filter(r=>r.inSap && r.mat===mat && r.letter===L)
-          .sort((a,b)=>{
-            const ka=(a.bdate||'9999-12-31')+a.bcode, kb=(b.bdate||'9999-12-31')+b.bcode;
-            return ka<kb?-1:(ka>kb?1:0);
-          });
+        const q=rows.filter(r=>r.inSap && r.mat===mat && r.letter===L).sort(_ordCmp);
         if(!q.length) return;
         q.forEach(r=>{ r.left=_n(r.end); r._open=_n(r.end); });
         let short=0, shortDay='';
@@ -665,9 +727,7 @@ const BOND = (function(){
       if(m) return m;
       const l=(LOT_ORD[a.letter]==null?9:LOT_ORD[a.letter])-(LOT_ORD[b.letter]==null?9:LOT_ORD[b.letter]);
       if(l) return l;
-      const da=a.bdate||'9999-12-31', db=b.bdate||'9999-12-31';
-      if(da!==db) return da<db?-1:1;
-      return a.bcode<b.bcode?-1:(a.bcode>b.bcode?1:0);
+      return _ordCmp(a,b);
     });
     _all=rows;
     _rows=rows.filter(_match);
@@ -684,7 +744,7 @@ const BOND = (function(){
       else if(r.st!==_fSt) return false;
     }
     if(_fq){
-      const hay=[r.bcode,r.vessel,r.vno,r.dIn,r.dOut,r.note,r.mat,r.letter]
+      const hay=[r.bcode,r.vessel,r.vno,r.dIn,r.gIn,r.dOut,r.note,r.mat,r.letter]
         .join(' ').toLowerCase();
       if(hay.indexOf(_fq)<0) return false;
     }
@@ -786,8 +846,9 @@ const BOND = (function(){
     rows.forEach(r=>{
       snap[r.key]={ mat:r.mat, bcode:r.bcode, letter:r.letter||'', date:r.date||'',
         init:_n(r.init), gr:_n(r.gr), gi:_n(r.gi), trs:_n(r.trs), end:_n(r.end),
-        vno:r.vno||'', vessel:r.vessel||'', dIn:r.dIn||'', dOut:r.dOut||'',
+        vno:r.vno||'', vessel:r.vessel||'', dIn:r.dIn||'', gIn:r.gIn||'', dOut:r.dOut||'',
         hqQty:_n(r.hqQty), vas:!!r.vas, vasDate:r.vasDate||'', note:r.note||'',
+        ord:(r.ord==null?0:r.ord), seq:r.seq||'', seqGrp:r.seqGrp||'',
         left:_n(r.left), used:_n(r.used), flag:r.flag||'', st:r.st||'',
         eta:r.eta||'', etaDays:(r.etaDays==null?'':r.etaDays), projected:!!r.projected,
         isNew:!!r.isNew, noInfo:!!r.noInfo, low:!!r.low, pumping:!!r.pumping,
@@ -899,6 +960,21 @@ const BOND = (function(){
     const v=String(cell.getValue()||'');
     return v?('<span class="bond-date">'+_esc(_dmy(v))+'</span>'):'<span class="bond-dim">—</span>';
   }
+  /* ── NGÀY GET IN ─────────────────────────────────────────────
+     Ô này quyết định thứ tự bơm khi hai lô trùng ngày trong mã batch, nên
+     nó phải TỰ NÓI ra tình trạng của mình: đảo thứ tự thì hiện ⇅, còn
+     thiếu ngày trong khi lô bên cạnh trùng ngày thì hiện dấu hỏi. */
+  function _gInFmt(cell){
+    const r=cell.getRow().getData(), v=String(cell.getValue()||'');
+    if(!v) return (r.seq==='ask')
+      ? '<span class="bond-gin ask" title="Another batch shares this batch date — key the get-in date on every one of them so the draw order follows the real arrival, not the batch code">? missing</span>'
+      : '<span class="bond-dim">—</span>';
+    let h='<span class="bond-date">'+_esc(_dmy(v))+'</span>';
+    if(r.seq==='swap')
+      h+='<span class="bond-tag seq" title="Drawn in get-in order, not in batch-code order — batch #'+
+         (r.ord+1)+' of this batch date">#'+(r.ord+1)+' in</span>';
+    return h;
+  }
   function _batFmt(cell){
     const v=String(cell.getValue()||'').toUpperCase();
     if(!v) return '<span class="bond-dim">—</span>';
@@ -937,6 +1013,16 @@ const BOND = (function(){
                          _dmy(_prevDay)+(_n(r.gr)>0?(', GR column +'+_K(r.gr)+' kg'):'')+'">✚ new</span>');
     if(r.noInfo) mk.push('<span class="bond-mk info" title="No vessel / declaration yet — fill the columns on the left">✎ no details</span>');
     if(r.low)    mk.push('<span class="bond-mk low" title="Under '+_K(LOW_KG)+' kg left">⚠ low</span>');
+    /* ⭐ MÃ BATCH ĐẶT NGƯỢC — dấu này phải đập vào mắt: dòng đang đứng ở vị
+       trí do NGÀY GET IN quyết định, không phải do số cuối mã batch. */
+    if(r.seq==='swap')
+      mk.push('<span class="bond-mk seq" title="Batch codes of '+_dmy(r.bdate)+
+              ' were issued out of order. This row is placed by its get-in date ('+
+              _dmy(r.gIn)+'), so the batch that really arrived first is drawn out first.">⇅ code out of order</span>');
+    if(r.seq==='ask')
+      mk.push('<span class="bond-mk seqq" title="Another batch shares the batch date '+_dmy(r.bdate)+
+              ' but the get-in dates are not all keyed in — the draw order falls back to the batch code, '+
+              'which may not be the real arrival order.">⇅ get-in date?</span>');
     if(mk.length) h+='<span class="bond-mks">'+mk.join('')+'</span>';
     return h+'</div>';
   }
@@ -1004,6 +1090,11 @@ const BOND = (function(){
         cssClass:'bond-c-user', headerTooltip:'Vessel that brought this batch — you type this, SAP does not carry it' },
       { title:'Import decl.', field:'dIn', width:124, editor:ed, headerSort:true,
         cssClass:'bond-c-user mono', headerTooltip:'Import declaration number of the voyage' },
+      { title:'Get in date', field:'gIn', width:112, editor:ro?undefined:'date', headerSort:true,
+        cssClass:'bond-c-user', formatter:_gInFmt,
+        headerTooltip:'Day the vessel pumped this batch INTO the bonded warehouse. '+
+                      'When two batches share the same batch date, this date — not the batch code — '+
+                      'decides which one is drawn out first.' },
       { title:'Get-out decl.', field:'dOut', width:124, editor:ed, headerSort:true,
         cssClass:'bond-c-user mono', headerTooltip:'Declaration number releasing this batch from the bonded warehouse' },
 
@@ -1270,6 +1361,31 @@ const BOND = (function(){
           ' ('+(r.etaDays<=0?'today':(r.etaDays+' d left'))+')').join(' · ')+
         (soon.length>6?'…':'')+'. Projected on the plan X in the file; any day with no TOTAL P+X '+
         'runs on the assumed '+_K(DEF_TOT_KG)+' kg/day.']);
+    /* ⭐ MÃ BATCH ĐẶT NGƯỢC — phải nói thẳng ra, vì nhìn bảng thì thấy 002
+       đứng trên 001 và người xem sẽ tưởng phần mềm xếp sai. */
+    const swap=_all.filter(r=>r.seq==='swap');
+    if(swap.length){
+      const g={};
+      swap.forEach(r=>{ (g[r.seqGrp]=g[r.seqGrp]||[]).push(r); });
+      const lines=Object.keys(g).sort().map(k=>{
+        const q=g[k].slice().sort((a,b)=>a.ord-b.ord);
+        return '<span class="bond-seql"><b>'+_esc(q[0].mat)+' '+_esc(q[0].letter)+
+          ' · batch date '+_dmy(q[0].bdate)+':</b> '+
+          q.map((r,i)=>(i+1)+') <b>'+_esc(r.bcode)+'</b>'+
+            (r.vessel?(' — '+_esc(r.vessel)):'')+' <i>in '+_dmy(r.gIn)+'</i>').join(' &rarr; ')+
+          '</span>';
+      });
+      out.push(['warn','<b>⇅ Batch codes were issued out of arrival order — '+
+        Object.keys(g).length+' batch date(s) affected.</b> '+
+        'The batch that got in FIRST is drawn out first, so a code ending 002 can legitimately '+
+        'be pumped before 001. Order in use:<br>'+lines.join('<br>')]);
+    }
+    const ask=_all.filter(r=>r.seq==='ask' && !r.gIn && r.inSap);
+    if(ask.length)
+      out.push(['warn','<b>⇅ '+ask.length+' batch(es) share a batch date but have no Get in date:</b> '+
+        ask.slice(0,6).map(r=>_esc(r.bcode)).join(', ')+(ask.length>6?'…':'')+
+        '. Until every batch of that date is keyed in, the draw order falls back to the batch code — '+
+        'which is exactly what goes wrong when the codes are issued in the wrong order.']);
     const gone=_all.filter(r=>r.st==='gone');
     if(gone.length)
       out.push(['bad','<b>⛔ '+gone.length+' declared batch(es) are NOT in the SAP data of '+_dmy(_sapDay)+
@@ -1787,6 +1903,25 @@ const BOND = (function(){
     if(n) n.textContent=(filterOn()?(_rows.length+'/'+_all.length):(_all.length))+' batches'+
       (_arch?(' · period '+_arch.M):'');
     const c=_el('bondFClr'); if(c) c.style.display=filterOn()?'':'none';
+    _seqToast();
+  }
+
+  /* ⭐ TOAST BÁO MÃ BATCH ĐẶT NGƯỢC ────────────────────────────
+     Dải cảnh báo đã nói rồi, nhưng dải đó có thể đang thu gọn hoặc trôi
+     khỏi màn hình. Một cái toast khi VỪA phát hiện ra là thứ chắc chắn
+     nhân viên nhìn thấy. Chỉ kêu khi TẬP HỢP NHÓM ĐẢO ĐỔI — mở tab lại,
+     gõ một ô, F5 thì không kêu lại, kẻo thành tiếng ồn rồi bị lờ đi. */
+  let _seqSaid='';
+  function _seqToast(){
+    const g={};
+    _all.forEach(r=>{ if(r.seq==='swap') g[r.seqGrp]=1; });
+    const sig=Object.keys(g).sort().join(';');
+    if(sig===_seqSaid) return;
+    _seqSaid=sig;
+    if(!sig) return;
+    const first=_all.filter(r=>r.seq==='swap').sort((a,b)=>a.ord-b.ord)[0];
+    _say('⇅ Batch codes issued out of order — '+(first?first.bcode:'')+
+         ' got in first, so it is drawn out before the lower code. Check the Get in date column.','warn');
   }
 
   function onEnter(){
@@ -1808,19 +1943,21 @@ const BOND = (function(){
     if(typeof XLSX==='undefined'){ _say('❌ The XLSX library is not loaded','er'); return; }
     recalc();
     const M=_month||_ym(_asOf());
-    const H=['Voyage no.','Vessel','Import decl.','Get-out decl.',
+    const H=['Voyage no.','Vessel','Import decl.','Get in date','Get-out decl.',
              'Date','SLoc','Mat','Batch','Batch code','Init (kg)','GR','GI','Trs','End (kg)',
              'HQ approved (kg)','Actual left (kg)','%','Empty by','Days left',
-             'VASSCM','VASSCM date','Note','Status','New batch','Missing details'];
+             'VASSCM','VASSCM date','Note','Status','New batch','Missing details',
+             'Order check','Draw order in batch date'];
 
     const A=[H].concat(_all.map(r=>[
-      r.vno||'', r.vessel||'', r.dIn||'', r.dOut||'',
+      r.vno||'', r.vessel||'', r.dIn||'', _dmy(r.gIn), r.dOut||'',
       _dmy(r.date), '1100', r.mat||'', r.letter||'', r.bcode||'',
       _n(r.init), _n(r.gr), _n(r.gi), _n(r.trs), _n(r.end),
       _n(r.hqQty), _n(r.left), +(r.pct*100).toFixed(1),
       (r.eta?((r.projected?'≈ ':'')+_dmy(r.eta)):''), (r.projected&&r.etaDays!=null?r.etaDays:''),
       r.vas?'x':'', _dmy(r.vasDate), r.note||'',
-      ST_NAME[r.st]||'', (r.isNew?'new':''), (r.noInfo?'missing':'')
+      ST_NAME[r.st]||'', (r.isNew?'new':''), (r.noInfo?'missing':''),
+      (r.seq==='swap'?'code out of order':(r.seq==='ask'?'get-in date missing':'')), (r.ord+1)
     ]));
     const o=_ol1Sum();
     A.push([]);

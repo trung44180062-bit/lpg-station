@@ -15,6 +15,7 @@
  *  [6] 💾 LƯU KỲ     — ảnh chụp, mở lại chỉ đọc, xoá
  *  [7] 🔁 CHUYỂN DỮ LIỆU từ tab KNQ cũ theo mã batch
  *  [8] KỲ KHÁC THÁNG — tháng 9 không đụng dữ liệu tháng 8
+ *  [9] ⭐ NGÀY GET IN quyết định thứ tự bơm khi TRÙNG NGÀY trong mã batch
  * ============================================================ */
 const fs=require('fs'), path=require('path');
 const ROOT=path.join(__dirname,'..');
@@ -531,6 +532,92 @@ const x9=r9.find(r=>r.bcode==='260714X001'&&r.mat==='C3');
 chk('⭐ lô X không bị trừ gì trong kỳ 09 — đúng ý "tháng 9 không dùng số tháng 8"',
     x9 && x9.used===0 && x9.left===x9.end, x9?fmt(x9.left):'—');
 S.setMonth('2026-08');
+
+/* ---------- [9] ⭐ NGÀY GET IN QUYẾT ĐỊNH THỨ TỰ BƠM ---------- */
+/* Ca thật của người dùng: 260818X001 = GLOBE POLARIS vào 18/08,
+   260818X002 = MAPLE GAS vào 15/08. Nhân viên đặt số ngược. Kho ngoại
+   quan phải VÀO TRƯỚC RA TRƯỚC ⇒ 002 phải bơm trước 001. */
+console.log('\n[9] ⭐ NGÀY GET IN — VÀO TRƯỚC RA TRƯỚC, KHÔNG THEO SỐ CUỐI MÃ BATCH');
+const K1='C3_260818X001', K2='C3_260818X002';
+function seqRows(){
+  const all=S.all();
+  return { a:all.find(r=>r.key===K1), b:all.find(r=>r.key===K2),
+           iA:all.findIndex(r=>r.key===K1), iB:all.findIndex(r=>r.key===K2) };
+}
+
+/* ① chưa khai ngày nào ⇒ giữ nguyên thứ tự mã batch, KHÔNG đoán bừa */
+BOND.setInfo(K1,'gIn',''); BOND.setInfo(K2,'gIn','');
+BOND.recalc();
+let q=seqRows();
+chk('chưa khai Get in date ⇒ vẫn xếp theo mã batch (001 trước 002)',
+    q.iA<q.iB, '001@'+q.iA+' · 002@'+q.iB);
+chk('…và bật cờ seq="ask" để dải cảnh báo nhắc điền',
+    q.a.seq==='ask' && q.b.seq==='ask', q.a.seq+'/'+q.b.seq);
+
+/* ② khai một nửa ⇒ VẪN không đảo — dữ liệu thiếu thì đảo còn nguy hơn */
+BOND.setInfo(K2,'gIn','2026-08-15');
+BOND.recalc(); q=seqRows();
+chk('⭐ mới khai MỘT lô ⇒ chưa đảo gì hết, vẫn cờ "ask"',
+    q.iA<q.iB && q.a.seq==='ask', '001@'+q.iA+' · 002@'+q.iB+' · '+q.a.seq);
+
+/* ③ khai đủ cả nhóm ⇒ ĐẢO, và báo cho nhân viên */
+BOND.setInfo(K1,'gIn','2026-08-18');
+BOND.recalc(); q=seqRows();
+chk('⭐ khai đủ ⇒ 002 (vào 15/08) LÊN TRƯỚC 001 (vào 18/08)',
+    q.iB<q.iA, '002@'+q.iB+' · 001@'+q.iA);
+chk('…thứ tự rút hàng ord: 002 = 0, 001 = 1', q.b.ord===0 && q.a.ord===1,
+    '002 ord='+q.b.ord+' · 001 ord='+q.a.ord);
+chk('⭐ CẢ HAI mang cờ seq="swap" ⇒ có thông báo cho nhân viên',
+    q.a.seq==='swap' && q.b.seq==='swap', q.a.seq+'/'+q.b.seq);
+chk('cùng nhóm cảnh báo (cùng Mat · chữ lô · ngày batch)',
+    q.a.seqGrp===q.b.seqGrp && q.a.seqGrp==='C3|X|2026-08-18', q.a.seqGrp);
+
+/* ④ HÀNG ĐỢI FIFO phải đi theo ord, không phải theo mã.
+   Tới mốc SAP 18/08 thì FEED OL1 chưa chạm tới cặp lô này (cả hai used=0),
+   nên bằng chứng nằm ở cột "Empty by": đứng trước trong hàng đợi thì được
+   rút trước ⇒ cạn trước, và lô đứng sau bị ĐẨY LÙI ngày cạn. */
+const eA1=q.a.eta, eB1=q.b.eta;
+chk('⭐ 002 đứng đầu hàng đợi ⇒ cạn TRƯỚC 001', eB1 && eA1 && eB1<eA1,
+    '002 empty '+eB1+' · 001 empty '+eA1);
+BOND.setInfo(K1,'gIn','2026-08-14');   /* trả về đúng thứ tự mã */
+BOND.recalc();
+const q0=seqRows();
+chk('⭐ đảo lại thứ tự mã ⇒ 001 cạn trước, và 001 cạn SỚM HƠN lúc bị 002 chen lên',
+    q0.a.eta<q0.b.eta && q0.a.eta<eA1,
+    'theo mã: 001 '+q0.a.eta+' → 002 '+q0.b.eta+' | theo get-in: 001 '+eA1);
+BOND.setInfo(K1,'gIn','2026-08-18'); BOND.recalc(); q=seqRows();
+
+/* ⑤ ngày get in ĐÚNG THỨ TỰ MÃ ⇒ im lặng, không cảnh báo suông */
+BOND.setInfo(K1,'gIn','2026-08-14');
+BOND.recalc(); q=seqRows();
+chk('001 vào trước thật ⇒ không đảo, KHÔNG cảnh báo',
+    q.iA<q.iB && !q.a.seq && !q.b.seq, '001@'+q.iA+' · seq="'+q.a.seq+'"');
+
+/* ⑥ hai lô cùng ngày get in ⇒ hoà, quay về mã batch */
+BOND.setInfo(K1,'gIn','2026-08-15');
+BOND.recalc(); q=seqRows();
+chk('cùng ngày get in ⇒ hoà, xếp theo mã batch, không cảnh báo',
+    q.iA<q.iB && !q.a.seq, '001@'+q.iA+' · 002@'+q.iB+' · seq="'+q.a.seq+'"');
+
+/* ⑦ KHÁC ngày trong mã batch thì KHÔNG bao giờ đảo — get in date chỉ
+   phân xử trong cùng một ngày batch, đúng như người dùng chốt */
+BOND.setInfo(K1,'gIn','2026-08-01');
+BOND.recalc();
+const allX=S.all().filter(r=>r.mat==='C3'&&r.letter==='X');
+const dates=allX.map(r=>r.bdate||'');
+chk('⭐ ngày trong mã batch VẪN là khoá chính — get in không kéo lô vượt ngày khác',
+    dates.every((d,i)=>i===0||dates[i-1]<=d), dates.join(' '));
+
+/* ⑧ ô Get in date lưu đúng đường Firebase, một ô một lần */
+BOND.setInfo(K2,'gIn','2026-08-15');
+chk('ghi gIn đẩy ĐÚNG một ô knq_info/<key>/gIn',
+    PUSHED['knq_info/'+K2+'/gIn']==='2026-08-15' &&
+    Object.keys(PUSHED).filter(k=>!/lastBy|lastAt/.test(k)).length===1,
+    Object.keys(PUSHED).join(', '));
+chk('gIn nằm trong INFO_FIELDS ⇒ tìm kiếm + ảnh chụp kỳ đều thấy',
+    S.hasInfo({ gIn:'2026-08-15' })===true);
+
+BOND.setInfo(K1,'gIn',''); BOND.setInfo(K2,'gIn','');
 
 console.log(fail?('\n❌ '+fail+' KIỂM TRA HỎNG'):'\n✅ TẤT CẢ KIỂM TRA ĐỀU ĐẠT');
 process.exit(fail?1:0);

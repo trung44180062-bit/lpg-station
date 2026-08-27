@@ -88,9 +88,16 @@ chk('lưới đánh chỉ mục theo key mat_mãbatch', TCFG.index==='key');
 console.log('\n— BỐ CỤC CỘT (chốt của người dùng) —');
 const F=TCFG.columns.map(c=>c.field||c.title);
 const idx=f=>F.indexOf(f);
-chk('TRÁI = nhận dạng: STT tàu · Tên tàu · TK nhập · TK get out',
-    idx('vno')<idx('vessel') && idx('vessel')<idx('dIn') && idx('dIn')<idx('dOut'),
-    F.slice(0,6).join(' · '));
+chk('TRÁI = nhận dạng: STT tàu · Tên tàu · TK nhập · NGÀY GET IN · TK get out',
+    idx('vno')<idx('vessel') && idx('vessel')<idx('dIn') &&
+    idx('dIn')<idx('gIn') && idx('gIn')<idx('dOut'),
+    F.slice(0,7).join(' · '));
+/* ⭐ Ô quyết định thứ tự bơm khi hai lô trùng ngày trong mã batch — người
+   dùng chốt nó nằm NGAY BÊN PHẢI tờ khai nhập, sát chỗ khai tàu. */
+chk('⭐ Get in date nằm NGAY SAU Import decl.', idx('gIn')===idx('dIn')+1,
+    'dIn@'+idx('dIn')+' · gIn@'+idx('gIn'));
+chk('Get in date là ô chọn NGÀY (không gõ tay chuỗi lộn xộn)',
+    TCFG.columns.find(c=>c.field==='gIn').editor==='date');
 const SAPBLK=['date','sloc','mat','letter','bcode','init','gr','gi','trs','end'];
 chk('⭐ GIỮA = khối SAP đúng thứ tự Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End',
     SAPBLK.every((f,i)=>i===0||idx(f)===idx(SAPBLK[i-1])+1),
@@ -102,7 +109,7 @@ chk('⭐ PHẢI = phần làm việc, nằm SAU khối SAP',
 chk('cột SAP KHÔNG cho sửa (số gốc)',
     SAPBLK.every(f=>!TCFG.columns.find(c=>c.field===f).editor));
 chk('cột người dùng thì cho sửa',
-    ['vno','vessel','dIn','dOut','hqQty','note'].every(f=>!!TCFG.columns.find(c=>c.field===f).editor));
+    ['vno','vessel','dIn','gIn','dOut','hqQty','note'].every(f=>!!TCFG.columns.find(c=>c.field===f).editor));
 chk('cột Thực còn / % là app tính, không cho sửa',
     !TCFG.columns.find(c=>c.field==='left').editor && !TCFG.columns.find(c=>c.field==='pct').editor);
 
@@ -461,6 +468,50 @@ const VN=/[àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềế�
       Object.values(BOND._state.ST_NAME).join(' · '));
   chk('thẻ + dải cảnh báo tiếng Anh', !VN.test(H('bondCards')+H('bondAlerts')));
   chk('bảng FEED OL1 tiếng Anh', !VN.test(H('bondOl1Body')+H('bondOl1Tot')));
+})();
+
+console.log('\n— ⭐ MÃ BATCH ĐẶT NGƯỢC · NGÀY GET IN —');
+(function(){
+  const K1='C3_260818X001', K2='C3_260818X002';
+  const has=KNQROWS().some(r=>r.key===K1) && KNQROWS().some(r=>r.key===K2);
+  chk('có sẵn cặp lô trùng ngày batch để thử (260818X001 / X002)', has);
+  if(!has) return;
+  BOND.setInfo(K1,'gIn','2026-08-18');
+  BOND.setInfo(K2,'gIn','2026-08-15');
+  BOND.render();
+  const all=BOND._state.all();
+  const a=all.find(r=>r.key===K1), b=all.find(r=>r.key===K2);
+  chk('⭐ 002 vào trước ⇒ đứng TRƯỚC 001 trên bảng',
+      all.indexOf(b)<all.indexOf(a));
+
+  const cGin=TCFG.columns.find(c=>c.field==='gIn');
+  const gh=cGin.formatter({ getValue:()=>b.gIn, getRow:()=>({ getData:()=>b }) });
+  chk('ô Get in date hiện ngày + dấu thứ tự rút hàng',
+      gh.indexOf('bond-date')>-1 && gh.indexOf('bond-tag seq')>-1,
+      gh.replace(/<[^>]+>/g,' ').trim());
+
+  const cStt=TCFG.columns.find(c=>c.field==='st');
+  const sh=cStt.formatter({ getValue:()=>b.st,
+    getRow:()=>({ getData:()=>b, getPosition:()=>1 }) });
+  chk('⭐ dòng mang dấu "⇅ code out of order" cho nhân viên thấy ngay',
+      sh.indexOf('bond-mk seq')>-1 && sh.indexOf('out of order')>-1);
+
+  const AL=H('bondAlerts');
+  chk('⭐ dải cảnh báo nói rõ mã batch đặt ngược + thứ tự đang dùng',
+      AL.indexOf('out of arrival order')>-1 &&
+      AL.indexOf('260818X002')>-1 && AL.indexOf('260818X001')>-1);
+  chk('…và cảnh báo đó là tiếng Anh', !/[àáâãèéêìíòóôõùúýăđĩũơưạảấầẩậắằẳẵặẹẻếềểệỉịọỏốồổỗộớờởợụủứừửữựỳỵỷỹ]/i
+      .test(AL.replace(/<[^>]*>/g,'')));
+
+  /* thiếu ngày ⇒ KHÔNG đảo, chỉ nhắc điền */
+  BOND.setInfo(K1,'gIn',''); BOND.render();
+  const a2=BOND._state.all().find(r=>r.key===K1);
+  chk('⭐ thiếu ngày ⇒ không đảo, hiện nhắc "share a batch date"',
+      a2.seq==='ask' && H('bondAlerts').indexOf('share a batch date')>-1);
+  const gh2=cGin.formatter({ getValue:()=>'', getRow:()=>({ getData:()=>a2 }) });
+  chk('ô Get in date trống của nhóm trùng ngày hiện "? missing"',
+      gh2.indexOf('bond-gin ask')>-1);
+  BOND.setInfo(K2,'gIn',''); BOND.render();
 })();
 
 console.log('\n— CSS —');

@@ -248,6 +248,17 @@
 .bond-mk.new { background:#dbeafe;color:#1a4f96; }
 .bond-mk.info{ background:#f6efd8;color:#8a4b00; }
 .bond-mk.low { background:#fde4d2;color:#9a4a00; }
+/* ⭐ MÃ BATCH ĐẶT NGƯỢC — đỏ hẳn, vì đây là chỗ dễ bơm sai lô nhất */
+.bond-mk.seq { background:#fbdedd;color:#9c2a20; }
+.bond-mk.seqq{ background:#f1e7fb;color:#6b21a8; }
+
+/* ── NGÀY GET IN — ô quyết định thứ tự bơm khi trùng ngày batch ─── */
+.bond-gin{
+  font-size:9.5px;font-weight:800;padding:0 5px;border-radius:4px;cursor:help;
+  background:#f1e7fb;color:#6b21a8;white-space:nowrap;
+}
+.bond-tag.seq{ color:#9c2a20;font-weight:800; }
+.bond-seql{ display:block;padding:1px 0 1px 12px; }
 
 /* ── DỰ KIẾN HẾT ────────────────────────────────────────────── */
 .bond-eta{ font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap; }
