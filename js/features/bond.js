@@ -1,5 +1,5 @@
 /* ============================================================
- * BOND — bond.js   (v4.115) · KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP
+ * BOND — bond.js   (v4.116) · KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP
  * ------------------------------------------------------------
  * Tab: LPG Sales ▸ SAP ▸ nút gạt "🛃 Kho ngoại quan (KNQ)"
  * Global: window.BOND
@@ -177,7 +177,14 @@ const BOND = (function(){
   let _month='';                 /* KỲ đang xem — mặc định tháng của D-1     */
   let _mode='raw';               /* 'raw' | 'knq'                            */
   let _slim=false;               /* ẩn bớt cột Init/GR/GI/Trs cho bảng gọn   */
-  let _cardsOpen=true;
+  /* ⭐ v4.116 — MẶC ĐỊNH THU GỌN. Dải thẻ chiếm gần 1/3 chiều cao màn hình
+     mà phần lớn thời gian người dùng chỉ cần cái BẢNG. Muốn xem thì bấm ▤. */
+  let _cardsOpen=false;
+  /* ⭐ v4.116 — MỌI CẢNH BÁO GOM VÀO CHUÔNG 🔔, mặc định ĐÓNG.
+     Trước đây bốn năm dải cảnh báo xếp chồng đẩy bảng tụt xuống dưới màn
+     hình. Giờ chúng nằm trong một tấm thả xuống, chuông đeo số + màu theo
+     mức nặng nhất, bấm mới mở. */
+  let _alOpen=false, _alerts=[], _alSaid='', _alBound=false;
   let _arch=null, _archM='';     /* kỳ đã lưu đang mở (chỉ đọc)              */
   let _rows=[];                  /* kết quả recalc gần nhất (ĐÃ lọc)         */
   let _all=[];                   /* trước khi lọc — dùng cho thẻ thống kê    */
@@ -1316,8 +1323,15 @@ const BOND = (function(){
             ].filter(Boolean).join(''),'')
         : '');
   }
-  function _renderAlerts(){
-    const box=_el('bondAlerts'); if(!box) return;
+  /* ============================================================
+     🔔 CẢNH BÁO — GOM HẾT VÀO MỘT CÁI CHUÔNG
+     ------------------------------------------------------------
+     _buildAlerts() chỉ DỰNG danh sách, không đụng DOM. _renderAlerts()
+     vẽ chuông (số + màu theo mức nặng nhất) và tấm thả xuống.
+     ⚠ Đừng gộp hai việc lại: chuông phải cập nhật ngay cả khi tấm đang
+     đóng, nếu không người dùng không biết có gì mới.
+  ============================================================ */
+  function _buildAlerts(){
     const out=[];
     const A=_asOf(), want=_wantDay();
     if(_arch){
@@ -1326,8 +1340,7 @@ const BOND = (function(){
         (m.savedBy?(' by '+_esc(m.savedBy)):'')+', SAP figures of '+_dmy(m.sapDate||'')+
         '. The table is read-only. '+
         '<button class="bond-btn" onclick="BOND.closePeriod()">✕ Back to live figures</button>']);
-      box.innerHTML=out.map(([c,h])=>'<div class="bond-al '+c+'">'+h+'</div>').join('');
-      box.style.display=''; return;
+      return out;
     }
     if(!_sapDay){
       out.push(['bad','<b>The SAP tab has no SLoc 1100 row at all.</b> Switch to <b>📊 Raw SAP</b>, '+
@@ -1406,8 +1419,83 @@ const BOND = (function(){
     if(!out.length)
       out.push(['ok','✓ Figures of <b>'+_dmy(_sapDay)+'</b> · period <b>'+M+'</b> · '+
         _all.length+' batch(es) · nothing out of order.']);
-    box.innerHTML=out.map(([c,h])=>'<div class="bond-al '+c+'">'+h+'</div>').join('');
+    return out;
+  }
+
+  /* mức nặng nhất quyết định MÀU chuông — bad ⇒ đỏ, warn ⇒ hổ phách,
+     còn lại ⇒ xanh im lặng. Mục 'ok' KHÔNG được tính là một việc phải đọc. */
+  function _alTodo(){ return _alerts.filter(a=>a[0]!=='ok'); }
+  function _renderAlerts(){
+    _alerts=_buildAlerts();
+    /* ⭐ TỰ MỞ khi có việc NẶNG hoặc đang xem kỳ đã lưu (nút ✕ quay lại số
+       sống nằm trong tấm này — đóng kín thì không có đường ra). Chỉ mở khi
+       BỘ cảnh báo ĐỔI, để người dùng đóng đi rồi không bị mở lại liên tục. */
+    const sig=_alerts.map(a=>a[0]).join(',')+'|'+_alerts.length+'|'+(_arch?_arch.M:'');
+    if((_arch || _alerts.some(a=>a[0]==='bad')) && sig!==_alSaid) _alOpen=true;
+    _alSaid=sig;
+    _renderBell();
+    _paintAlerts();
+    _bindAlDoc();
+  }
+  function _renderBell(){
+    const btn=_el('bondBell'); if(!btn) return;
+    const todo=_alTodo();
+    const lv=todo.some(a=>a[0]==='bad') ? 'bad' : (todo.length ? 'warn' : 'ok');
+    try{
+      btn.className='bond-ico bond-bell '+lv+(_alOpen?' open':'');
+      btn.title=todo.length
+        ? (todo.length+' notification(s) to read — click to open')
+        : 'No notification — everything checks out';
+    }catch(_){}
+    const n=_el('bondBellN'); if(!n) return;
+    n.textContent=todo.length?String(todo.length):'';
+    n.style.display=todo.length?'':'none';
+  }
+  function _paintAlerts(){
+    const box=_el('bondAlerts'); if(!box) return;
+    if(!_alOpen || !_alerts.length){ box.innerHTML=''; box.style.display='none'; return; }
+    const todo=_alTodo();
+    box.innerHTML=
+      '<div class="bond-alhd"><b>🔔 Notifications</b>'+
+      '<span>'+(todo.length?(todo.length+' to read'):'all clear')+'</span>'+
+      '<button class="bond-btn" onclick="BOND.toggleAlerts(0)" title="Close this panel">✕ Close</button></div>'+
+      '<div class="bond-albd">'+
+      _alerts.map(([c,h])=>'<div class="bond-al '+c+'">'+h+'</div>').join('')+
+      '</div>';
     box.style.display='';
+    _posAlerts();
+  }
+  /* Tấm thả xuống dùng position:fixed rồi tự đặt toạ độ theo cái chuông —
+     làm vậy để KHÔNG bao giờ bị cắt bởi overflow của thanh công cụ hay của
+     khung bảng, và không đẩy bảng tụt xuống như dải cảnh báo cũ. */
+  function _posAlerts(){
+    const box=_el('bondAlerts'), btn=_el('bondBell');
+    if(!box||!btn||!btn.getBoundingClientRect) return;
+    try{
+      const r=btn.getBoundingClientRect();
+      box.style.top=Math.round(r.bottom+6)+'px';
+      box.style.right=Math.max(8,Math.round(window.innerWidth-r.right-2))+'px';
+    }catch(_){}
+  }
+  function toggleAlerts(v){
+    _alOpen=(v==null)?!_alOpen:!!v;
+    _renderBell(); _paintAlerts();
+  }
+  /* bấm ra ngoài / Esc thì đóng — gắn ĐÚNG MỘT LẦN, và chỉ khi môi trường
+     thật có addEventListener (bộ test dựng DOM giả, không có). */
+  function _bindAlDoc(){
+    if(_alBound) return;
+    if(typeof document==='undefined' || !document.addEventListener) return;
+    _alBound=true;
+    document.addEventListener('mousedown',e=>{
+      if(!_alOpen) return;
+      const box=_el('bondAlerts'), btn=_el('bondBell');
+      if(box && box.contains && box.contains(e.target)) return;
+      if(btn && btn.contains && btn.contains(e.target)) return;
+      toggleAlerts(0);
+    });
+    document.addEventListener('keydown',e=>{ if(_alOpen && e.key==='Escape') toggleAlerts(0); });
+    if(window.addEventListener) window.addEventListener('resize',_posAlerts);
   }
 
   /* ============================================================
@@ -1871,13 +1959,22 @@ const BOND = (function(){
       try{ if(SP && SP.table) SP.rebuildTableData(); }catch(_){}
     }
   }
-  function toggleCards(){ _cardsOpen=!_cardsOpen;
-    const b=_el('bondCardsBtn'); if(b) b.textContent=_cardsOpen?'⊟ Collapse':'⊞ Expand';
-    _renderCards(); }
-  function toggleSlim(){ _slim=!_slim;
-    const b=_el('bondSlimBtn');
-    if(b) b.textContent=_slim?'⊞ All SAP columns':'⊟ Fewer SAP columns';
-    _build(); }
+  /* ⭐ HAI NÚT XEM = ICON, KHÔNG ĐỔI KÝ HIỆU ─────────────────────
+     Ký hiệu đứng yên để người dùng nhớ VỊ TRÍ nút; trạng thái nói bằng
+     lớp .on (nút sáng lên = thứ đó đang HIỆN) và bằng tooltip. Đổi cả
+     chữ lẫn nghĩa như bản cũ làm nút nhảy chỗ mỗi lần bấm. */
+  function _paintView(){
+    const c=_el('bondCardsBtn');
+    if(c){ try{ c.className='bond-ico'+(_cardsOpen?' on':''); }catch(_){}
+      c.title=_cardsOpen ? 'Summary cards are showing — click to collapse them and give the table more height'
+                         : 'Summary cards are collapsed — click to show them'; }
+    const s2=_el('bondSlimBtn');
+    if(s2){ try{ s2.className='bond-ico'+(_slim?'':' on'); }catch(_){}
+      s2.title=_slim ? 'Init / GR / GI / Trs are hidden — click to bring every SAP column back'
+                     : 'All SAP columns are showing — click to keep only End Stock and stop the sideways scrolling'; }
+  }
+  function toggleCards(){ _cardsOpen=!_cardsOpen; _paintView(); _renderCards(); }
+  function toggleSlim(){ _slim=!_slim; _paintView(); _build(); }
   function onMonth(){ const e=_el('bondMonth'); if(!e) return;
     _month=e.value||_ym(_asOf());
     if(_arch) closePeriod(); else render(); }
@@ -1895,6 +1992,7 @@ const BOND = (function(){
     if(!_el('bondGrid')) return;
     recalc();
     _refill();
+    _paintView();
     _renderCards();
     _renderAlerts();
     _fillPeriodSel();
@@ -1975,7 +2073,7 @@ const BOND = (function(){
     setInfo, delRow,
     savePeriod, openPeriod, closePeriod, delPeriod,
     openOl1, closeOl1, onOl1Month, onOl1Unit, setUse, addUseRow, fillMonth, delUseRow,
-    toggleCards, toggleSlim, onMonth, exportXlsx,
+    toggleCards, toggleSlim, toggleAlerts, onMonth, exportXlsx,
     pickFile, fileChosen, pasteOpen, pasteRead, pasteCancel,
     impSet, impApply, impCancel,
     onFilter, clearFilter, filterOn,
@@ -1993,7 +2091,9 @@ const BOND = (function(){
              imp:()=>_imp, setImp:v=>{ _imp=v; _paste=false; },
              prepImp:_prepImp, impRows:_impRows, toIso:_toIso,
              pickSheet:_pickSheet, srcTag:_srcTag,
-             DEF_TOT_KG, LOW_KG, loaded:()=>_loaded, markLoaded:()=>{ _loaded=true; } }
+             DEF_TOT_KG, LOW_KG, loaded:()=>_loaded, markLoaded:()=>{ _loaded=true; },
+             alerts:()=>_alerts, alOpen:()=>_alOpen,
+             cardsOpen:()=>_cardsOpen, slim:()=>_slim }
   };
 })();
 window.BOND = BOND;

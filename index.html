@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
-<link rel="stylesheet" href="css/bond.css?v=4115"><!-- v4.106 — kho ngoại quan GỘP vào tab SAP (BOND) — link ACTIVE -->
+<link rel="stylesheet" href="css/bond.css?v=4116"><!-- v4.106 — kho ngoại quan GỘP vào tab SAP (BOND) — link ACTIVE -->
 <!-- ⚠ BẪY: khối dưới đây là COMMENT — mọi <link> trong nó KHÔNG được nạp.
      Toàn bộ app CSS thực sự nằm trong core.css. Khi thêm style mới thì viết
      vào core.css, ĐỪNG thêm link ở đây rồi tưởng là đã nạp (v4.82 dính đúng
@@ -1230,20 +1230,30 @@
             <button class="bond-btn" id="bondFClr" onclick="BOND.clearFilter()"
                     style="display:none" title="Clear every filter">✕</button>
           </div>
-          <div class="spacer"></div>
-          <div class="bond-grp">
+          <!-- ═══ XEM (v4.116) — MỘT HÀNG DUY NHẤT ═══════════════════
+               Hai nút thu/mở trước đây mang chữ dài nên cả nhóm bị đẩy
+               xuống hàng thứ hai. Nay là ICON: ký hiệu đứng yên, sáng lên
+               (.on) khi thứ đó đang hiện, tooltip nói rõ bấm vào thì ra gì.
+               🔔 gom HẾT cảnh báo — tấm thả xuống, mặc định đóng. -->
+          <div class="bond-grp bond-view">
             <span class="bond-glab">View</span>
-            <button class="bond-btn" id="bondCardsBtn" onclick="BOND.toggleCards()"
-                    title="Collapse the summary cards to give the table more height">⊟ Collapse</button>
-            <button class="bond-btn" id="bondSlimBtn" onclick="BOND.toggleSlim()"
-                    title="Hide Init / GR / GI / Trs and keep only End Stock — a narrower table, less sideways scrolling">⊟ Fewer SAP columns</button>
+            <span class="bond-bellwrap">
+              <button class="bond-ico bond-bell ok" id="bondBell" onclick="BOND.toggleAlerts()"
+                      title="Notifications">🔔<i class="bond-bdg" id="bondBellN" style="display:none"></i></button>
+            </span>
+            <button class="bond-ico on" id="bondCardsBtn" onclick="BOND.toggleCards()"
+                    title="Summary cards — show or collapse">▤</button>
+            <button class="bond-ico on" id="bondSlimBtn" onclick="BOND.toggleSlim()"
+                    title="SAP columns — all of them, or End Stock only">⇔</button>
             <span class="bond-count" id="bondCount"></span>
             <span class="bond-sync" id="bondSync"></span>
           </div>
+          <!-- tấm cảnh báo: position:fixed, toạ độ do _posAlerts() đặt theo
+               cái chuông ⇒ không bị cắt và KHÔNG đẩy bảng tụt xuống -->
+          <div class="bond-alerts" id="bondAlerts" style="display:none"></div>
         </div>
 
         <div class="bond-cards" id="bondCards"></div>
-        <div class="bond-alerts" id="bondAlerts"></div>
 
         <div class="bond-table-full">
           <div class="bond-grid" id="bondGrid"></div>
@@ -4590,7 +4600,7 @@
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js?v=4112"></script><!-- v4.112 — cột Trips: dòng TL mang chung khoá mdoG chỉ tính MỘT lượt xe -->
 <script src="js/features/mthr.js"></script>
-<script src="js/features/bond.js?v=4115"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
+<script src="js/features/bond.js?v=4116"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
 <script src="js/features/inv.js?v=4114"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh · v4.111 — lot đang tính hiện cạnh tên bồn, nút 💾 Save to Tank Log, tồn đầu hệ thống dùng chung với ô thông báo Tank Mix · v4.113 — số tồn đầu gõ tay lưu tạm lên /stx_draft theo TỪNG LOT (sống sót qua F5 / đổi máy / bồn trộn mẻ mới) và tự xoá khi đã lưu vào Tank Log · v4.114 — VÁ LỖI GÕ: ô System opening không còn bị cắt focus sau mỗi chữ số (cập nhật tại chỗ, type=text) -->
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>

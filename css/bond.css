@@ -24,11 +24,16 @@
 .bond-mnote{ font-size:10.5px;color:var(--ink-3);margin-left:6px;line-height:1.4; }
 
 /* ── THANH CÔNG CỤ ──────────────────────────────────────────── */
+/* ⭐ v4.116 — MỘT HÀNG DUY NHẤT. Nhóm Filter là chỗ CO GIÃN (flex:1 +
+   min-width:0) nên khi màn hẹp nó tự bóp lại thay vì đẩy nhóm View xuống
+   hàng hai. Vẫn để flex-wrap:wrap làm phao cứu sinh cho màn rất hẹp. */
 .bond-bar{
-  display:flex;align-items:center;gap:12px;flex-wrap:wrap;flex:0 0 auto;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:0 0 auto;
   padding:8px 10px;border-bottom:1px solid var(--line);background:var(--panel);
 }
 .bond-bar .spacer{ flex:1; }
+.bond-bar .bond-filters{ flex:1 1 180px;min-width:0; }
+.bond-bar .bond-view{ flex:0 0 auto;margin-left:auto; }
 .bond-grp{
   display:flex;align-items:center;gap:5px;
   padding:3px 9px 3px 7px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);
@@ -51,10 +56,42 @@
   padding:3px 6px;border:1px solid var(--line);border-radius:6px;
   background:var(--panel);color:var(--ink);font-size:11.5px;font-family:inherit;
 }
-.bond-bar select{ max-width:230px; }
+.bond-bar select{ max-width:170px; }
 .bond-count{ font-size:11.5px;font-weight:800;color:var(--ink);white-space:nowrap; }
-.bond-sync{ font-size:10.5px;color:var(--ink-3);min-width:74px;white-space:nowrap; }
+.bond-sync{ font-size:10.5px;color:var(--ink-3);white-space:nowrap; }
 .bond-sync.ok{ color:#157a40;font-weight:700; }
+
+/* ── NÚT ICON (nhóm View) ───────────────────────────────────────
+   Ký hiệu KHÔNG đổi khi bấm — người dùng nhớ vị trí nút. Trạng thái nói
+   bằng .on: nút sáng lên = thứ đó đang HIỆN. */
+.bond-ico{
+  position:relative;cursor:pointer;width:30px;height:26px;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--line);border-radius:6px;
+  background:var(--panel);color:var(--ink-3);font-size:14px;line-height:1;
+}
+.bond-ico:hover{ border-color:#8aa6c8;background:var(--panel-2);color:var(--ink); }
+.bond-ico.on{ background:#eef6ff;border-color:#9cc0e8;color:#123a63; }
+
+/* ── 🔔 CHUÔNG — màu theo mức NẶNG NHẤT đang chờ đọc ────────────── */
+.bond-bellwrap{ position:relative;display:inline-flex; }
+.bond-bell{ font-size:13px; }
+.bond-bell.ok  { color:#157a40;border-color:#bfe3cc;background:#f0f9f3; }
+.bond-bell.warn{ color:#8a4b00;border-color:#eccfa0;background:#fdf4e6; }
+.bond-bell.bad { color:#9c2a20;border-color:#eebab3;background:#fdf0ee;
+                 animation:bondBell 1.6s ease-in-out infinite; }
+.bond-bell.open{ box-shadow:0 0 0 2px rgba(18,58,99,.18); }
+@keyframes bondBell{ 0%,100%{ opacity:1 } 50%{ opacity:.55 } }
+.bond-bdg{
+  position:absolute;top:-6px;right:-6px;min-width:15px;height:15px;padding:0 3px;
+  display:inline-flex;align-items:center;justify-content:center;
+  border-radius:8px;background:#b3261e;color:#fff;
+  font-size:9px;font-weight:900;font-style:normal;line-height:1;
+  border:1.5px solid var(--panel);
+}
+/* huy hiệu số ăn màu theo mức của chuông — nó là CON của cái nút */
+.bond-bell.warn .bond-bdg{ background:#a8530a; }
+.bond-bell.bad  .bond-bdg{ background:#b3261e; }
 
 /* ── THANH LỌC ──────────────────────────────────────────────── */
 .bond-filters .bond-fq{
@@ -140,9 +177,28 @@
 /* dòng diễn giải */
 .bond-cs{ font-size:11px;color:var(--ink-3);line-height:1.45;margin-top:4px; }
 
-/* ── DẢI CẢNH BÁO ───────────────────────────────────────────── */
-.bond-alerts{ flex:0 0 auto;display:flex;flex-direction:column;gap:5px;padding:8px 10px;background:var(--panel); }
+/* ── 🔔 TẤM CẢNH BÁO THẢ XUỐNG (v4.116) ──────────────────────────
+   position:fixed + toạ độ do _posAlerts() đặt theo cái chuông: không bị
+   overflow của thanh công cụ cắt mất, và KHÔNG đẩy bảng tụt xuống như dải
+   cảnh báo cũ. Cao tối đa 60vh rồi tự cuộn. */
+.bond-alerts{
+  position:fixed;z-index:70;width:min(880px,94vw);
+  display:flex;flex-direction:column;
+  border:1px solid var(--line);border-radius:10px;background:var(--panel);
+  box-shadow:0 14px 38px rgba(15,32,54,.22);overflow:hidden;
+}
 .bond-alerts:empty{ display:none; }
+.bond-alhd{
+  display:flex;align-items:center;gap:8px;flex:0 0 auto;
+  padding:7px 10px;border-bottom:1px solid var(--line);background:var(--panel-2);
+  font-size:12px;
+}
+.bond-alhd b{ color:var(--ink); }
+.bond-alhd span{ font-size:10.5px;color:var(--ink-3);font-weight:700;margin-right:auto; }
+.bond-albd{
+  display:flex;flex-direction:column;gap:5px;padding:8px 10px;
+  max-height:60vh;overflow:auto;
+}
 .bond-al{
   font-size:11.5px;line-height:1.55;padding:6px 11px;border-radius:7px;
   border:1px solid var(--line);background:var(--panel-2);color:var(--ink-2);

@@ -263,6 +263,22 @@ console.log('\n— GIỮ NGUYÊN VỊ TRÍ ĐANG CUỘN —');
   HOLDER.scrollTop=0; HOLDER.scrollLeft=0;
 })();
 
+console.log('\n— MỘT HÀNG · NÚT ICON · MẶC ĐỊNH THU GỌN (v4.116) —');
+/* ⭐ chốt: cả nhóm View nằm CÙNG HÀNG với Period ⇒ hai nút thu/mở phải là
+   ICON ngắn, và dải thẻ MẶC ĐỊNH THU. */
+const BAR=pane.split('class="bond-bar"')[1].split('</div>\n\n        <div class="bond-cards"')[0];
+chk('⭐ nhóm View KHÔNG còn nút chữ dài, chuyển hết sang .bond-ico',
+    BAR.indexOf('Fewer SAP columns</button>')<0 && BAR.indexOf('⊟ Collapse</button>')<0 &&
+    /id="bondCardsBtn"[^>]*class=|class="bond-ico[^"]*" id="bondCardsBtn"/.test(BAR+' '));
+chk('nút thu/mở thẻ + gọn cột đều là bond-ico',
+    /class="bond-ico[^"]*" id="bondCardsBtn"/.test(BAR) &&
+    /class="bond-ico[^"]*" id="bondSlimBtn"/.test(BAR));
+chk('⭐ nhóm View nằm TRONG cùng .bond-bar với Period (một hàng)',
+    BAR.indexOf('bond-view')>-1 && BAR.indexOf('id="bondMonth"')>-1 &&
+    BAR.indexOf('id="bondMonth"')<BAR.indexOf('bond-view'));
+chk('⭐ MẶC ĐỊNH dải thẻ THU GỌN', S.cardsOpen()===false &&
+    CACHE['bondCards'].style.display==='none');
+
 console.log('\n— THU GỌN —');
 const n0=TCFG.columns.length;
 BOND.toggleSlim();
@@ -272,9 +288,32 @@ chk('⊟ Gọn cột SAP ẩn Init/GR/GI/Trs, GIỮ End',
 BOND.toggleSlim();
 chk('bấm lại thì hiện đủ', TCFG.columns.length===n0);
 BOND.toggleCards();
-chk('⊟ Thu gọn ẩn dải thẻ thống kê', CACHE['bondCards'].style.display==='none');
+chk('bấm ▤ thì dải thẻ hiện ra', CACHE['bondCards'].style.display==='' && S.cardsOpen()===true);
+/* ⚠ "bond-ico" đã chứa sẵn chữ "on" (b-ON-d) — phải soi cả TỪ */
+const hasOn=el=>/(^|\s)on(\s|$)/.test(String((CACHE[el]||{}).className||''));
+chk('nút ▤ sáng lên (.on) khi thẻ đang hiện', hasOn('bondCardsBtn'),
+    CACHE['bondCardsBtn'].className);
 BOND.toggleCards();
-chk('bấm lại thì hiện lại', CACHE['bondCards'].style.display==='');
+chk('⊟ bấm lại thì thu lại', CACHE['bondCards'].style.display==='none');
+chk('…và nút tắt đèn', !hasOn('bondCardsBtn'), CACHE['bondCardsBtn'].className);
+BOND.toggleCards();          /* mở lại để soi nội dung thẻ ở mục sau */
+
+console.log('\n— 🔔 CHUÔNG GOM CẢNH BÁO (v4.116) —');
+chk('⭐ tấm cảnh báo MẶC ĐỊNH ĐÓNG, không đẩy bảng xuống',
+    S.alOpen()===false && CACHE['bondAlerts'].style.display==='none');
+chk('chuông vẫn đeo SỐ dù tấm đang đóng',
+    +CACHE['bondBellN'].textContent===S.alerts().filter(a=>a[0]!=='ok').length &&
+    +CACHE['bondBellN'].textContent>0, CACHE['bondBellN'].textContent+' việc');
+chk('màu chuông theo mức NẶNG NHẤT đang chờ',
+    /bond-bell (warn|bad)/.test(String(CACHE['bondBell'].className||'')),
+    CACHE['bondBell'].className);
+BOND.toggleAlerts();
+chk('⭐ bấm chuông ⇒ mở tấm, GOM ĐỦ mọi cảnh báo',
+    S.alOpen()===true && CACHE['bondAlerts'].style.display==='' &&
+    (H('bondAlerts').match(/class="bond-al /g)||[]).length===S.alerts().length,
+    (H('bondAlerts').match(/class="bond-al /g)||[]).length+'/'+S.alerts().length);
+chk('tấm có tiêu đề + nút đóng', H('bondAlerts').indexOf('bond-alhd')>-1 &&
+    H('bondAlerts').indexOf('BOND.toggleAlerts(0)')>-1);
 
 console.log('\n— THẺ & CẢNH BÁO —');
 /* v4.107 — đã BỎ hai thẻ IN BONDED WAREHOUSE + P+X RUN DOWN */
@@ -302,8 +341,12 @@ chk('dải cảnh báo mời điền thông tin cho lô mới',
     H('bondAlerts').indexOf('have no details yet')>-1);
 S.INFO['C3_260714X999']={ vessel:'TÀU MA' };
 BOND.render();
+chk('⭐ cảnh báo ĐỎ vừa xuất hiện ⇒ tấm TỰ MỞ (không để lọt việc nặng)',
+    S.alOpen()===true);
 chk('⭐ lô mất khỏi SAP ⇒ cảnh báo ĐỎ nêu đích danh mã batch',
     /bond-al bad/.test(H('bondAlerts')) && H('bondAlerts').indexOf('260714X999')>-1);
+chk('…và chuông đỏ theo', String(CACHE['bondBell'].className||'').indexOf('bad')>-1,
+    CACHE['bondBell'].className);
 delete S.INFO['C3_260714X999'];
 BOND.render();
 
