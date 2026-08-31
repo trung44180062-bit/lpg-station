@@ -369,6 +369,8 @@ const INV = (function(){
     }
     /* v4.36.1 — refresh the per-tank opening-stock mini-rows on the console */
     try{ if(typeof SCX2 !== 'undefined') SCX2.renderTankExtras(); }catch(_){}
+    /* v4.119 — tồn bồn đổi ⇒ dải dự báo tồn kho vẽ lại */
+    try{ if(typeof FCST !== 'undefined') FCST.schedule(); }catch(_){}
   }
 
   /* ── tank view switch ── */

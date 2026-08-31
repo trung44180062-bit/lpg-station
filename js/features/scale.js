@@ -522,6 +522,9 @@ const SCALE = (function(){
 
     /* Tank cards + PLAN stock total + XFER card refresh. */
     try{ if(typeof INV!=='undefined' && INV.renderRow1) INV.renderRow1(); }catch(_){}
+    /* v4.119 — dải dự báo tồn kho đọc CHÍNH những số vừa đổi ở đây
+       (kế hoạch, trạng thái đơn, tồn bồn) nên bám luôn vào lượt vẽ này. */
+    try{ if(typeof FCST!=='undefined') FCST.schedule(); }catch(_){}
   }
 
   /* ─── Tank cards (one per tank) ─── */

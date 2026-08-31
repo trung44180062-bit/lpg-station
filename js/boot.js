@@ -98,6 +98,10 @@ document.addEventListener('DOMContentLoaded', function () {
             step('P4 · MTHR (Monthly)', () => MTHR.init());
             step('P4 · STAFF',          () => STAFF.init());
             step('P4 · SCX2 (Console)', () => SCX2.init());
+            /* v4.119 — dự báo tồn kho: PHẢI sau SP/TP/TMR/ENG/SCALE vì nó
+               chỉ đọc RAM của mấy module đó, và sau SCX2 vì dải số nằm trên
+               thanh tiêu đề console. */
+            step('P4 · FCST (Forecast)', () => FCST.init());
             step('P4 · Fleet subs',     () => { buildFleetSubs(); switchFleetTab('tanklorry'); });
             const total = (performance.now() - _tBoot).toFixed(0);
             console.log('[BOOT] ✅ all modules ready · total ' + total + 'ms');

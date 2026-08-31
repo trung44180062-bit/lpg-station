@@ -41,8 +41,12 @@ const SP = (function(){
   let slocFilter  = '';
   let batchFilter = '';
   let bcodeFilter = '';
+  let matFilter   = '';       /* v4.120.1 — lọc cấu tử C3 / C4 */
   let _dfInit = false;
-  let _analysisVisible = true;
+  /* v4.122 — MẶC ĐỊNH ẨN. Bảng dự báo đã nằm sẵn trên thanh SCALE CONSOLE;
+     ở tab SAP nó chỉ là bản đầy đủ để soi khi cần, mở sẵn là đẩy lưới SAP —
+     thứ người ta vào tab này để xem — tụt xuống dưới màn hình. */
+  let _analysisVisible = false;
   const LS_KEY = 'lpg_v4_sap_v1';
   const NUM_FIELDS = new Set(['init','gr','gi','trs','end']);
   const ALLOWED_SLOC = {'1100':1,'2100':1,'2101':1,'B100':1};
@@ -256,6 +260,7 @@ const SP = (function(){
       (r.bcode||'')+(SLOC_NAME[r.sloc]||'')).toLowerCase().includes(q));
     if(dateFilter)  arr=arr.filter(r=>isoToDisplay(r.date)===dateFilter);
     if(slocFilter)  arr=arr.filter(r=>String(r.sloc||'')===slocFilter);
+    if(matFilter)   arr=arr.filter(r=>String(r.mat||'').toUpperCase()===matFilter);
     if(batchFilter) arr=arr.filter(r=>String(r.batch||'').toUpperCase()===batchFilter);
     if(bcodeFilter) arr=arr.filter(r=>String(r.bcode||'').toUpperCase()===bcodeFilter);
     arr.sort((a,b)=>{
@@ -348,6 +353,7 @@ const SP = (function(){
     const parts=[];
     if(dateFilter)  parts.push('📅 '+dateFilter);
     if(slocFilter)  parts.push('🏷 '+slocFilter+(SLOC_NAME[slocFilter]?' · '+SLOC_NAME[slocFilter]:''));
+    if(matFilter)   parts.push('⚗ '+matFilter);
     if(batchFilter) parts.push('🔖 Batch '+batchFilter);
     if(bcodeFilter) parts.push('🧾 '+bcodeFilter);
     const q=(document.getElementById('spSearch')||{}).value||'';
@@ -359,7 +365,8 @@ const SP = (function(){
     set('spTotSplit', data.length
       ? 'C3 '+totFmt(M.C3.end)+' <i>·</i> C4 '+totFmt(M.C4.end)+' <i>· End</i>'
       : '');
-    bar.classList.toggle('filtered', !!(dateFilter||slocFilter||batchFilter||bcodeFilter||q.trim()));
+    bar.classList.toggle('filtered',
+      !!(dateFilter||slocFilter||matFilter||batchFilter||bcodeFilter||q.trim()));
   }
 
   /* Danh sách MÃ BATCH khả dụng theo date+sloc+batch đang chọn. */
@@ -369,6 +376,7 @@ const SP = (function(){
       if(!r||!r.bcode) return;
       if(dateFilter  && isoToDisplay(r.date)!==dateFilter) return;
       if(slocFilter  && String(r.sloc||'')!==slocFilter) return;
+      if(matFilter   && String(r.mat||'').toUpperCase()!==matFilter) return;
       if(batchFilter && String(r.batch||'').toUpperCase()!==batchFilter) return;
       s[String(r.bcode).trim().toUpperCase()]=1;
     });
@@ -407,30 +415,27 @@ const SP = (function(){
   }
   function fmtKg(v){if(v===null||v===undefined)return'—';if(v===0)return'<span style="color:var(--ink-3)">0</span>';const s=Math.round(v).toLocaleString('en-US');return v<0?`<span style="color:var(--red)">${s}</span>`:s;}
   function fmtLpg(c3,c4){if((c3==null)&&(c4==null))return'—';return Math.round((c3||0)+(c4||0)).toLocaleString('en-US');}
+  /* ══ v4.120.1 — BẢNG "SAP STOCK SUMMARY" CŨ ĐÃ THAY BẰNG BẢNG DỰ BÁO ══
+     Bảng cũ cộng Init/GR/GI/Trs/End của hai bồn — đúng nhưng thừa: số đó
+     đã có ở dải Σ TỔNG ngay dưới và ở chính lưới SAP. Nay chỗ đó in TOÀN
+     BỘ phép tính tồn còn lại (FCST), vì đó mới là thứ người ta mở tab SAP
+     ra để xem. Giữ NGUYÊN tên hàm: mọi đường gọi cũ (listener Firebase,
+     cellEdited, tableBuilt, xoá dòng…) vẫn chạy, chỉ đổi thứ được vẽ.
+     ⚠ computeAnalysis() GIỮ LẠI và vẫn export — bộ test parity của Daily
+     Stock đọc nó. */
   function renderAnalysis(){
-    const an=computeAnalysis(),rows=Object.values(ROWS);
-    const filtered=dateFilter?rows.filter(r=>isoToDisplay(r.date)===dateFilter):rows;
-    document.getElementById('spAnScope').textContent=dateFilter?'Filtered: '+dateFilter:'All dates';
-    document.getElementById('spAnStats').textContent=filtered.length+' rows analyzed';
-    /* v4.22.16 — toggle the in-header clear button alongside the toolbar one */
-    const _spAnClr=document.getElementById('spAnDateClr');
-    if(_spAnClr) _spAnClr.style.display=dateFilter?'inline-flex':'none';
-    const items=[{label:'Initial Stock',key:'init'},{label:'Good Receipt (GR)',key:'gr'},{label:'Good Issue (GI)',key:'gi'},{label:'Transfer (Trs)',key:'trs'},{label:'End Stock',key:'end',bold:true}];
-    let html='';
-    if(!filtered.length){html='<tr><td colspan="7" style="text-align:center;padding:12px;color:var(--ink-3);font-style:italic">No data</td></tr>';}
-    else items.forEach(item=>{
-      const d1=an['2100'],d2=an['2101'];
-      const bS=item.bold?'background:#eef4fa;font-weight:700':'';
-      html+=`<tr${bS?' style="'+bS+'"':''}>`;
-      html+=`<td class="lbl-cell">${escapeHtml(item.label)}</td>`;
-      html+=`<td>${fmtKg(d1.C3[item.key])}</td><td>${fmtKg(d1.C4[item.key])}</td>`;
-      html+=`<td style="font-weight:700;border-right:2px solid var(--line);background:#eef4fa">${fmtLpg(d1.C3[item.key],d1.C4[item.key])}</td>`;
-      html+=`<td>${fmtKg(d2.C3[item.key])}</td><td>${fmtKg(d2.C4[item.key])}</td>`;
-      html+=`<td style="font-weight:700;background:#fdf5ec">${fmtLpg(d2.C3[item.key],d2.C4[item.key])}</td></tr>`;
-    });
-    document.getElementById('spAnTbody').innerHTML=html;
+    try{ if(typeof FCST!=='undefined' && FCST.schedule) FCST.schedule(); }catch(_){}
   }
-  function toggleAnalysis(){_analysisVisible=!_analysisVisible;document.getElementById('spAnalysisWrap').style.display=_analysisVisible?'':'none';document.getElementById('spAnToggleBtn').textContent=_analysisVisible?'Hide':'Show Analysis';}
+  function toggleAnalysis(){
+    _analysisVisible=!_analysisVisible;
+    const w=document.getElementById('spAnalysisWrap');
+    if(w) w.classList.toggle('collapsed', !_analysisVisible);
+    const b=document.getElementById('spAnToggleBtn');
+    if(b) b.textContent=_analysisVisible?'Hide':'Show forecast';
+    /* Mở ra thì phải VẼ NGAY: renderFull() tự bỏ qua khi đang collapsed nên
+       lúc còn ẩn nó chưa hề dựng bảng lần nào. */
+    if(_analysisVisible){ try{ if(typeof FCST!=='undefined') FCST.renderFull(); }catch(_){} }
+  }
 
   /* paste flow */
   function openPaste(){document.getElementById('spPasteModal').classList.add('on');setTimeout(()=>document.getElementById('spPasteArea').focus(),50);}
@@ -572,6 +577,12 @@ const SP = (function(){
     if(el){ el.value=slocFilter; el.classList.toggle('active',!!slocFilter); }
     dropStaleBcode(); rebuildTableData();
   }
+  function setMat(v){
+    matFilter=String(v||'').trim().toUpperCase();
+    const el=document.getElementById('spMatFilter');
+    if(el){ el.value=matFilter; el.classList.toggle('active',!!matFilter); }
+    dropStaleBcode(); rebuildTableData();
+  }
   function setBatch(v){
     batchFilter=String(v||'').trim().toUpperCase();
     const el=document.getElementById('spBatchFilter');
@@ -586,9 +597,9 @@ const SP = (function(){
   }
   /* ✕ Reset: về đúng trạng thái mặc định của tab = lọc NGÀY HÔM QUA. */
   function resetFilters(){
-    slocFilter=''; batchFilter=''; bcodeFilter='';
+    slocFilter=''; matFilter=''; batchFilter=''; bcodeFilter='';
     const s=document.getElementById('spSearch'); if(s) s.value='';
-    ['spSlocFilter','spBatchFilter','spBcodeFilter'].forEach(id=>{
+    ['spSlocFilter','spMatFilter','spBatchFilter','spBcodeFilter'].forEach(id=>{
       const el=document.getElementById(id); if(el){ el.value=''; el.classList.remove('active'); }
     });
     setDateFilter(yesterdayDMY()); rebuildTableData();
@@ -599,9 +610,10 @@ const SP = (function(){
     init(){const c=loadCache();if(c){Object.assign(ROWS,c.data||{});_versions=c.versions||_versions;}refreshBadge();attachFirebase();},
     buildTable,rebuildTableData,openPaste,closePaste,submitPaste,closeDiff,confirmDiff,rangeDelete,exportCsv,
     openPicker,pickerChange,clearDate,refreshBadge,renderAnalysis,toggleAnalysis,
-    setSloc,setBatch,setBcode,resetFilters,renderTotals,refreshBcodeOptions,
+    setSloc,setMat,setBatch,setBcode,resetFilters,renderTotals,refreshBcodeOptions,
     /* hook test: đọc/ghi trạng thái filter mà không cần DOM */
-    _filters(){return{date:dateFilter,sloc:slocFilter,batch:batchFilter,bcode:bcodeFilter};},
+    _filters(){return{date:dateFilter,sloc:slocFilter,mat:matFilter,batch:batchFilter,bcode:bcodeFilter};},
+    _computeAnalysis:computeAnalysis,
     _yesterdayDMY:yesterdayDMY, _rows:spRows,
     /* ── API cho tab KNQ (kho ngoại quan) ──────────────────────────
        Trả dòng SLoc 1100 ĐÃ TÁCH theo mã batch trong khoảng ngày.
@@ -695,6 +707,7 @@ document.getElementById('spDatePick').addEventListener('change',()=>{SP.pickerCh
 /* v4.100 — filter SLoc / Batch / Batch code */
 function spResetFilters(){SP.resetFilters();}
 document.getElementById('spSlocFilter').addEventListener('change',e=>{SP.setSloc(e.target.value);});
+document.getElementById('spMatFilter').addEventListener('change',e=>{SP.setMat(e.target.value);});
 document.getElementById('spBatchFilter').addEventListener('change',e=>{SP.setBatch(e.target.value);});
 document.getElementById('spBcodeFilter').addEventListener('change',e=>{SP.setBcode(e.target.value);});
 

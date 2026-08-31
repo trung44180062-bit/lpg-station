@@ -10,7 +10,7 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=4117">
+<link rel="stylesheet" href="css/core.css?v=4123">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
@@ -125,6 +125,14 @@
       <div id="scx2Root">
         <div class="scx2-top">
           <span class="scx2-brand">⛽ SCALE <b>CONSOLE</b></span>
+          <!-- ══ v4.119 — DỰ BÁO TỒN KHO (FCST) ═══════════════════════════
+               Bốn khối đọc như một phép tính: TỒN (SAP) − ĐÃ BÁN − CÒN PHẢI
+               BÁN = CÒN LẠI. Số SAP là hàng ĐÃ THÔNG QUAN; kho còn chứa cả
+               hàng chưa thông quan nên "còn lại" âm nghĩa là kế hoạch đang
+               bán lố, có rủi ro bơm nhầm hàng chưa thông quan lên xe.
+               Bấm vào dải để mở bảng chi tiết + chọn lot cho từng tỉ lệ. -->
+          <div class="fc-bar off" id="fcstBar" onclick="FCST.toggle(event)"></div>
+          <div class="fc-panel" id="fcstPanel" style="display:none"></div>
           <div class="scx2-staffhold" id="scx2StaffHold"></div>
           <div class="scx2-icons" id="scx2IconHold">
             <button class="scx2-ic" id="scx2RptBtn" onclick="SCX2.toggleRpt()" title="Report engine (pick file · check · export)">📋</button>
@@ -1079,35 +1087,20 @@
       </div>
 
       <div id="spViewRaw">
-      <div class="sp-analysis" id="spAnalysisWrap">
-        <div class="sp-analysis-hdr">
-          <span class="sp-analysis-title">SAP STOCK SUMMARY (ZMMFR022)</span>
-          <!-- Date filter (v4.22.16) — shares state with toolbar spDateFilter via SP.openPicker/clearDate -->
-          <button class="sp-an-date-btn" onclick="SP.openPicker()" title="Filter summary by Date">📅 Filter date</button>
-          <span class="sp-label" id="spAnScope">All dates</span>
-          <button class="sp-an-date-clr" id="spAnDateClr" onclick="SP.clearDate()" title="Clear date filter" style="display:none">✕</button>
-          <span class="sp-label" id="spAnStats">0 rows</span>
-          <button class="btn btn-xs" id="spAnToggleBtn" onclick="spToggleAnalysis()">Hide</button>
+      <!-- ══ v4.120.1 — BẢNG TÍNH TỒN CÒN LẠI (thay bảng SAP STOCK SUMMARY) ══
+           Bảng cũ chỉ cộng Init/GR/GI/Trs/End của hai bồn — số đó đã nằm sẵn
+           ở dải Σ TỔNG ngay dưới và ở chính lưới SAP. Chỗ này rộng nên đưa
+           TOÀN BỘ phép tính tồn còn lại vào: tồn lô D/E theo từng kho, từng
+           ngày kế hoạch bị trừ, lot lấy %wt, ô nhập tàu/heater, và cảnh báo
+           bán lố. Nội dung do FCST.renderFull() vẽ — DÙNG CHUNG hàm với tấm
+           thả xuống trên thanh SCALE CONSOLE nên hai chỗ không thể lệch. -->
+      <div class="fc-fullwrap collapsed" id="spAnalysisWrap">
+        <div class="fc-fullhdr">
+          <span class="fc-fulltitle">📉 STOCK FORECAST — BATCH D AND E AGAINST THE PLAN</span>
+          <span class="sp-label" id="fcstFullScope"></span>
+          <button class="btn btn-xs" id="spAnToggleBtn" onclick="spToggleAnalysis()">Show forecast</button>
         </div>
-        <div style="overflow-x:auto">
-          <table class="sp-an-tbl">
-            <thead>
-              <tr>
-                <th style="min-width:130px">Item</th>
-                <th colspan="3" style="background:#d4e8f7;color:#0077b6">TK-3501 (2100)</th>
-                <th colspan="3" style="background:#fde8d0;color:#d4740e">TK-3502 (2101)</th>
-              </tr>
-              <tr>
-                <th></th>
-                <th style="background:#d4e8f7">C3</th><th style="background:#d4e8f7">C4</th><th style="background:#d4e8f7">LPG</th>
-                <th style="background:#fde8d0">C3</th><th style="background:#fde8d0">C4</th><th style="background:#fde8d0">LPG</th>
-              </tr>
-            </thead>
-            <tbody id="spAnTbody">
-              <tr><td colspan="7" style="text-align:center;padding:12px;color:var(--ink-3);font-style:italic">No data yet — paste SAP data first</td></tr>
-            </tbody>
-          </table>
-        </div>
+        <div class="fc-full" id="fcstFull"></div>
       </div>
       <div class="sp-toolbar">
         <div class="sp-left">
@@ -1126,6 +1119,12 @@
             <option value="2100">2100 · TK-3501</option>
             <option value="2101">2101 · TK-3502</option>
             <option value="B100">B100 · Heater</option>
+          </select>
+          <!-- v4.120.1 — lọc theo Mat: C3 / C4. AND với mọi bộ lọc còn lại. -->
+          <select id="spMatFilter" class="sp-sel" title="Filter by material — C3 (propane) or C4 (butane)">
+            <option value="">Mat · All</option>
+            <option value="C3">C3 · Propane</option>
+            <option value="C4">C4 · Butane</option>
           </select>
           <select id="spBatchFilter" class="sp-sel" title="Lọc theo loại batch (ký tự P/X/D/E)">
             <option value="">Batch · All</option>
@@ -4745,7 +4744,7 @@
 <script src="js/data/tlxk.js?v=486"></script><!-- v4.86 — TL Data → sheet "Detail" của PHIẾU XUẤT KHO (.xlsm) -->
 <script src="js/data/wg.js"></script>
 <script src="js/data/ws.js"></script>
-<script src="js/data/sp.js?v=4108"></script><!-- v4.108 — SP.tankEnd(sloc,date): End Stock của một bồn tại một ngày, tách C3/C4, cho bảng đối chiếu chuyển kho -->
+<script src="js/data/sp.js?v=4123"></script><!-- v4.108 — SP.tankEnd(sloc,date): End Stock của một bồn tại một ngày, tách C3/C4, cho bảng đối chiếu chuyển kho -->
 <!-- v4.99 — SLoc 1100 LUÔN tách theo mã batch (mã lạ vẫn giữ dòng, chỉ cảnh báo), tìm/sắp theo mã batch; dòng gộp cũ dọn ngay trong bảng xác nhận khi dán -->
 <script src="js/data/ct.js"></script>
 <script src="js/data/pp.js"></script>
@@ -4755,7 +4754,7 @@
 <!-- features -->
 <script src="js/features/fleet.js"></script>
 <script src="js/features/plan.js?v=4112"></script><!-- v4.109 — 🔗 LINK ORDERS: một đơn hàng thật nằm trên nhiều dòng kế hoạch. Nhóm ALT (một trong N xe sẽ vào lấy) chỉ được tính MỘT lần vào PLAN/LOADED/REMAIN — trước đây 1 đơn 25 MT khai 3 xe bị cộng thành 75 MT; xe nào vào station trước thì các dòng anh em tự park (cancel + cờ _altSkip) và tự mở lại nếu xe đó rời station. Nhóm MDO (một xe nhiều DO) khai trước để tab Scale gộp thẳng lúc assign. Cột ACTUAL + mọi số MT hiện 3 số thập phân (đọc được tới kg) · v4.112 — TP.lnkLinkMdo: nhân viên cân chọn "bán gộp" ngay lúc assign thì nhóm 🔗 MULTI-DO được lập luôn trên Today Plan -->
-<script src="js/features/scale.js?v=4112"></script><!-- v4.110 — SỬA LỖI IN GỘP/TÁCH MULTI-DO chạy chập chờn: hộp hỏi chuyển từ ô kết quả tìm kiếm của trạm (bị handler click-outside + scRenderCtrl ghi đè) sang MODAL riêng không đóng khi bấm ra nền; CẢ HAI đường assign (dò tìm & đã link) đều hỏi cách in một lần duy nhất; số chia per-DO (_mdoNets), turn đã chốt (_tlTurn) và cách in (_pttMode) lưu lên trạm nên sống sót qua F5 và sang máy khác; chặn dòng thiếu số DO; hộp hỏi phiếu DN mở sẵn đúng lựa chọn lúc assign · v4.109 — thẻ PLAN dùng chung TP.lnkTotals nên không còn lệch với Today Plan (+3 số thập phân) · v4.112 — KHÔI PHỤC phép dò tìm multi-DO lúc assign chạy SONG SONG với 🔗 Link Orders: bỏ cửa chặn im lặng (tổng ≤27, bắt buộc trùng tài xế, anh em đang xếp hàng đợi), chọn gộp thì link ngược về Today Plan, PTT in đủ mọi DO, TL Data ghi khoá mdoG -->
+<script src="js/features/scale.js?v=4119"></script><!-- v4.110 — SỬA LỖI IN GỘP/TÁCH MULTI-DO chạy chập chờn: hộp hỏi chuyển từ ô kết quả tìm kiếm của trạm (bị handler click-outside + scRenderCtrl ghi đè) sang MODAL riêng không đóng khi bấm ra nền; CẢ HAI đường assign (dò tìm & đã link) đều hỏi cách in một lần duy nhất; số chia per-DO (_mdoNets), turn đã chốt (_tlTurn) và cách in (_pttMode) lưu lên trạm nên sống sót qua F5 và sang máy khác; chặn dòng thiếu số DO; hộp hỏi phiếu DN mở sẵn đúng lựa chọn lúc assign · v4.109 — thẻ PLAN dùng chung TP.lnkTotals nên không còn lệch với Today Plan (+3 số thập phân) · v4.112 — KHÔI PHỤC phép dò tìm multi-DO lúc assign chạy SONG SONG với 🔗 Link Orders: bỏ cửa chặn im lặng (tổng ≤27, bắt buộc trùng tài xế, anh em đang xếp hàng đợi), chọn gộp thì link ngược về Today Plan, PTT in đủ mọi DO, TL Data ghi khoá mdoG -->
 <script src="js/features/fnote.js?v=484"></script><!-- Sổ ghi chú xe/tài xế — lazy, không tự đọc Firebase -->
 <script src="js/features/eng.js?v=4111"></script><!-- v4.107 — cột Filled LPG = ΣCOQ (lùi GC khi lot chưa có COQ), hai cột Filled C3/C4 (GC) hạ nổi bật · v4.108 — thêm 4 cột Open/End C3/C4 THỰC TẾ (INIT/FINAL VOL đo được × nền COQ), chỉ tính trên máy · v4.111 — thêm 4 cột Gap C3/C4 + Adj ST C3/C4 (kg) ghi kết quả đối chiếu chuyển kho -->
 <!-- v4.101 — Density (cột 33) & ρ COQ đầu (cột 63) giữ ĐỦ 4 số thập phân ở ô sửa dòng + bảng Tank Log + bản in -->
@@ -4763,7 +4762,7 @@
 <script src="js/features/rpt.js?v=4112"></script><!-- v4.112 — cột Trips: dòng TL mang chung khoá mdoG chỉ tính MỘT lượt xe -->
 <script src="js/features/mthr.js"></script>
 <script src="js/features/bond.js?v=4118"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
-<script src="js/features/inv.js?v=4117"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh · v4.111 — lot đang tính hiện cạnh tên bồn, nút 💾 Save to Tank Log, tồn đầu hệ thống dùng chung với ô thông báo Tank Mix · v4.113 — số tồn đầu gõ tay lưu tạm lên /stx_draft theo TỪNG LOT (sống sót qua F5 / đổi máy / bồn trộn mẻ mới) và tự xoá khi đã lưu vào Tank Log · v4.114 — VÁ LỖI GÕ: ô System opening không còn bị cắt focus sau mỗi chữ số (cập nhật tại chỗ, type=text) · v4.117 — 🔍 WMS stock check (modal #stxWmsModal): gõ thể tích vừa đo + số C3/C4 WMS đang hiện ⇒ độ vênh và CÂU LỆNH chuyển kho rõ chiều (bồn ➜ hầm 1100 để GIẢM, hầm 1100 ➜ bồn để TĂNG); không lưu gì, số gõ giữ trong RAM suốt phiên -->
+<script src="js/features/inv.js?v=4119"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh · v4.111 — lot đang tính hiện cạnh tên bồn, nút 💾 Save to Tank Log, tồn đầu hệ thống dùng chung với ô thông báo Tank Mix · v4.113 — số tồn đầu gõ tay lưu tạm lên /stx_draft theo TỪNG LOT (sống sót qua F5 / đổi máy / bồn trộn mẻ mới) và tự xoá khi đã lưu vào Tank Log · v4.114 — VÁ LỖI GÕ: ô System opening không còn bị cắt focus sau mỗi chữ số (cập nhật tại chỗ, type=text) · v4.117 — 🔍 WMS stock check (modal #stxWmsModal): gõ thể tích vừa đo + số C3/C4 WMS đang hiện ⇒ độ vênh và CÂU LỆNH chuyển kho rõ chiều (bồn ➜ hầm 1100 để GIẢM, hầm 1100 ➜ bồn để TĂNG); không lưu gì, số gõ giữ trong RAM suốt phiên -->
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
 <script src="js/features/plog.js"></script>
@@ -4774,6 +4773,7 @@
 <script src="js/features/mixnotify.js?v=4114"></script><!-- v4.111 — thẻ thông báo Tank Mix hiện thêm System opening (sửa được tại chỗ), Gap và số chuyển kho ĐÃ ĐIỀU CHỈNH; ✅ ghi luôn kết quả đối chiếu vào 4 cột mới của Tank Log · v4.113 — hiện dòng "+N thông báo nữa đang chờ" khi vượt quá 4 ô · v4.114 — ô nhập đổi sang type=text để giữ được con trỏ -->
 <script src="js/features/cav.js"></script>
 <script src="js/features/vs.js"></script>
+<script src="js/features/fcst.js?v=4123"></script><!-- v4.120 — ⭐ DỰ BÁO TỒN KHO trên thanh SCALE CONSOLE · CHỈ lô D + E (P/X không tính), đơn xuất khẩu trừ lô E, nội địa trừ lô D, thêm ô nhập tàu/heater tạm tính · v4.119 — bản đầu: tồn ĐÃ THÔNG QUAN của SAP (1100+2100+2101) trừ MỌI kế hoạch có ngày SAU ngày SAP (Today Plan + Tomorrow Plan). Tỉ lệ bán (%vol) được ghép với lot có %vol gần nhất — lot đang trong bồn → lịch sử Tank Log → tạm tính — rồi lấy %wt của lot đó tách ra kg C3/C4. Cảnh báo khi kế hoạch bán LỐ hơn hàng đã thông quan (rủi ro bơm nhầm hàng chưa thông quan) -->
 <script src="js/features/scx2.js?v=4117"></script><!-- v4.108 — nút 📏 trên thẻ tank mở bảng đối chiếu chuyển kho · v4.117 — thêm nút 🔍 WMS stock check (đo tại chỗ → câu lệnh chuyển kho rõ chiều bồn ⇄ hầm 1100) -->
 <!-- integrations -->
 <script src="js/integrations/ptt-early.js?v=4110"></script><!-- v4.87 — chọn kỹ sư cho phiếu KTPTVC khi in early/today -->
