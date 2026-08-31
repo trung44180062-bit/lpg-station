@@ -10,11 +10,11 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=4113">
+<link rel="stylesheet" href="css/core.css?v=4117">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
-<link rel="stylesheet" href="css/bond.css?v=4116"><!-- v4.106 — kho ngoại quan GỘP vào tab SAP (BOND) — link ACTIVE -->
+<link rel="stylesheet" href="css/bond.css?v=4118"><!-- v4.106 — kho ngoại quan GỘP vào tab SAP (BOND) — link ACTIVE -->
 <!-- ⚠ BẪY: khối dưới đây là COMMENT — mọi <link> trong nó KHÔNG được nạp.
      Toàn bộ app CSS thực sự nằm trong core.css. Khi thêm style mới thì viết
      vào core.css, ĐỪNG thêm link ở đây rồi tưởng là đã nạp (v4.82 dính đúng
@@ -1190,6 +1190,16 @@
             <button class="bond-btn" onclick="BOND.openPeriod()" title="Open the snapshot of the selected period, read-only">📜 Open</button>
             <button class="bond-btn danger" onclick="BOND.delPeriod()" title="Delete the selected period's snapshot to keep Firebase small. SAP data and batch details are not affected.">🗑 Delete</button>
           </div>
+          <!-- ═══ v4.118 — KHO LƯU TRỮ ════════════════════════════════
+               Lô đã tích VASSCM và SAP không còn nữa thì sau 7 ngày được
+               dời sang Firebase và biến khỏi bảng. Con số trên nút là số lô
+               ĐANG NẰM TRONG KHO — đọc từ chỉ mục, KHÔNG kéo dữ liệu về. -->
+          <div class="bond-grp">
+            <span class="bond-glab">Archive</span>
+            <button class="bond-btn" id="bondArcBtn" onclick="BOND.openArch()"
+                    title="Bonded archive — finished batches kept on Firebase, read back by month">🗄 Archive
+              <i class="bond-arcn" id="bondArcN">0</i></button>
+          </div>
           <div class="bond-grp">
             <span class="bond-glab">Data</span>
             <button class="bond-btn accent" onclick="BOND.openOl1()"
@@ -1223,7 +1233,8 @@
               <option value="wait">○ Not started</option>
               <option value="emptied">◍ Empty — no VASSCM</option>
               <option value="zero">✓ Done</option>
-              <option value="gone">⛔ Not in SAP</option>
+              <option value="gone">⛔ Not in SAP · VASSCM due</option>
+              <option value="archiving">🗄 Done — archiving</option>
               <option value="new">✚ Newly received</option>
               <option value="noinfo">✎ Missing details</option>
             </select>
@@ -1261,6 +1272,37 @@
       </div><!-- /spViewKnq -->
 
       <!-- ═══ MODAL — ⛽ FEED OL1 (dùng chung node với tab KNQ cũ) ═══ -->
+
+      <!-- ══ v4.118 — 🗄 KHO LƯU TRỮ KHO NGOẠI QUAN ═══════════════════════
+           Lô đã get out trên VAS (tích VASSCM) VÀ đã rời khỏi SAP thì đứng
+           lại 7 ngày rồi được phần mềm dời sang Firebase, biến khỏi bảng
+           chính cho gọn. Dữ liệu trong kho KHÔNG BAO GIỜ được nạp lúc mở
+           app — chỉ đọc đúng tháng người dùng bấm gọi về.
+           ⚠ Lô CHƯA tích VASSCM thì KHÔNG BAO GIỜ vào đây, dù SAP đã bỏ nó
+           từ lâu: nó bị ghim trên đầu bảng chính cho tới khi có người làm. -->
+      <div class="bond-modal" id="bondArc">
+        <div class="bond-modal-box">
+          <div class="bond-modal-h">
+            <span>🗄 BONDED ARCHIVE — FINISHED BATCHES KEPT ON FIREBASE</span>
+            <span class="spacer"></span>
+            <select id="bondArcSel" title="Archived months"><option value="">Archived months…</option></select>
+            <button class="bond-btn" onclick="BOND.loadArchMonth()" title="Read the selected month back from Firebase">📜 Read back</button>
+            <button class="bond-btn danger" onclick="BOND.delArchMonth()" title="Delete the selected month from the archive, for good">🗑 Delete month</button>
+            <button onclick="BOND.closeArch()" title="Close">✕</button>
+          </div>
+          <div class="bond-modal-c">
+            <div class="bond-hint">
+              A batch is archived only when <b>both</b> are true: <b>VASSCM is ticked</b> and <b>SAP no longer
+              lists the batch code</b> — and even then it stands in the table for 7 more days first, so a
+              missing SAP day or a mistaken tick can still be caught. <b>A batch without VASSCM is never
+              archived</b>: it is pinned to the top of the table in a warning colour and stays there, whatever
+              SAP does, so the get-out on VAS cannot be missed.
+            </div>
+            <div id="bondArcBody"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="bond-modal" id="bondOl1">
         <div class="bond-modal-box">
           <div class="bond-modal-h">
@@ -4121,6 +4163,126 @@
   </div>
 </div>
 
+<!-- ══ v4.117 — 🔍 WMS STOCK CHECK (nút 🔍 trên thẻ tank) ═══════════════
+     Khác bảng 📏 ở trên: bảng kia đối chiếu MỘT MẺ ĐÃ TRỘN theo INIT/FINAL
+     VOL của Tank Log; bảng này là phép đo TẠI CHỖ — nhân viên vừa đo bồn,
+     gõ số m³ thực tế và số C3/C4 mà WMS đang hiện, phần mềm ra độ vênh và
+     VIẾT HẲN THÀNH CÂU phải chuyển kho theo chiều nào:
+        WMS cao hơn thực tế ⇒ GIẢM ⇒ bồn (2100/2101) ➜ hầm (1100)
+        WMS thấp hơn thực tế ⇒ TĂNG ⇒ hầm (1100) ➜ bồn (2100/2101)
+     Không lưu Firebase, không ghi Tank Log. Số gõ giữ trong RAM suốt phiên.
+     Ô nhập là element TĨNH ở đây, không lượt vẽ nào dựng lại chúng, nên
+     không dính lỗi mất focus của v4.114. Giao diện tiếng Anh. -->
+<div class="modal-bg" id="stxWmsModal">
+  <div class="modal wmsx-modal">
+    <div class="modal-hdr">
+      <h3>🔍 WMS stock check — measured stock vs WMS, and the transfer to post</h3>
+      <button class="modal-close" onclick="INV.closeAll()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="wmsx-grid" id="wmsxGrid">
+
+        <div class="wmsx-pane p-3501" id="wmsxPane2100">
+          <div class="wmsx-hdr">
+            <span class="nm">TK-3501</span><span class="sl">SLoc 2100</span>
+            <span class="wmsx-lotnow empty" id="wmsxLotNow2100"><span class="k">LOT</span><b class="none">—</b></span>
+            <span class="wmsx-lotsrc" id="wmsxLotSrc2100"></span>
+          </div>
+          <div class="wmsx-form">
+            <label class="wmsx-f"><span>LOT — COQ BASIS</span>
+              <input type="text" id="wmsxLot2100" maxlength="20" placeholder="latest lot"
+                     autocomplete="off" oninput="INV.wmsEdit('2100')"></label>
+            <label class="wmsx-f big"><span>ACTUAL VOLUME NOW · m³</span>
+              <input type="text" inputmode="decimal" id="wmsxVol2100" placeholder="m³"
+                     autocomplete="off" oninput="INV.wmsEdit('2100')"></label>
+            <label class="wmsx-f c3"><span>WMS NOW · C3 kg</span>
+              <input type="text" inputmode="decimal" id="wmsxC32100" placeholder="kg"
+                     autocomplete="off" oninput="INV.wmsEdit('2100')"></label>
+            <label class="wmsx-f c4"><span>WMS NOW · C4 kg</span>
+              <input type="text" inputmode="decimal" id="wmsxC42100" placeholder="kg"
+                     autocomplete="off" oninput="INV.wmsEdit('2100')"></label>
+          </div>
+          <div class="wmsx-basis" id="wmsxBasis2100"></div>
+          <div class="wmsx-out" id="wmsxOut2100"></div>
+          <div class="wmsx-ovr">
+            <span class="t">Override the COQ basis — only when the lot has no COQ result yet</span>
+            <label>ρ<input type="text" inputmode="decimal" id="wmsxDen2100" placeholder="kg/L"
+                     autocomplete="off" oninput="INV.wmsEdit('2100')"></label>
+            <label>%wt C3<input type="text" inputmode="decimal" id="wmsxW32100" placeholder="%"
+                     autocomplete="off" oninput="INV.wmsEdit('2100')"></label>
+            <button class="wmsx-clr" onclick="INV.wmsClear('2100')"
+                    title="Clear every box of TK-3501 in this window">✕ clear</button>
+          </div>
+        </div>
+
+        <div class="wmsx-pane p-3502" id="wmsxPane2101">
+          <div class="wmsx-hdr">
+            <span class="nm">TK-3502</span><span class="sl">SLoc 2101</span>
+            <span class="wmsx-lotnow empty" id="wmsxLotNow2101"><span class="k">LOT</span><b class="none">—</b></span>
+            <span class="wmsx-lotsrc" id="wmsxLotSrc2101"></span>
+          </div>
+          <div class="wmsx-form">
+            <label class="wmsx-f"><span>LOT — COQ BASIS</span>
+              <input type="text" id="wmsxLot2101" maxlength="20" placeholder="latest lot"
+                     autocomplete="off" oninput="INV.wmsEdit('2101')"></label>
+            <label class="wmsx-f big"><span>ACTUAL VOLUME NOW · m³</span>
+              <input type="text" inputmode="decimal" id="wmsxVol2101" placeholder="m³"
+                     autocomplete="off" oninput="INV.wmsEdit('2101')"></label>
+            <label class="wmsx-f c3"><span>WMS NOW · C3 kg</span>
+              <input type="text" inputmode="decimal" id="wmsxC32101" placeholder="kg"
+                     autocomplete="off" oninput="INV.wmsEdit('2101')"></label>
+            <label class="wmsx-f c4"><span>WMS NOW · C4 kg</span>
+              <input type="text" inputmode="decimal" id="wmsxC42101" placeholder="kg"
+                     autocomplete="off" oninput="INV.wmsEdit('2101')"></label>
+          </div>
+          <div class="wmsx-basis" id="wmsxBasis2101"></div>
+          <div class="wmsx-out" id="wmsxOut2101"></div>
+          <div class="wmsx-ovr">
+            <span class="t">Override the COQ basis — only when the lot has no COQ result yet</span>
+            <label>ρ<input type="text" inputmode="decimal" id="wmsxDen2101" placeholder="kg/L"
+                     autocomplete="off" oninput="INV.wmsEdit('2101')"></label>
+            <label>%wt C3<input type="text" inputmode="decimal" id="wmsxW32101" placeholder="%"
+                     autocomplete="off" oninput="INV.wmsEdit('2101')"></label>
+            <button class="wmsx-clr" onclick="INV.wmsClear('2101')"
+                    title="Clear every box of TK-3502 in this window">✕ clear</button>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="wmsx-legend">
+        <b>How this window works.</b>
+        <code>Actual = measured volume (m³) × COQ density (kg/L) × 1000</code> ·
+        <code>C3 = actual × %wt C3</code> · <code>C4 = actual − C3</code> ·
+        <code>Difference = actual − WMS</code>.
+        The density and %wt C3 come from the COQ result of the lot that is in the tank now — by default the
+        latest lot of that tank in the Tank Log. Type another lot, or type the two figures by hand, if that is not
+        the product in the tank.
+        <span class="rule"><b>Which way to post — read this before typing anything into WMS.</b>
+        <span class="dirs">
+          <span class="dir down"><b>WMS higher than actual</b> → the difference is negative → you must
+          <b>BRING WMS DOWN</b> → post the transfer <b>out of the tank into the cavern</b>:
+          <code>TK-3501 / TK-3502 (2100 / 2101) ➜ Cavern (1100)</code>.</span>
+          <span class="dir up"><b>WMS lower than actual</b> → the difference is positive → you must
+          <b>BRING WMS UP</b> → post the transfer <b>out of the cavern into the tank</b>:
+          <code>Cavern (1100) ➜ TK-3501 / TK-3502 (2100 / 2101)</code>.</span>
+        </span>
+        The quantity is always shown as a <b>positive number</b> — the direction is in the sentence and in the
+        arrow, never in a minus sign. C3 and C4 are posted as <b>two separate lines</b> and can go in opposite
+        directions.</span>
+        <span class="rule">Everything is in <b>kg</b>, the same unit as WMS. <b>Nothing here is saved</b> — no
+        database, no Tank Log, no notification is touched; this window only tells you what to post. What you type
+        stays in this browser until you close the app or press <b>✕ clear</b>, so you can leave the window and
+        come back to it.</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="INV.closeAll()">Close</button>
+      <button class="btn" onclick="INV.renderWms(false)" title="Re-read the Tank Log and recompute">⟳ Refresh</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <!-- TODAY PLAN: PASTE MODAL -->
@@ -4600,8 +4762,8 @@
 <script src="js/features/odor.js"></script>
 <script src="js/features/rpt.js?v=4112"></script><!-- v4.112 — cột Trips: dòng TL mang chung khoá mdoG chỉ tính MỘT lượt xe -->
 <script src="js/features/mthr.js"></script>
-<script src="js/features/bond.js?v=4116"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
-<script src="js/features/inv.js?v=4114"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh · v4.111 — lot đang tính hiện cạnh tên bồn, nút 💾 Save to Tank Log, tồn đầu hệ thống dùng chung với ô thông báo Tank Mix · v4.113 — số tồn đầu gõ tay lưu tạm lên /stx_draft theo TỪNG LOT (sống sót qua F5 / đổi máy / bồn trộn mẻ mới) và tự xoá khi đã lưu vào Tank Log · v4.114 — VÁ LỖI GÕ: ô System opening không còn bị cắt focus sau mỗi chữ số (cập nhật tại chỗ, type=text) -->
+<script src="js/features/bond.js?v=4118"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
+<script src="js/features/inv.js?v=4117"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh · v4.111 — lot đang tính hiện cạnh tên bồn, nút 💾 Save to Tank Log, tồn đầu hệ thống dùng chung với ô thông báo Tank Mix · v4.113 — số tồn đầu gõ tay lưu tạm lên /stx_draft theo TỪNG LOT (sống sót qua F5 / đổi máy / bồn trộn mẻ mới) và tự xoá khi đã lưu vào Tank Log · v4.114 — VÁ LỖI GÕ: ô System opening không còn bị cắt focus sau mỗi chữ số (cập nhật tại chỗ, type=text) · v4.117 — 🔍 WMS stock check (modal #stxWmsModal): gõ thể tích vừa đo + số C3/C4 WMS đang hiện ⇒ độ vênh và CÂU LỆNH chuyển kho rõ chiều (bồn ➜ hầm 1100 để GIẢM, hầm 1100 ➜ bồn để TĂNG); không lưu gì, số gõ giữ trong RAM suốt phiên -->
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
 <script src="js/features/plog.js"></script>
@@ -4612,7 +4774,7 @@
 <script src="js/features/mixnotify.js?v=4114"></script><!-- v4.111 — thẻ thông báo Tank Mix hiện thêm System opening (sửa được tại chỗ), Gap và số chuyển kho ĐÃ ĐIỀU CHỈNH; ✅ ghi luôn kết quả đối chiếu vào 4 cột mới của Tank Log · v4.113 — hiện dòng "+N thông báo nữa đang chờ" khi vượt quá 4 ô · v4.114 — ô nhập đổi sang type=text để giữ được con trỏ -->
 <script src="js/features/cav.js"></script>
 <script src="js/features/vs.js"></script>
-<script src="js/features/scx2.js?v=4108"></script><!-- v4.108 — nút 📏 trên thẻ tank mở bảng đối chiếu chuyển kho -->
+<script src="js/features/scx2.js?v=4117"></script><!-- v4.108 — nút 📏 trên thẻ tank mở bảng đối chiếu chuyển kho · v4.117 — thêm nút 🔍 WMS stock check (đo tại chỗ → câu lệnh chuyển kho rõ chiều bồn ⇄ hầm 1100) -->
 <!-- integrations -->
 <script src="js/integrations/ptt-early.js?v=4110"></script><!-- v4.87 — chọn kỹ sư cho phiếu KTPTVC khi in early/today -->
 <script src="js/integrations/sync2.js"></script>

@@ -57,6 +57,11 @@ const SCX2 = (function(){
          Bảng luôn hiện cả hai bồn. */
       +   '<button class="scx2-tkx-vc" onclick="'+stop+'INV.view(\''+sloc+'\');INV.openStx('+n+')"'
       +     ' title="Stock-transfer reconciliation — actual C3/C4 from the measured volumes vs the system stock, giving the adjusted transfer quantity">📏</button>'
+      /* v4.117 — 🔍 WMS stock check: phép đo TẠI CHỖ. Gõ thể tích vừa đo
+         được + số C3/C4 WMS đang hiện ⇒ độ vênh và CÂU LỆNH chuyển kho nói
+         rõ chiều (bồn ➜ hầm 1100 để GIẢM WMS, hầm 1100 ➜ bồn để TĂNG). */
+      +   '<button class="scx2-tkx-wms" onclick="'+stop+'INV.view(\''+sloc+'\');INV.openWms('+n+')"'
+      +     ' title="WMS stock check — type the volume you have just measured and the C3/C4 the WMS shows now; the window gives the gap and says exactly which stock transfer to post">🔍</button>'
       + '</div>';
       main.appendChild(box);
     });

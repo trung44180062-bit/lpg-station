@@ -1704,6 +1704,341 @@ const INV = (function(){
     catch(_){ toast('Copy failed','er'); }
   }
 
+
+  /* ══════════════════════════════════════════════════════════════════════
+     v4.117 — 🔍 WMS STOCK CHECK  (nút 🔍 trên thẻ tank → INV.openWms)
+     ----------------------------------------------------------------------
+     KHÁC HẲN bảng 📏 (⚖ Stock-transfer reconciliation):
+       • 📏 nhìn về QUÁ KHỨ: đối chiếu MỘT MẺ đã trộn (INIT/FINAL VOL của
+         dòng Tank Log) để ra số chuyển kho đã điều chỉnh cho mẻ đó.
+       • 🔍 nhìn vào HIỆN TẠI: nhân viên vừa đo bồn xong, cầm con số m³
+         thực tế và con số C3/C4 WMS đang hiện, hỏi "WMS đang lệch bao
+         nhiêu và phải chuyển kho đi đâu cho khớp?".
+     Vì thế lot mặc định ở đây là LOT MỚI NHẤT của bồn (thứ đang nằm trong
+     bồn), KHÔNG phải lot của thông báo trộn đang treo — nhưng vẫn cho gõ
+     lot khác khi cần.
+
+     CÔNG THỨC
+       Actual LPG (kg) = volume (m³) × ρ COQ (kg/L) × 1000
+       Actual C3       = Actual LPG × %wt C3        ·  C4 = LPG − C3
+       Difference      = Actual − WMS   (mỗi loại tính riêng)
+
+     CHIỀU CHUYỂN KHO — chỗ dễ làm sai nhất, nên bảng viết hẳn thành câu:
+       Difference ÂM  (WMS đang CAO hơn thực tế) ⇒ phải GIẢM WMS
+                      ⇒ chuyển kho TỪ BỒN VỀ HẦM:  2100/2101 ➜ 1100
+       Difference DƯƠNG (WMS đang THẤP hơn thực tế) ⇒ phải TĂNG WMS
+                      ⇒ chuyển kho TỪ HẦM LÊN BỒN:  1100 ➜ 2100/2101
+     Số lượng LUÔN in ra dạng DƯƠNG (số gõ vào SAP không bao giờ âm), chiều
+     nằm ở câu chữ và ở mũi tên SLoc, không bắt người đọc tự suy từ dấu.
+
+     KHÔNG lưu gì cả: không Firebase, không Tank Log — đây là phép đo tại
+     chỗ, chốt số xong là gõ thẳng vào WMS. Nhưng số gõ được GIỮ TRONG RAM
+     suốt phiên (đóng bảng đi làm việc khác, mở lại vẫn còn), theo yêu cầu
+     của người dùng.
+     ══════════════════════════════════════════════════════════════════════ */
+  const _WMS_SLOCS  = ['2100','2101'];
+  const _WMS_CAVERN = '1100';
+  const _WMS_TOL    = 1;          /* kg — dưới 1 kg coi như khớp */
+  /* Giữ NGUYÊN CHUỖI người dùng gõ (không ép về số) để mở lại thấy đúng
+     những gì mình đã nhập, kể cả "20,000" hay "12.3 " đang gõ dở. */
+  const _wmsIn = {
+    '2100':{ lot:'', vol:'', c3:'', c4:'', den:'', w3:'' },
+    '2101':{ lot:'', vol:'', c3:'', c4:'', den:'', w3:'' }
+  };
+  const _WMS_FLD = ['lot','vol','c3','c4','den','w3'];
+  const _wmsElId = (f, sloc) => 'wmsx' + f.charAt(0).toUpperCase() + f.slice(1) + sloc;
+
+  function _wmsW3(v){
+    if(v === '' || v === null || v === undefined) return null;
+    try{ if(typeof ENG !== 'undefined' && ENG.parseW3) return ENG.parseW3(v); }catch(_){}
+    const x = _stxN(v);
+    return (x === null || x <= 0) ? null : (x > 1.5 ? x/100 : x);
+  }
+  /* Lot đang xét: gõ tay đè, không thì LOT MỚI NHẤT của chính bồn đó. */
+  function _wmsPickLot(sloc){
+    const typed = String((_wmsIn[sloc]||{}).lot || '').trim();
+    if(typed){
+      const row = _stxFindRow(sloc, typed);
+      return { lot: row ? String(row[1]||'').trim() : typed, row:row,
+               src:'typed', srcTxt:'typed in' };
+    }
+    const want = _STX_TKNUM[sloc];
+    let best = null;
+    _stxRows().forEach(r=>{
+      if(!r || String(r[2]||'').replace(/\D/g,'') !== want) return;
+      if(!best || _stxLotKey(r[1]) > _stxLotKey(best[1])) best = r;
+    });
+    return best ? { lot:String(best[1]||'').trim(), row:best, src:'latest',
+                    srcTxt:'the latest lot of this tank in the Tank Log' }
+                : { lot:'', row:null, src:'none', srcTxt:'' };
+  }
+  /* Lot đang ghi trên thẻ tank của tab Scale — chỉ dùng để CẢNH BÁO khi nó
+     khác lot mới nhất, không tự ý lấy thay. */
+  function _wmsCardLot(sloc){
+    try{
+      const cfg = (typeof SCALE !== 'undefined' && SCALE.getTkCfg) ? SCALE.getTkCfg() : null;
+      const t = cfg ? (sloc === '2100' ? cfg.tk1 : cfg.tk2) : null;
+      return t ? String(t.lot || '').trim() : '';
+    }catch(_){ return ''; }
+  }
+
+  /* Lot GẦN NHẤT của bồn này mà ĐÃ có nền COQ — chỉ dùng để MÁCH NƯỚC khi
+     lot mới nhất chưa có kết quả COQ. TUYỆT ĐỐI không tự lấy thay: sản phẩm
+     trong bồn là của mẻ mới, mượn ρ của mẻ cũ là ra số sai mà không ai biết. */
+  function _wmsLastBasis(sloc, exceptLot){
+    const want = _STX_TKNUM[sloc];
+    let best = null;
+    _stxRows().forEach(r=>{
+      if(!r || String(r[2]||'').replace(/\D/g,'') !== want) return;
+      if(exceptLot && _stxLotMatch(r[1], exceptLot)) return;
+      const den = parseFloat(r[33]);
+      const w3  = _wmsW3(r[45]);
+      if(!(den > 0) || w3 === null) return;
+      if(!best || _stxLotKey(r[1]) > _stxLotKey(best.lot))
+        best = { lot:String(r[1]||'').trim(), den:den, w3:w3 };
+    });
+    return best;
+  }
+
+  /* ── HÀM TÍNH DUY NHẤT — thuần tính, không đụng DOM, đơn vị KG ──
+     ok=false ⇒ `miss` liệt kê đích danh thứ còn thiếu, không đoán, không in 0. */
+  function _wmsFigures(sloc){
+    const inp  = _wmsIn[sloc] || {};
+    const pick = _wmsPickLot(sloc);
+    const row  = pick.row;
+    let split = null;
+    try{ split = (row && typeof ENG !== 'undefined' && ENG.actualSplit) ? ENG.actualSplit(row) : null; }catch(_){}
+    /* Nền COQ của LÔ HÀNG ĐANG NẰM TRONG BỒN = nền CUỐI mẻ ([33] ρ, [45] %wt C3). */
+    const lotDen = (split && split.fDen > 0)   ? split.fDen : null;
+    const lotW3  = (split && split.fW3 != null) ? split.fW3  : null;
+    const ovDen  = _stxN(inp.den);
+    const ovW3   = _wmsW3(inp.w3);
+    const F = {
+      sloc:sloc, tank:TKNAME[sloc] || sloc, cavern:_WMS_CAVERN,
+      lot:pick.lot, lotSrc:pick.src, lotSrcTxt:pick.srcTxt, row:row, split:split,
+      cardLot:_wmsCardLot(sloc),
+      den:(ovDen !== null && ovDen > 0) ? ovDen : lotDen,
+      w3 :(ovW3  !== null) ? ovW3 : lotW3,
+      denSrc:(ovDen !== null && ovDen > 0) ? 'typed' : (lotDen !== null ? 'lot' : 'none'),
+      w3Src :(ovW3  !== null) ? 'typed' : (lotW3  !== null ? 'lot' : 'none'),
+      lotDen:lotDen, lotW3:lotW3,
+      vol:_stxN(inp.vol),
+      wmsC3:_stxN(inp.c3), wmsC4:_stxN(inp.c4),
+      hasWms:false, ok:false, miss:[],
+      aC3:null, aC4:null, aL:null, wL:null, dC3:null, dC4:null, dL:null
+    };
+    F.hasWms = (F.wmsC3 !== null && F.wmsC4 !== null);
+    if(F.hasWms) F.wL = F.wmsC3 + F.wmsC4;
+    if(F.vol === null)  F.miss.push('actual tank volume (m³)');
+    else if(F.vol < 0)  F.miss.push('a volume that is not negative');
+    if(!(F.den > 0))    F.miss.push('COQ density (kg/L)');
+    if(F.w3 === null)   F.miss.push('%wt C3');
+    if(F.miss.length) return F;
+    F.aL  = F.vol * F.den * 1000;      /* m³ × kg/L = tấn ⇒ ×1000 ra kg */
+    F.aC3 = F.aL * F.w3;
+    F.aC4 = F.aL - F.aC3;
+    F.ok  = true;
+    if(F.hasWms){
+      F.dC3 = F.aC3 - F.wmsC3;
+      F.dC4 = F.aC4 - F.wmsC4;
+      F.dL  = F.dC3 + F.dC4;
+    }
+    return F;
+  }
+
+  /* ── CÂU LỆNH CHUYỂN KHO ──────────────────────────────────────────────
+     Tách riêng và thuần chuỗi để test khoá được đúng CHIỀU. Người dùng
+     đọc câu này rồi gõ thẳng vào WMS, nên nó phải nói đủ: tăng hay giảm,
+     đi từ SLoc nào sang SLoc nào, bao nhiêu kg, và làm vậy thì WMS đổi
+     theo hướng nào. Không dùng dấu +/− thay cho câu chữ. */
+  function _wmsAction(mat, sloc, diff){
+    const tank = TKNAME[sloc] || sloc;
+    const kg = v => Math.round(Math.abs(v)).toLocaleString('en-US');
+    if(diff === null || diff === undefined || !isFinite(diff))
+      return { dir:'na', qty:null, head:'', txt:'' };
+    if(Math.abs(diff) < _WMS_TOL)
+      return { dir:'ok', qty:0,
+        head: mat + ' — WMS already matches, post nothing',
+        txt : 'The WMS figure and the actual stock differ by less than 1 kg. Do not post any '
+            + mat + ' stock transfer for ' + tank + '.' };
+    if(diff < 0)
+      return { dir:'down', qty:Math.round(-diff),
+        head: mat + ' — WMS is TOO HIGH by ' + kg(diff) + ' kg → bring it DOWN',
+        txt : 'Post a stock transfer of ' + kg(diff) + ' kg of ' + mat
+            + ' OUT of the tank and INTO the cavern: ' + tank + ' (SLoc ' + sloc
+            + ')  ➜  Cavern (SLoc ' + _WMS_CAVERN + '). '
+            + 'That takes ' + kg(diff) + ' kg off ' + tank + ' in WMS and puts it back in the cavern, '
+            + 'so the WMS figure for ' + tank + ' drops onto the measured stock.' };
+    return { dir:'up', qty:Math.round(diff),
+      head: mat + ' — WMS is TOO LOW by ' + kg(diff) + ' kg → bring it UP',
+      txt : 'Post a stock transfer of ' + kg(diff) + ' kg of ' + mat
+          + ' OUT of the cavern and INTO the tank: Cavern (SLoc ' + _WMS_CAVERN
+          + ')  ➜  ' + tank + ' (SLoc ' + sloc + '). '
+          + 'That adds ' + kg(diff) + ' kg onto ' + tank + ' in WMS, '
+          + 'so the WMS figure for ' + tank + ' rises onto the measured stock.' };
+  }
+
+  /* ---------- render ---------- */
+  function _wmsActHtml(F, mat, diff){
+    const a = _wmsAction(mat, F.sloc, diff);
+    if(a.dir === 'na') return '';
+    return '<div class="wmsx-act d-'+a.dir+'">'
+      + '<div class="hd">'+_esc2(a.head)+'</div>'
+      + '<div class="tx">'+_esc2(a.txt)+'</div>'
+      + (a.dir === 'ok' ? '' :
+          '<div class="mv"><span class="from">'+_esc2(a.dir === 'down' ? F.tank+' · SLoc '+F.sloc
+                                                                      : 'Cavern · SLoc '+_WMS_CAVERN)+'</span>'
+        + '<span class="ar">➜</span>'
+        + '<span class="to">'+_esc2(a.dir === 'down' ? 'Cavern · SLoc '+_WMS_CAVERN
+                                                     : F.tank+' · SLoc '+F.sloc)+'</span>'
+        + '<span class="q">'+a.qty.toLocaleString('en-US')+' kg '+mat+'</span></div>')
+      + '</div>';
+  }
+
+  function _wmsRender(sloc){
+    const F = _wmsFigures(sloc);
+    const now  = document.getElementById('wmsxLotNow'+sloc);
+    const bsrc = document.getElementById('wmsxLotSrc'+sloc);
+    const bas  = document.getElementById('wmsxBasis'+sloc);
+    const out  = document.getElementById('wmsxOut'+sloc);
+    if(now){
+      const has = !!F.lot;
+      now.innerHTML = '<span class="k">LOT</span><b'+(has?'':' class="none"')+'>'
+                    + (has ? _esc2(F.lot) : '— none —')+'</b>';
+      now.className = 'wmsx-lotnow' + (has ? '' : ' empty');
+      now.title = has
+        ? ('The density and %wt C3 below are the COQ basis of lot ' + F.lot
+           + ' — the product currently in ' + F.tank + '.')
+        : 'No lot found for this tank — type one, or type the density and %wt C3 by hand.';
+    }
+    if(bsrc){
+      const map = { typed:'lot typed in', latest:'latest lot of this tank', none:'no lot' };
+      bsrc.textContent = map[F.lotSrc] || '';
+      bsrc.className = 'wmsx-lotsrc s-'+F.lotSrc;
+      bsrc.title = F.lotSrcTxt ? ('Lot taken from ' + F.lotSrcTxt + ' — type another lot to override.') : '';
+    }
+    if(bas){
+      const dTxt = (F.den > 0) ? (+F.den).toFixed(4) : '—';
+      const wTxt = (F.w3 != null) ? (F.w3*100).toFixed(2)+' %' : '—';
+      let html = '<span class="k">ρ COQ</span><b class="'+(F.denSrc==='typed'?'ov':'')+'">'+dTxt+'</b>'
+               + '<span class="u">kg/L</span>'
+               + '<span class="k">%wt C3</span><b class="'+(F.w3Src==='typed'?'ov':'')+'">'+wTxt+'</b>';
+      if(F.denSrc === 'typed' || F.w3Src === 'typed')
+        html += '<span class="sub ov">Typed basis in use — the COQ result of lot '
+              + (F.lot ? _esc2(F.lot) : '—') + ' is '
+              + (F.lotDen ? (+F.lotDen).toFixed(4) : '—') + ' kg/L · '
+              + (F.lotW3 != null ? (F.lotW3*100).toFixed(2)+' %' : '—') + ' wt C3.</span>';
+      else if(F.lotDen === null || F.lotW3 === null)
+        html += '<span class="sub warn">Lot ' + (F.lot ? _esc2(F.lot) : '—')
+              + ' has no COQ result yet — nothing can be computed from a volume until the density and '
+              + '%wt C3 are known.</span>';
+      else
+        html += '<span class="sub">Closing COQ basis of lot '
+              + (F.lot ? _esc2(F.lot) : '—') + ' — the product now in the tank.</span>';
+      if(F.cardLot && F.lotSrc === 'latest' && !_stxLotMatch(F.lot, F.cardLot))
+        html += '<span class="sub warn">⚠ The tank card on the Scale tab shows lot '
+              + _esc2(F.cardLot) + '. If that is what is in the tank now, type it in the LOT box above.</span>';
+      bas.innerHTML = html;
+    }
+    if(!out) return;
+    if(!F.ok){
+      let msg = '<div class="wmsx-empty">Fill in ' + _esc2(F.miss.join(' · '))
+              + ' to get the actual stock.';
+      if(F.lot && (F.lotDen === null || F.lotW3 === null)){
+        msg += '<br><span class="miss">Lot ' + _esc2(F.lot) + ' has no COQ result yet — press '
+             + '◈ CALC COQ in the Tank Log, or type the density and %wt C3 below.</span>';
+        const lb = _wmsLastBasis(sloc, F.lot);
+        if(lb) msg += '<br><span class="hint">The newest lot of this tank that does have a COQ result is '
+             + _esc2(lb.lot) + ' (' + (+lb.den).toFixed(4) + ' kg/L · ' + (lb.w3*100).toFixed(2)
+             + ' %wt C3). Type that lot above ONLY if it is what is really in the tank now — '
+             + 'do NOT borrow its basis for lot ' + _esc2(F.lot) + '.</span>';
+      }
+      out.innerHTML = msg + '</div>';
+      return;
+    }
+    const N  = v => _stxNum(v, 0);
+    const SG = v => '<span class="'+_stxSignCls(v)+'">'+_stxSigned(v)+'</span>';
+    let html = '<table class="wmsx-tbl"><thead><tr>'
+      + '<th class="lbl"></th><th class="n">C3</th><th class="n">C4</th><th class="n tot">LPG</th>'
+      + '</tr></thead><tbody>'
+      + '<tr class="a"><td class="lbl">Actual stock in the tank'
+      +   '<i>' + _stxNum(F.vol,3) + ' m³ × ' + (+F.den).toFixed(4) + ' kg/L × '
+      +   (F.w3*100).toFixed(2) + ' %wt C3</i></td>'
+      +   '<td class="n">'+N(F.aC3)+'</td><td class="n">'+N(F.aC4)+'</td>'
+      +   '<td class="n tot">'+N(F.aL)+'</td></tr>'
+      + '<tr class="w"><td class="lbl">WMS stock right now<i>typed in from WMS</i></td>'
+      +   '<td class="n">'+N(F.wmsC3)+'</td><td class="n">'+N(F.wmsC4)+'</td>'
+      +   '<td class="n tot">'+N(F.wL)+'</td></tr>'
+      + '<tr class="g"><td class="lbl">Difference<i>actual − WMS</i></td>'
+      +   '<td class="n">'+SG(F.dC3)+'</td><td class="n">'+SG(F.dC4)+'</td>'
+      +   '<td class="n tot">'+SG(F.dL)+'</td></tr>'
+      + '</tbody></table>'
+      + '<div class="wmsx-t">= '+_stxNum(F.aC3/1000,3)+' t C3 · '+_stxNum(F.aC4/1000,3)
+      +   ' t C4 · '+_stxNum(F.aL/1000,3)+' t LPG actual</div>';
+    if(!F.hasWms){
+      html += '<div class="wmsx-empty">Type the <b>WMS C3</b> and <b>WMS C4</b> figures above to get '
+            + 'the difference and the stock transfer to post.</div>';
+    } else {
+      html += '<div class="wmsx-acts">'
+            + '<div class="wmsx-acts-hd">➜ WHAT TO POST IN WMS</div>'
+            + _wmsActHtml(F, 'C3', F.dC3)
+            + _wmsActHtml(F, 'C4', F.dC4)
+            + '<div class="wmsx-note">Post C3 and C4 as <b>two separate lines</b> — they can go in '
+            + 'opposite directions. After posting, the WMS stock of ' + _esc2(F.tank)
+            + ' equals the measured stock: ' + N(F.aC3) + ' kg C3 · ' + N(F.aC4) + ' kg C4.</div>'
+            + '</div>';
+    }
+    out.innerHTML = html;
+  }
+
+  function renderWms(refill){
+    _WMS_SLOCS.forEach(sl=>{
+      if(refill) _wmsFill(sl);
+      _wmsRender(sl);
+    });
+  }
+  /* Đổ số từ RAM vào ô — KHÔNG bao giờ đụng ô đang được gõ. */
+  function _wmsFill(sloc){
+    _WMS_FLD.forEach(f=>{
+      const el = document.getElementById(_wmsElId(f, sloc));
+      if(!el) return;
+      try{ if(typeof document !== 'undefined' && el === document.activeElement) return; }catch(_){}
+      const want = String((_wmsIn[sloc]||{})[f] || '');
+      if(el.value !== want) el.value = want;
+    });
+  }
+  /* Gõ ở bất kỳ ô nào → cất vào RAM → vẽ lại RIÊNG phần kết quả.
+     Ô nhập là element tĩnh của index.html, không lượt vẽ nào dựng lại nó,
+     nên không dính họ lỗi mất focus của v4.114. */
+  function wmsEdit(sloc){
+    if(!_wmsIn[sloc]) return;
+    _WMS_FLD.forEach(f=>{
+      const el = document.getElementById(_wmsElId(f, sloc));
+      if(el) _wmsIn[sloc][f] = el.value;
+    });
+    _wmsRender(sloc);
+  }
+  function wmsClear(sloc){
+    if(!_wmsIn[sloc]) return;
+    _WMS_FLD.forEach(f=>{ _wmsIn[sloc][f] = ''; });
+    _wmsFill(sloc);
+    _wmsRender(sloc);
+  }
+  /* n = 1 | 2 (hoặc sloc): bồn được bấm đứng TRƯỚC, nhưng luôn hiện cả hai. */
+  function openWms(n){
+    const first = (n === 2 || n === '2101') ? '2101' : '2100';
+    const wrap = document.getElementById('wmsxGrid');
+    if(wrap){
+      const a = document.getElementById('wmsxPane2100'), b = document.getElementById('wmsxPane2101');
+      if(a && b) wrap.appendChild(first === '2100' ? b : a);
+    }
+    /* CỐ Ý KHÔNG xoá số cũ: người dùng đóng bảng đi làm việc khác rồi quay
+       lại phải thấy nguyên những gì đã nhập (yêu cầu của vận hành). Muốn
+       trắng thì bấm ✕ clear của đúng bồn đó. */
+    renderWms(true);
+    open('stxWmsModal');
+  }
+
   /* ── init ── */
   function init(){
     const c=loadCache();
@@ -1735,6 +2070,12 @@ const INV = (function(){
            /* v4.111 — dùng chung với ô thông báo Tank Mix + ghi vào Tank Log */
            stxFigures: _stxFigures, stxSetSys, stxSlocOf, stxSave, stxSaveFor,
            stxSavedOf: _stxSavedOf,
+           /* v4.117 — 🔍 WMS stock check (nút 🔍 trên thẻ tank): thể tích ĐO
+              ĐƯỢC ngay lúc này × nền COQ của lot đang trong bồn, đặt cạnh số
+              WMS đang hiện ⇒ độ vênh + câu lệnh chuyển kho nói rõ chiều
+              (bồn ➜ hầm 1100 để GIẢM, hầm 1100 ➜ bồn để TĂNG). */
+           openWms, renderWms, wmsEdit, wmsClear,
+           wmsFigures: _wmsFigures, wmsAction: _wmsAction,
            openVolChk: openStx,          /* alias cho lối gọi cũ */
            closeAll };
 })();

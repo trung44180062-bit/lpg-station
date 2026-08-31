@@ -328,18 +328,34 @@ chk('⭐ ngày hết tăng dần theo thứ tự FIFO (vào trước hết trư�
 /* ---------- [4b] SẮP XẾP ---------- */
 console.log('\n[4b] SẮP XẾP  C3→C4 · D→E→P→X · cũ trên mới dưới');
 const MO={C3:0,C4:1}, LO={D:0,E:1,P:2,X:3};
+/* ⚠ ĐỔI TỪ v4.118: lô đã hết hàng mà CHƯA tích VASSCM (st 'emptied'/'gone')
+   được GHIM lên đầu bảng — chốt của người dùng, để nhân viên không bỏ sót
+   lượt get out trên VAS. Vì thế quy tắc sắp xếp cũ được kiểm TRONG TỪNG
+   KHỐI: khối ghim, rồi khối còn lại. Bên trong mỗi khối vẫn phải là
+   C3→C4 · D→E→P→X · cũ trên mới dưới. */
+const pinN=rows.filter(r=>r.pin).length;
+chk('⭐ v4.118 — mọi dòng GHIM đứng trước mọi dòng thường',
+    rows.slice(0,pinN).every(r=>r.pin) && rows.slice(pinN).every(r=>!r.pin),
+    pinN+' dòng ghim / '+rows.length);
+chk('… và dòng ghim đúng là lô hết hàng chưa VASSCM',
+    rows.slice(0,pinN).every(r=>r.st==='emptied'||r.st==='gone'),
+    rows.slice(0,pinN).map(r=>r.st).join(','));
+const blocks=[rows.slice(0,pinN), rows.slice(pinN)];
 let bad='';
-for(let i=1;i<rows.length;i++){
-  const a=rows[i-1], b=rows[i];
-  const ka=[MO[a.mat],LO[a.letter],a.bdate||'9999',a.bcode];
-  const kb=[MO[b.mat],LO[b.letter],b.bdate||'9999',b.bcode];
-  if(String(ka)>String(kb)){ bad=a.mat+a.bcode+' > '+b.mat+b.bcode; break; }
-}
-chk('⭐ thứ tự đúng trên toàn bảng', bad==='', bad);
-chk('C3 đứng trước C4', rows.findIndex(r=>r.mat==='C4')>rows.map(r=>r.mat).lastIndexOf('C3'));
-const c3=rows.filter(r=>r.mat==='C3').map(r=>r.letter);
+blocks.forEach(blk=>{
+  for(let i=1;i<blk.length;i++){
+    const a=blk[i-1], b=blk[i];
+    const ka=[MO[a.mat],LO[a.letter],a.bdate||'9999',a.bcode];
+    const kb=[MO[b.mat],LO[b.letter],b.bdate||'9999',b.bcode];
+    if(String(ka)>String(kb)){ bad=bad||(a.mat+a.bcode+' > '+b.mat+b.bcode); break; }
+  }
+});
+chk('⭐ thứ tự đúng trong từng khối', bad==='', bad);
+const body=rows.slice(pinN);
+chk('C3 đứng trước C4', body.findIndex(r=>r.mat==='C4')>body.map(r=>r.mat).lastIndexOf('C3'));
+const c3=body.filter(r=>r.mat==='C3').map(r=>r.letter);
 chk('trong C3: D → E → P → X', String(c3)===String([...c3].sort((x,y)=>LO[x]-LO[y])), c3.join(''));
-const c3x=rows.filter(r=>r.mat==='C3'&&r.letter==='X').map(r=>r.bcode);
+const c3x=body.filter(r=>r.mat==='C3'&&r.letter==='X').map(r=>r.bcode);
 chk('⭐ trong loại lô X: CŨ TRÊN, MỚI DƯỚI (= thứ tự rút hàng)',
     String(c3x)===String([...c3x].sort()), c3x.join(' → '));
 

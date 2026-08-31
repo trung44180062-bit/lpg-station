@@ -228,16 +228,23 @@ console.log('\n— GIỮ NGUYÊN VỊ TRÍ ĐANG CUỘN —');
   chk('⭐ …nên vị trí cuộn DỌC giữ nguyên', HOLDER.scrollTop===1840, String(HOLDER.scrollTop));
   chk('⭐ …và vị trí cuộn NGANG cũng giữ nguyên', HOLDER.scrollLeft===560, String(HOLDER.scrollLeft));
 
-  /* ② tick VAS — đổi cả trạng thái dòng, vẫn không được nhảy */
+  /* ② tick VAS trên một lô ĐANG BỊ GHIM.
+     ⚠ ĐỔI TỪ v4.118 — CÓ CHỦ Ý: lô 'emptied' bị GHIM lên đầu bảng; tích
+     VASSCM xong nó phải RỜI khối ghim và về đúng thứ tự rút hàng, tức là
+     BỘ DÒNG THẬT SỰ ĐỔI THỨ TỰ ⇒ replaceData là đúng, không phải lỗi.
+     Thứ PHẢI giữ vẫn là: không destroy cả lưới, và không mất chỗ đang cuộn. */
   const b2=Object.assign({},CALLS);
   const em=BOND._state.all().find(r=>r.st==='emptied');
   if(em){
+    const wasPinned=!!em.pin;
     BOND.setInfo(em.key,'vas',true);
-    chk('⭐ tick VAS ⇒ vẫn KHÔNG dựng lại bảng',
-        CALLS.destroy===b2.destroy && CALLS.replace===b2.replace);
+    chk('⭐ tick VAS ⇒ KHÔNG huỷ lưới (destroy=0)', CALLS.destroy===b2.destroy,
+        'destroy+'+(CALLS.destroy-b2.destroy));
     chk('⭐ …vị trí cuộn giữ nguyên', HOLDER.scrollTop===1840 && HOLDER.scrollLeft===560);
+    chk('v4.118 — lô hết hàng chưa VASSCM vốn bị GHIM lên đầu', wasPinned===true);
     const now=BOND._state.all().find(r=>r.key===em.key);
     chk('…và trạng thái dòng ĐÃ đổi emptied → zero', now.st==='zero', now.st);
+    chk('⭐ tích xong thì RỜI khối ghim', now.pin===false);
     BOND.setInfo(em.key,'vas',false);
   }
 

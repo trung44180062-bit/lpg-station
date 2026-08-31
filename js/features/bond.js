@@ -153,6 +153,22 @@ const BOND = (function(){
   const FB_INFO = 'knq_info';
   const FB_PER  = 'knq_period';
   const FB_USE  = 'knq_bonded/use';
+  /* ══ v4.118 — SỔ THEO DÕI + KHO LƯU TRỮ ═══════════════════════════════
+     FB_WATCH — sổ theo dõi: mọi mã batch TỪNG thấy trong SAP (SLoc 1100),
+       kèm ngày thấy lần cuối và số End của ngày đó. NHỜ NÓ mà một lô biến
+       mất khỏi SAP vẫn hiện được trên bảng dù CHƯA AI GÕ gì cho lô đó —
+       trước v4.118 lô như vậy im lặng biến mất, không ai biết còn thiếu
+       một lượt get out trên VAS. Nhẹ: mỗi lô một dòng, xoá khi lưu trữ.
+     FB_ARCH — kho lưu trữ đầy đủ, gom theo THÁNG CỦA NGÀY VASSCM.
+       ⚠ CỐ Ý KHÔNG NẠP khi mở app: đây là dữ liệu chết, chỉ đọc khi người
+       dùng bấm gọi về đúng tháng cần xem.
+     FB_AIDX — CHỈ MỤC: '<YYYY-MM>/<khoá> = mã batch'. Vài chục byte một lô
+       nên NẠP ĐƯỢC, đủ để hiện "kho lưu trữ đang giữ bao nhiêu lô, tháng
+       nào có bao nhiêu" mà không phải kéo dữ liệu về. */
+  const FB_WATCH = 'knq_watch';
+  const FB_ARCH  = 'knq_arch';
+  const FB_AIDX  = 'knq_arch_idx';
+  const ARCH_WAIT_DAYS = 7;      /* rời SAP + đã VASSCM ⇒ chờ ngần này ngày rồi mới lưu trữ */
   const MATS    = ['C3','C4'];
   const LETTER_NAME = { P:'Petchem', X:'Export Petchem', D:'Domestic', E:'Export' };
   const DEF_TOT_KG  = 2000000;   /* ngày chưa gõ TỔNG P+X → tạm tính 2.000 T */
@@ -164,13 +180,19 @@ const BOND = (function(){
   /* ⭐ VÒNG ĐỜI MỘT LÔ — mỗi lô đúng MỘT trạng thái, đọc từ trên xuống là
      thấy luôn trình tự rút hàng (đã sắp C3→C4, D→E→P→X, cũ trên mới dưới). */
   const ST_NAME = { pumping:'Pumping', wait:'Not started', emptied:'Empty — no VASSCM',
-                    zero:'Done', gone:'Not in SAP' };
-  const ST_ICON = { pumping:'▶', wait:'○', emptied:'◍', zero:'✓', gone:'⛔' };
+                    zero:'Done', gone:'Not in SAP', archiving:'Done — archiving' };
+  const ST_ICON = { pumping:'▶', wait:'○', emptied:'◍', zero:'✓', gone:'⛔', archiving:'🗄' };
 
   /* ── trạng thái ──────────────────────────────────────────── */
   const INFO = {};               /* '<mat>_<bcode>' → bản ghi người dùng gõ  */
   const USE  = {};               /* 'YYYY-MM-DD'    → {t,x,xp,xs,note}       */
   let  PERIODS = {};             /* 'YYYY-MM'       → {savedAt,savedBy,…}    */
+  const WATCH = {};              /* '<mat>_<bcode>' → {mat,bcode,first,last,end,at,by} */
+  let  AIDX  = {};               /* 'YYYY-MM'       → { '<khoá>': '<mã batch>' }       */
+  let _arcM='';                  /* tháng lưu trữ đang mở xem                */
+  let _arcRows=null;             /* dữ liệu tháng đó, chỉ đọc                */
+  let _arcBusy=false;            /* đang ghi kho lưu trữ — chống chạy chồng  */
+  let _arcSaid='';               /* chữ ký lần toast lưu trữ gần nhất        */
 
   let _table=null, _fb=null, _live=false, _loaded=false, _initDone=false;
   let _echo=0, _echoUntil=0;
@@ -313,7 +335,13 @@ const BOND = (function(){
         Object.keys(PERIODS).forEach(k=>{ const p=PERIODS[k]||{};
           PERIODS[k]={ savedAt:p.savedAt||'', savedBy:p.savedBy||'', sapDate:p.sapDate||'',
                        n:(p.rows?Object.keys(p.rows).length:0) }; });
-      }).catch(e=>console.warn('[BOND] periods',e))
+      }).catch(e=>console.warn('[BOND] periods',e)),
+      /* v4.118 — sổ theo dõi (nhẹ, luôn nạp) */
+      R.ref(FB_WATCH).once('value').then(s=>{ const v=s.val()||{};
+        Object.keys(v).forEach(k=>{ WATCH[k]=v[k]||{}; }); }).catch(e=>console.warn('[BOND] watch',e)),
+      /* v4.118 — CHỈ MỤC kho lưu trữ (chỉ mã batch, KHÔNG phải dữ liệu) */
+      R.ref(FB_AIDX).once('value').then(s=>{ AIDX=s.val()||{}; })
+        .catch(e=>console.warn('[BOND] arch idx',e))
     ]).then(()=>_attachLive());
   }
   function _attachLive(){
@@ -333,6 +361,17 @@ const BOND = (function(){
       q.on('child_added',put); q.on('child_changed',put);
       q.on('child_removed',s=>{ if(_mine()) return; delete USE[s.key]; _schedule(); });
     }catch(e){ console.warn('[BOND] live use',e); }
+    try{
+      const q=R.ref(FB_WATCH);
+      const put=s=>{ if(_mine()) return; WATCH[s.key]=s.val()||{}; _schedule(); };
+      q.on('child_added',put); q.on('child_changed',put);
+      q.on('child_removed',s=>{ if(_mine()) return; delete WATCH[s.key]; _schedule(); });
+    }catch(e){ console.warn('[BOND] live watch',e); }
+    try{
+      /* chỉ mục kho lưu trữ: máy khác lưu trữ hay xoá tháng thì con số trên
+         nút 🗄 đổi theo ngay, không phải F5 */
+      R.ref(FB_AIDX).on('value',s=>{ if(_mine()) return; AIDX=s.val()||{}; _schedule(); });
+    }catch(e){ console.warn('[BOND] live arch idx',e); }
   }
   let _renT=null;
   function _schedule(){
@@ -523,6 +562,10 @@ const BOND = (function(){
     _pickSapDay();
     const M=_month||_ym(_asOf());
     const sap=_sapRows();
+    /* v4.118 — ghi sổ theo dõi TRƯỚC khi dựng dòng: lô đang thấy hôm nay
+       phải được nhớ lại, để hôm nào nó rơi khỏi SAP thì bảng còn dựng lại
+       được dòng cho nó dù chưa ai gõ một chữ nào. */
+    _syncWatch(sap);
     const seen={};
     const rows=[];
 
@@ -548,20 +591,32 @@ const BOND = (function(){
         ord:0, seq:'', seqGrp:'',
         left:null, used:null, pct:0, flag:'', st:'', pumping:false, pumpWhy:'', isNew:false,
         noInfo:false, low:false, eta:'', etaDays:null, projected:false,
-        inSap:true, hasInfo:_hasInfo(inf)
+        inSap:true, hasInfo:_hasInfo(inf),
+        /* v4.118 */
+        lastSeen:_sapDay, pin:false, archDue:'', archDays:null
       });
     });
 
-    /* ── ② lô đã khai mà SAP KHÔNG CÒN ───────────────────── */
-    Object.keys(INFO).forEach(k=>{
-      if(seen[k]) return;
-      const inf=INFO[k]||{};
-      if(!_hasInfo(inf)) return;                 /* bản ghi rỗng, bỏ qua */
+    /* ── ② LÔ KHÔNG CÒN TRONG SAP — VẪN PHẢI HIỆN ───────────
+       Hai nguồn, gộp lại:
+         · `INFO`  — lô đã khai thông tin (như trước v4.118)
+         · `WATCH` — ⭐ MỚI: lô TỪNG thấy trong SAP, kể cả khi CHƯA AI GÕ
+           một chữ nào. Đây chính là ca vận hành nêu: mã có ở SAP mấy ngày
+           đầu, ngày sau không còn, chưa get out trên VAS ⇒ trước đây lặng
+           lẽ biến mất, giờ vẫn đứng đó.
+       Số hiển thị lấy từ sổ (End của ngày thấy lần cuối) — nói rõ là số
+       CŨ, không phải số của hôm nay. */
+    const ghost={};
+    Object.keys(INFO).forEach(k=>{ if(!seen[k] && _hasInfo(INFO[k])) ghost[k]=1; });
+    Object.keys(WATCH).forEach(k=>{ if(!seen[k] && WATCH[k] && WATCH[k].bcode) ghost[k]=1; });
+    Object.keys(ghost).forEach(k=>{
+      const inf=INFO[k]||{}, w=WATCH[k]||{};
       const i=k.indexOf('_'); if(i<0) return;
-      const mat=k.slice(0,i), bcode=k.slice(i+1);
+      const mat=w.mat||k.slice(0,i), bcode=w.bcode||k.slice(i+1);
       rows.push({
         key:k, mat:mat, bcode:bcode, letter:_letterOf(bcode), bdate:_batchDate(bcode),
-        date:'', sloc:'1100', init:null, gr:null, gi:null, trs:null, end:null,
+        date:'', sloc:'1100', init:null, gr:null, gi:null, trs:null,
+        end:(w.end==null?null:_n(w.end)),
         vno:inf.vno||'', vessel:inf.vessel||'', dIn:inf.dIn||'', gIn:inf.gIn||'',
         dOut:inf.dOut||'',
         hqQty:(inf.hqQty==null?'':inf.hqQty), vas:!!inf.vas, vasDate:inf.vasDate||'',
@@ -569,7 +624,8 @@ const BOND = (function(){
         ord:0, seq:'', seqGrp:'',
         left:null, used:null, pct:0, flag:'gone', st:'gone', pumping:false, pumpWhy:'',
         isNew:false, noInfo:false, low:false, eta:'', etaDays:null, projected:false,
-        inSap:false, hasInfo:true
+        inSap:false, hasInfo:_hasInfo(inf),
+        lastSeen:w.last||'', watched:!!w.bcode, pin:false, archDue:'', archDays:null
       });
     });
 
@@ -704,11 +760,26 @@ const BOND = (function(){
       /* đã TỪNG có hàng chưa? lô luôn bằng 0 thì không phải "vừa hết" */
       const everHad = _n(r.init)>0 || _n(r.gr)>0 || _n(r.used)>0 || base>0;
 
-      if(!r.inSap)                       r.st='gone';
+      /* ⭐ v4.118 — LÔ RỜI SAP TÁCH LÀM HAI, VÌ HAI VIỆC KHÁC HẲN NHAU:
+           · chưa tích VASSCM ⇒ 'gone'      — CÒN VIỆC PHẢI LÀM, ghim lên
+             đầu bảng, tô đỏ, không có cách nào tự biến mất
+           · đã tích VASSCM  ⇒ 'archiving'  — xong việc, đứng lại vài ngày
+             cho chắc rồi phần mềm tự dời sang kho lưu trữ */
+      if(!r.inSap)                       r.st=r.vas ? 'archiving' : 'gone';
       else if(!(_n(r.left)>0.5))         r.st=(everHad && !r.vas) ? 'emptied' : 'zero';
       else if(r.pumping)                 r.st='pumping';
       else if(!(_n(r.used)>0.5))         r.st='wait';
       else                               r.st='pumping';
+      /* ⭐ GHIM LÊN ĐẦU BẢNG — đúng hai trường hợp, và đều là "lô đã hết
+         hàng mà CHƯA get out trên VAS":
+           gone    — SAP không còn mã này nữa
+           emptied — SAP vẫn còn nhưng số về 0
+         Ghim để nhân viên không phải cuộn đi tìm, và để lô không lẫn vào
+         hàng chục dòng đang chạy bình thường. Tích VASSCM là dòng rời khối
+         ghim ngay lập tức. */
+      r.pin=(r.st==='gone' || r.st==='emptied');
+      r.archDue=_archDueOf(r);
+      r.archDays=r.archDue?_dayDiff(r.archDue,_today()):null;
       if(r.st==='pumping' && _n(r.left)<LOW_KG) r.low=true;
       /* sắp hết theo DỰ KIẾN — cảnh báo sớm hơn nhiều so với chỉ nhìn tồn */
       r.soon=(r.st==='pumping'||r.st==='wait') && r.projected &&
@@ -717,6 +788,7 @@ const BOND = (function(){
       /* giữ r.flag cho tương thích ngược (dải cảnh báo, thẻ, ảnh chụp kỳ) */
       r.flag = (r.st==='gone')  ? 'gone'
              : (r.st==='emptied')? 'emptied'
+             : (r.st==='archiving')? 'zero'
              : (r.st==='zero')  ? 'zero'
              : r.noInfo         ? 'new'
              : r.low            ? 'low' : '';
@@ -730,6 +802,10 @@ const BOND = (function(){
     const LOT_ORD={ D:0, E:1, P:2, X:3 };
     const MAT_ORD={ C3:0, C4:1 };
     rows.sort((a,b)=>{
+      /* ⭐ v4.118 — KHỐI GHIM ĐI TRƯỚC TẤT CẢ. Trong khối ghim vẫn xếp
+         đúng quy tắc cũ, nên đọc vẫn quen mắt. Số thứ tự No. của dòng ghim
+         được thay bằng 🚩 (xem _sttFmt) để không ai tưởng đó là thứ tự bơm. */
+      const pn=(a.pin?0:1)-(b.pin?0:1); if(pn) return pn;
       const m=(MAT_ORD[a.mat]==null?9:MAT_ORD[a.mat])-(MAT_ORD[b.mat]==null?9:MAT_ORD[b.mat]);
       if(m) return m;
       const l=(LOT_ORD[a.letter]==null?9:LOT_ORD[a.letter])-(LOT_ORD[b.letter]==null?9:LOT_ORD[b.letter]);
@@ -811,15 +887,34 @@ const BOND = (function(){
     if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
     const r=_rows.find(x=>x.key===key); if(!r) return;
     const still=r.inSap && _n(r.end)>0.5;
+    /* ⭐ v4.118 — LÔ ĐANG NẰM TRONG SỔ THEO DÕI THÌ XOÁ KHÔNG LÀM NÓ BIẾN
+       MẤT, và phải nói thẳng ra như vậy. Sổ theo dõi tồn tại chính là để
+       một lô đã rời SAP mà chưa get out trên VAS không thể lặng lẽ trôi đi. */
+    const watched=!!(WATCH[key] && WATCH[key].bcode);
     if(!confirm('DELETE ROW '+r.bcode+' ('+r.mat+')\n\n'+
       (still
         ? '⚠ This batch code STILL HOLDS '+_K(r.end)+' kg in the SAP data of '+_dmy(r.date)+'.\n'+
           'Deleting here only removes what you typed (vessel, declarations, VASSCM…).\n'+
           'The row comes straight back, flagged "no details yet".\n\n'
+        : watched
+        ? '⚠ This batch was seen in SAP up to '+_dmy(r.lastSeen||'')+', so it is on the watch list.\n'+
+          'Deleting removes only what you typed — the row comes straight back, still pinned at the top,\n'+
+          'because VASSCM has not been ticked for it.\n\n'
         : 'This batch code holds no stock in SAP — deleting drops the row for good.\n\n')+
       'Continue?')) return;
     delete INFO[key];
     const pay={}; pay[FB_INFO+'/'+key]=null;
+    /* Đường thoát DUY NHẤT cho một mã batch gõ sai / SAP đã sửa lại: hỏi
+       riêng một lần nữa, nói rõ hậu quả, rồi mới bỏ khỏi sổ theo dõi. */
+    if(watched && !r.inSap &&
+       confirm('STOP WATCHING '+r.bcode+' ('+r.mat+') AS WELL?\n\n'+
+         'OK    = the batch code is dropped from the watch list too. The row disappears for good and\n'+
+         '        no VASSCM reminder will ever be raised for it again. Use this only when the code was\n'+
+         '        mistyped in SAP, or the batch was corrected to another code.\n'+
+         'Cancel = keep watching it. The row comes back, pinned at the top, until VASSCM is ticked.')){
+      delete WATCH[key];
+      pay[FB_WATCH+'/'+key]=null;
+    }
     _push(pay,'deleted '+r.bcode);
     render();
   }
@@ -917,6 +1012,301 @@ const BOND = (function(){
     });
   }
 
+
+  /* ============================================================
+     v4.118 — SỔ THEO DÕI LÔ + KHO LƯU TRỮ
+     ------------------------------------------------------------
+     BÀI TOÁN (vận hành nêu): một mã batch có trong SAP mấy ngày đầu rồi
+     những ngày sau KHÔNG còn — hoặc về 0 — mà nhân viên CHƯA get out trên
+     VAS. Bảng cũ đọc SAP của ĐÚNG MỘT NGÀY nên lô đó lặng lẽ biến mất khỏi
+     màn hình, không ai biết là còn sót một lượt VASSCM.
+
+     CÁCH CHỮA — hai vế:
+     ① SỔ THEO DÕI (`knq_watch`): mỗi mã batch từng thấy trong SAP được ghi
+        lại kèm ngày thấy lần cuối + số End của ngày đó. Lô rơi khỏi SAP mà
+        CHƯA tích VASSCM thì vẫn dựng dòng lên từ sổ này, GHIM LÊN ĐẦU
+        bảng, tô màu cảnh báo, và KHÔNG có cách nào cho nó tự biến mất.
+        Chỉ có một đường ra: tích VASSCM.
+     ② KHO LƯU TRỮ (`knq_arch`): lô đã tích VASSCM VÀ đã rời SAP thì còn
+        đứng lại ARCH_WAIT_DAYS ngày (dạng mờ, có đếm ngược) rồi được dời
+        hẳn sang kho lưu trữ và biến khỏi bảng. Chờ vài ngày là cố ý: dán
+        SAP thiếu một ngày, hay tích VASSCM nhầm, thì còn kịp nhận ra.
+
+     ⚠ KHÔNG BAO GIỜ tự lưu trữ một lô CHƯA tích VASSCM — dù nó rời SAP đã
+     lâu. Đó chính là thứ phải nhắc, không phải thứ để dọn đi.
+  ============================================================ */
+
+  /* Chỉ được ghi sổ / lưu trữ khi ĐANG ĐỨNG TRÊN MỐC SAP MỚI NHẤT.
+     Xem kỳ cũ, hay SAP còn thiếu ngày, thì "không có trong SAP" là do dữ
+     liệu chưa tới chứ không phải lô đã đi — ghi vào là hỏng sổ. */
+  function _watchOk(){
+    if(_arch || !_loaded || !_canWrite()) return false;
+    if(typeof firebase==='undefined') return false;
+    if(!_sapDay) return false;
+    let ds=[]; try{ ds=(SP && SP.dates1100) ? (SP.dates1100()||[]) : []; }catch(_){ return false; }
+    return !!ds.length && ds[ds.length-1]===_sapDay;
+  }
+  /* Ghi sổ những lô đang thấy trong SAP. Chỉ ghi khi CÓ THAY ĐỔI (ngày mới
+     hoặc End đổi) — recalc chạy mỗi lần gõ một ô, ghi vô điều kiện là đẩy
+     Firebase liên tục. */
+  function _syncWatch(sap){
+    if(!_watchOk()) return;
+    const pay={};
+    (sap||[]).forEach(r=>{
+      const bcode=String(r.batch||'').toUpperCase(); if(!bcode) return;
+      const k=_key(r.mat,bcode);
+      const end=Math.round(_n(r.end));
+      const w=WATCH[k];
+      if(w && w.last===_sapDay && Math.round(_n(w.end))===end) return;
+      const rec={ mat:String(r.mat||''), bcode:bcode,
+                  first:(w&&w.first)?w.first:_sapDay, last:_sapDay,
+                  end:end, at:Date.now(), by:_who() };
+      WATCH[k]=rec; pay[FB_WATCH+'/'+k]=rec;
+    });
+    const n=Object.keys(pay).length;
+    if(n) _push(pay,'watch '+n+' batch'+(n>1?'es':''));
+  }
+
+  /* Tháng gom của kho lưu trữ = THÁNG CỦA NGÀY VASSCM (chốt của người dùng:
+     "gọi về tháng 8" = những lô đã get out trên VAS trong tháng 8). Thiếu
+     ngày VASSCM thì lùi về tháng trong mã batch, cuối cùng mới lấy tháng
+     hiện tại — luôn có chỗ đứng, không bao giờ rơi vào tháng rỗng. */
+  function _archYm(r){
+    return _ym(r.vasDate) || _ym(r.bdate) || _ym(_today());
+  }
+  /* Ngày lô ĐỦ ĐIỀU KIỆN dời sang kho lưu trữ, và còn mấy ngày nữa.
+     Mốc đếm là NGÀY CUỐI CÙNG còn thấy trong SAP; chưa từng vào sổ thì lấy
+     ngày VASSCM. Không có mốc nào ⇒ KHÔNG lưu trữ (không đoán). */
+  function _archDueOf(r){
+    if(r.inSap || !r.vas) return '';
+    const base=r.lastSeen || r.vasDate || '';
+    if(!base) return '';
+    return _addDays(base, ARCH_WAIT_DAYS);
+  }
+  function _archPending(){ return _all.filter(r=>r.st==='archiving'); }
+  function _archDue(){ const T=_today(); return _archPending().filter(r=>r.archDue && r.archDue<=T); }
+  function _arcCount(ym){ const m=AIDX[ym]; return m?Object.keys(m).length:0; }
+  function _arcMonths(){ return Object.keys(AIDX||{}).filter(k=>_arcCount(k)>0).sort().reverse(); }
+  function _arcTotal(){ let n=0; _arcMonths().forEach(m=>{ n+=_arcCount(m); }); return n; }
+
+  /* Ghi MỘT lượt update() cho cả cụm: đặt bản lưu trữ + chỉ mục, đồng thời
+     xoá bản ghi thông tin và dòng sổ theo dõi. Firebase update() là NGUYÊN
+     KHỐI — không có cảnh "xoá xong mới biết ghi hỏng". */
+  function _archiveRows(list, how){
+    if(!list || !list.length) return Promise.resolve(false);
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return Promise.resolve(false); }
+    const pay={}, got={};
+    list.forEach(r=>{
+      const ym=_archYm(r);
+      pay[FB_ARCH+'/'+ym+'/'+r.key]={
+        mat:r.mat||'', bcode:r.bcode||'', letter:r.letter||'', bdate:r.bdate||'',
+        vno:r.vno||'', vessel:r.vessel||'', dIn:r.dIn||'', gIn:r.gIn||'', dOut:r.dOut||'',
+        hqQty:_n(r.hqQty), vas:true, vasDate:r.vasDate||'', note:r.note||'',
+        lastSap:r.lastSeen||'', lastEnd:_n(r.end),
+        archAt:_stamp(), archBy:_who(), archHow:how||'auto'
+      };
+      pay[FB_AIDX+'/'+ym+'/'+r.key]=r.bcode||'1';
+      pay[FB_INFO+'/'+r.key]=null;
+      pay[FB_WATCH+'/'+r.key]=null;
+      (got[ym]=got[ym]||[]).push(r.key);
+    });
+    return _push(pay,'archived '+list.length).then(ok=>{
+      if(!ok) return false;
+      list.forEach(r=>{ delete INFO[r.key]; delete WATCH[r.key]; });
+      Object.keys(got).forEach(ym=>{
+        AIDX[ym]=AIDX[ym]||{};
+        got[ym].forEach(k=>{ AIDX[ym][k]=1; });
+      });
+      const months=Object.keys(got).sort().join(', ');
+      _say('🗄 '+list.length+' finished batch(es) moved to the archive ('+months+
+           ') — press 🗄 Archive to read them back','ok');
+      render();
+      return true;
+    });
+  }
+  /* Chạy sau mỗi lượt vẽ. Im lặng khi chưa tới hạn — KHÔNG hỏi, KHÔNG toast,
+     vì lô đã tích VASSCM là việc đã xong, dời đi chỉ là dọn màn hình. */
+  function _autoArchive(){
+    if(_arcBusy || _sapBehind || !_watchOk()) return;
+    const due=_archDue();
+    if(!due.length) return;
+    _arcBusy=true;
+    _archiveRows(due,'auto').then(()=>{ _arcBusy=false; })
+      .catch(e=>{ console.warn('[BOND] auto archive',e); _arcBusy=false; });
+  }
+  /* Nút trong bảng kho lưu trữ: dời NGAY những lô đã xong mà chưa hết hạn
+     chờ. Có hỏi lại, và nói rõ đang bỏ qua thời gian chờ. */
+  function archiveNow(){
+    const p=_archPending();
+    if(!p.length){ _say('Nothing is waiting to be archived',''); return; }
+    if(!confirm('🗄 ARCHIVE '+p.length+' FINISHED BATCH(ES) NOW\n\n'+
+      p.slice(0,10).map(r=>'· '+r.bcode+' ('+r.mat+') — VASSCM '+(_dmy(r.vasDate)||'?')).join('\n')+
+      (p.length>10?('\n… and '+(p.length-10)+' more'):'')+'\n\n'+
+      'They have VASSCM ticked and are no longer in SAP, so they leave the table and go to the\n'+
+      'archive on Firebase. This skips the '+ARCH_WAIT_DAYS+'-day waiting period.\n'+
+      'Nothing is lost — open the archive by month to read them back.\n\nMove them now?')) return;
+    _archiveRows(p,'manual');
+  }
+
+  /* ── GỌI VỀ MỘT THÁNG ─────────────────────────────────────────
+     Đọc ĐÚNG một tháng, đúng lúc người dùng bấm. Kho lưu trữ không bao giờ
+     được nạp sẵn — đó là cả điểm của nó. */
+  function openArch(){
+    const m=_el('bondArc'); if(m) m.classList.add('on');
+    _renderArch();
+  }
+  function closeArch(){
+    const m=_el('bondArc'); if(m) m.classList.remove('on');
+    _arcM=''; _arcRows=null;
+  }
+  function loadArchMonth(ym){
+    ym=ym||(_el('bondArcSel')||{}).value;
+    if(!ym){ _say('Pick the month you want to read back','warn'); return; }
+    if(!_arcCount(ym)){ _say('⚠ The archive has nothing for '+ym,'warn'); return; }
+    if(typeof firebase==='undefined'){ _say('⚠ Offline — the archive lives on Firebase','warn'); return; }
+    _arcM=ym; _arcRows=null; _renderArch();
+    _ref().ref(FB_ARCH+'/'+ym).once('value').then(s=>{
+      const v=s.val()||{};
+      _arcRows=Object.keys(v).map(k=>Object.assign({ key:k }, v[k]||{}))
+        .sort((a,b)=>{
+          const ka=String(a.mat||'')+String(a.vasDate||'')+String(a.bcode||'');
+          const kb=String(b.mat||'')+String(b.vasDate||'')+String(b.bcode||'');
+          return ka<kb?-1:(ka>kb?1:0);
+        });
+      _renderArch();
+      _say('🗄 Archive '+ym+' — '+_arcRows.length+' batch(es) read back','ok');
+    }).catch(e=>{ console.warn('[BOND] arch read',e); _arcRows=[]; _renderArch();
+                  _say('❌ Could not read the archive of '+ym,'er'); });
+  }
+  function delArchMonth(ym){
+    ym=ym||_arcM||(_el('bondArcSel')||{}).value;
+    if(!ym || !_arcCount(ym)){ _say('Pick the month you want to delete','warn'); return; }
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
+    const n=_arcCount(ym);
+    if(!confirm('🗑 DELETE THE ARCHIVE OF '+ym+'\n\n'+n+' finished batch(es) will be erased from Firebase\n'+
+      'FOR GOOD — vessel, declaration numbers, VASSCM dates, notes, everything.\n\n'+
+      'SAP data is not touched. Export to Excel first if you may still need it.\n\nDelete?')) return;
+    const pay={}; pay[FB_ARCH+'/'+ym]=null; pay[FB_AIDX+'/'+ym]=null;
+    _push(pay,'deleted archive '+ym).then(ok=>{
+      if(!ok) return;
+      delete AIDX[ym];
+      if(_arcM===ym){ _arcM=''; _arcRows=null; }
+      _say('🗑 Archive of '+ym+' deleted — '+n+' batch(es)','ok');
+      _renderArch(); render();
+    });
+  }
+  function delArchYear(y){
+    y=String(y||'').slice(0,4);
+    const ms=_arcMonths().filter(m=>m.slice(0,4)===y);
+    if(!y || !ms.length){ _say('Pick the year you want to delete','warn'); return; }
+    if(!_canWrite()){ _say('⛔ Your account has no write permission','er'); return; }
+    let n=0; ms.forEach(m=>{ n+=_arcCount(m); });
+    if(!confirm('🗑 DELETE THE WHOLE YEAR '+y+' FROM THE ARCHIVE\n\n'+
+      ms.length+' month(s) · '+n+' finished batch(es):\n'+ms.join(', ')+'\n\n'+
+      'Everything above is erased from Firebase FOR GOOD. SAP data is not touched.\n'+
+      'Export to Excel first if you may still need it.\n\nDelete the whole year?')) return;
+    const pay={};
+    ms.forEach(m=>{ pay[FB_ARCH+'/'+m]=null; pay[FB_AIDX+'/'+m]=null; });
+    _push(pay,'deleted archive '+y).then(ok=>{
+      if(!ok) return;
+      ms.forEach(m=>{ delete AIDX[m]; if(_arcM===m){ _arcM=''; _arcRows=null; } });
+      _say('🗑 Archive of '+y+' deleted — '+ms.length+' month(s), '+n+' batch(es)','ok');
+      _renderArch(); render();
+    });
+  }
+  function _arcBtn(){
+    const b=_el('bondArcN'); if(!b) return;
+    const n=_arcTotal();
+    b.textContent=n?String(n):'0';
+    b.className='bond-arcn'+(n?' on':'');
+    const w=_el('bondArcBtn');
+    if(w) w.title='Bonded archive — '+n+' finished batch(es) stored on Firebase across '+
+      _arcMonths().length+' month(s). Nothing is loaded until you ask for a month.';
+  }
+  function _renderArch(){
+    _arcBtn();
+    const box=_el('bondArcBody'); if(!box) return;
+    const months=_arcMonths(), total=_arcTotal();
+    const years={};
+    months.forEach(m=>{ const y=m.slice(0,4); years[y]=(years[y]||0)+_arcCount(m); });
+    const pend=_archPending(), dueN=_archDue().length;
+    let h='<div class="bond-arc-top">'
+      + '<div class="bond-arc-k"><span>STORED ON FIREBASE</span><b>'+total+'</b><i>batch(es)</i></div>'
+      + '<div class="bond-arc-k"><span>MONTHS</span><b>'+months.length+'</b><i>with data</i></div>'
+      + '<div class="bond-arc-k"><span>WAITING IN THE TABLE</span><b>'+pend.length+'</b>'
+      +   '<i>done, in the '+ARCH_WAIT_DAYS+'-day wait</i></div>'
+      + '</div>'
+      + '<div class="bond-arc-note">A batch lands here only when <b>VASSCM is ticked</b> AND SAP no longer '
+      + 'lists it — and only after it has stood in the table for '+ARCH_WAIT_DAYS+' days. '
+      + '<b>A batch with no VASSCM is never archived</b>; it stays pinned at the top of the table until '
+      + 'someone files it. Archived data is <b>never loaded when the app starts</b> — press '
+      + '<b>📜 Read back</b> on a month to fetch it.</div>';
+    if(pend.length){
+      h+='<div class="bond-arc-pend"><b>🗄 '+pend.length+' finished batch(es) still in the table:</b> '
+        + pend.slice(0,8).map(r=>_esc(r.bcode)+' <i>('+(r.archDays!=null && r.archDays>0
+             ? ('leaves in '+r.archDays+' d') : 'leaving now')+')</i>').join(' · ')
+        + (pend.length>8?' …':'')
+        + (dueN?(' <b>'+dueN+' due now.</b>'):'')
+        + ' <button class="bond-btn" onclick="BOND.archiveNow()">⤓ Archive them now</button></div>';
+    }
+    if(!months.length){
+      h+='<div class="bond-arc-empty">The archive is empty — nothing has been stored yet.</div>';
+    }else{
+      h+='<div class="bond-arc-years">';
+      Object.keys(years).sort().reverse().forEach(y=>{
+        h+='<div class="bond-arc-y"><div class="bond-arc-yh"><b>'+y+'</b>'
+          + '<span>'+years[y]+' batch(es)</span>'
+          + '<button class="bond-btn danger" onclick="BOND.delArchYear(\''+y+'\')" '
+          + 'title="Delete every archived month of '+y+' from Firebase">🗑 Delete year '+y+'</button></div>'
+          + '<div class="bond-arc-ms">';
+        months.filter(m=>m.slice(0,4)===y).forEach(m=>{
+          h+='<div class="bond-arc-m'+(m===_arcM?' on':'')+'">'
+            + '<b>'+m+'</b><span>'+_arcCount(m)+' batch(es)</span>'
+            + '<button class="bond-btn" onclick="BOND.loadArchMonth(\''+m+'\')" '
+            + 'title="Read this month back from Firebase">📜 Read back</button>'
+            + '<button class="bond-btn danger" onclick="BOND.delArchMonth(\''+m+'\')" '
+            + 'title="Delete this month from the archive, for good">🗑</button>'
+            + '</div>';
+        });
+        h+='</div></div>';
+      });
+      h+='</div>';
+    }
+    if(_arcM){
+      h+='<div class="bond-arc-view"><div class="bond-arc-vh"><b>🗄 '+_arcM+'</b>'
+        + '<span>'+(_arcRows?(_arcRows.length+' batch(es) read back'):'reading…')+'</span>'
+        + '<button class="bond-btn" onclick="BOND.closeArchMonth()">✕ Close</button></div>';
+      if(!_arcRows){ h+='<div class="bond-arc-empty">Reading '+_arcM+' from Firebase…</div>'; }
+      else if(!_arcRows.length){ h+='<div class="bond-arc-empty">That month came back empty.</div>'; }
+      else{
+        h+='<div class="bond-arc-tw"><table class="bond-arc-tbl"><thead><tr>'
+          + '<th>Mat</th><th>Batch code</th><th>Vessel</th><th>Voyage</th><th>Import decl.</th>'
+          + '<th>Get-out decl.</th><th class="n">HQ approved</th><th class="n">Last End</th>'
+          + '<th>Last in SAP</th><th>VASSCM</th><th>Archived</th><th>Note</th>'
+          + '</tr></thead><tbody>'
+          + _arcRows.map(r=>'<tr>'
+            + '<td>'+_esc(r.mat||'')+'</td><td class="b">'+_esc(r.bcode||'')+'</td>'
+            + '<td>'+_esc(r.vessel||'')+'</td><td>'+_esc(r.vno||'')+'</td>'
+            + '<td>'+_esc(r.dIn||'')+'</td><td>'+_esc(r.dOut||'')+'</td>'
+            + '<td class="n">'+_K(_n(r.hqQty))+'</td><td class="n">'+_K(_n(r.lastEnd))+'</td>'
+            + '<td>'+_dmy(r.lastSap||'')+'</td><td>'+_dmy(r.vasDate||'')+'</td>'
+            + '<td>'+_esc(r.archAt||'')+(r.archBy?(' · '+_esc(r.archBy)):'')+'</td>'
+            + '<td>'+_esc(r.note||'')+'</td></tr>').join('')
+          + '</tbody></table></div>';
+      }
+      h+='</div>';
+    }
+    box.innerHTML=h;
+    const sel=_el('bondArcSel');
+    if(sel){
+      const cur=sel.value;
+      sel.innerHTML='<option value="">Archived months…</option>'+
+        months.map(m=>'<option value="'+m+'">'+m+' · '+_arcCount(m)+' batches</option>').join('');
+      if(cur && AIDX[cur]) sel.value=cur;
+    }
+  }
+  function closeArchMonth(){ _arcM=''; _arcRows=null; _renderArch(); }
+
   /* ============================================================
      BẢNG — Tabulator, sửa TẠI CHỖ
      ------------------------------------------------------------
@@ -1010,9 +1400,18 @@ const BOND = (function(){
                 wait:'Untouched, not its turn yet',
                 emptied:'Empty but VASSCM NOT ticked yet — still something to do',
                 zero:'Empty and VASSCM filed — finished',
-                gone:'This batch code is no longer in SAP — check it, then delete the row' }[st]||'';
+                gone:'SAP no longer lists this batch and VASSCM is NOT ticked'+
+                     (r.lastSeen?(' — last seen in the SAP data of '+_dmy(r.lastSeen)+
+                       (r.end!=null?(' holding '+_K(r.end)+' kg'):'')):'')+
+                     '. The row is pinned to the top and will not go away until the get-out is filed on VAS.',
+                archiving:'VASSCM filed and SAP no longer lists it — the row leaves the table on '+
+                     _dmy(r.archDue||'')+' and goes to the 🗄 archive on Firebase' }[st]||'';
+    /* ⭐ v4.118 — DÒNG GHIM KHÔNG MANG SỐ THỨ TỰ. Số No. ở bảng này là THỨ
+       TỰ RÚT HÀNG; lô ghim đã hết hàng, đứng đầu bảng chỉ vì còn việc phải
+       làm. In số cho nó là nói dối về thứ tự bơm. */
     let h='<div class="bond-stt">'+
-      '<span class="bond-no">'+(cell.getRow().getPosition()||'')+'</span>'+
+      '<span class="bond-no'+(r.pin?' pin':'')+'">'+
+        (r.pin?'🚩':(cell.getRow().getPosition()||''))+'</span>'+
       '<span class="bond-chip c-'+st+'" title="'+_esc(tip)+'">'+
         (ST_ICON[st]||'')+' '+_esc(ST_NAME[st]||'')+'</span>';
     const mk=[];
@@ -1026,6 +1425,14 @@ const BOND = (function(){
       mk.push('<span class="bond-mk seq" title="Batch codes of '+_dmy(r.bdate)+
               ' were issued out of order. This row is placed by its get-in date ('+
               _dmy(r.gIn)+'), so the batch that really arrived first is drawn out first.">⇅ code out of order</span>');
+    /* v4.118 — lô dựng từ SỔ THEO DÕI: nói rõ số đang hiện là số CŨ */
+    if(!r.inSap && r.lastSeen)
+      mk.push('<span class="bond-mk gone" title="Figures shown are the last ones SAP had for this batch, '+
+              'on '+_dmy(r.lastSeen)+'. Nothing newer exists.">↩ last seen '+_dmy(r.lastSeen)+'</span>');
+    if(r.st==='archiving')
+      mk.push('<span class="bond-mk arc" title="Finished — this row leaves the table on '+_dmy(r.archDue||'')+
+              ' and is kept in the 🗄 archive, which you can read back by month at any time.">🗄 '+
+              (r.archDays!=null && r.archDays>0 ? ('archiving in '+r.archDays+' d') : 'archiving now')+'</span>');
     if(r.seq==='ask')
       mk.push('<span class="bond-mk seqq" title="Another batch shares the batch date '+_dmy(r.bdate)+
               ' but the get-in dates are not all keyed in — the draw order falls back to the batch code, '+
@@ -1177,6 +1584,7 @@ const BOND = (function(){
       [...el.classList].forEach(c=>{ if(/^bond-(r|lot)-/.test(c)) el.classList.remove(c); });
       if(d.st) el.classList.add('bond-r-'+d.st);
       el.classList.add('bond-lot-'+String(d.letter||'none').toLowerCase());
+      if(d.pin)    el.classList.add('bond-r-pin');
       if(d.soon)   el.classList.add('bond-r-soon');
       if(d.isNew)  el.classList.add('bond-r-isnew');
       if(d.noInfo) el.classList.add('bond-r-noinfo');
@@ -1316,12 +1724,22 @@ const BOND = (function(){
                   :'on the D-1 mark')+
       (nNew+nGone+nZero+nLow
         ? card('flags','🚩 NEEDS ATTENTION', String(nNew+nGone+nZero+nLow),'',
-            [nGone?('<b class="bond-need bad">⛔ '+nGone+' gone from SAP</b>'):'',
+            [nGone?('<b class="bond-need bad">⛔ '+nGone+' gone from SAP, VASSCM due</b>'):'',
              nZero?('<b class="bond-need warn">◍ '+nZero+' empty, no VASSCM</b>'):'',
              nNew ?('<b class="bond-need warn">✎ '+nNew+' missing details</b>'):'',
              nLow ?('<b class="bond-need warn">⚠ '+nLow+' running low</b>'):''
-            ].filter(Boolean).join(''),'')
-        : '');
+            ].filter(Boolean).join(''),
+            (nGone+nZero)?((nGone+nZero)+' pinned to the top of the table until VASSCM is ticked'):'')
+        : '')+
+      /* v4.118 — kho lưu trữ: con số này đọc từ CHỈ MỤC, không kéo dữ liệu về */
+      (function(){
+        const tot=_arcTotal(), pend=_archPending().length;
+        if(!tot && !pend) return '';
+        return card('arc','🗄 ARCHIVE', String(tot),'stored',
+          '<b class="bond-need">'+_arcMonths().length+' month(s) on Firebase</b>'+
+          (pend?('<b class="bond-need">'+pend+' leaving the table</b>'):''),
+          'Finished batches only — nothing is loaded until you ask for a month');
+      })();
   }
   /* ============================================================
      🔔 CẢNH BÁO — GOM HẾT VÀO MỘT CÁI CHUÔNG
@@ -1399,18 +1817,32 @@ const BOND = (function(){
         ask.slice(0,6).map(r=>_esc(r.bcode)).join(', ')+(ask.length>6?'…':'')+
         '. Until every batch of that date is keyed in, the draw order falls back to the batch code — '+
         'which is exactly what goes wrong when the codes are issued in the wrong order.']);
+    /* ⭐ v4.118 — HAI MỤC DƯỚI ĐÂY LÀ LÝ DO CÓ SỔ THEO DÕI.
+       Lô hết hàng mà chưa get out trên VAS là việc SÓT, và trước đây nó
+       biến mất khỏi màn hình cùng với SAP. Nay nó bị ghim lên đầu bảng và
+       được kể tên ở đây, cho tới khi VASSCM được tích. */
     const gone=_all.filter(r=>r.st==='gone');
     if(gone.length)
-      out.push(['bad','<b>⛔ '+gone.length+' declared batch(es) are NOT in the SAP data of '+_dmy(_sapDay)+
-        ':</b> '+gone.slice(0,6).map(r=>_esc(r.bcode)).join(', ')+
-        (gone.length>6?'…':'')+'. Either the code is mistyped, or the batch has left the warehouse — '+
-        'check, then press ✕ to delete the row.']);
+      out.push(['bad','<b>⛔ '+gone.length+' batch(es) are NO LONGER in the SAP data of '+_dmy(_sapDay)+
+        ' and VASSCM is NOT ticked:</b> '+gone.slice(0,6).map(r=>_esc(r.bcode)+
+          (r.lastSeen?(' <i>(last seen '+_dmy(r.lastSeen)+')</i>'):'')).join(', ')+
+        (gone.length>6?'…':'')+'. They are <b>pinned to the top of the table</b> and will stay there — '+
+        'the software keeps them even though SAP dropped them, so the get-out on VAS cannot be missed. '+
+        'File the VASSCM declaration and tick the VAS column; only then does the row leave.']);
     const zero=_all.filter(r=>r.st==='emptied');
     if(zero.length)
       out.push(['warn','<b>◍ '+zero.length+' batch(es) are empty but VASSCM is NOT ticked:</b> '+
         zero.slice(0,6).map(r=>_esc(r.bcode)).join(', ')+(zero.length>6?'…':'')+
-        '. Once pumped out the VASSCM declaration is due — tick the VAS column and the row dims down '+
-        'and stops nagging.']);
+        '. Once pumped out the VASSCM declaration is due. They are <b>pinned to the top of the table</b> '+
+        'until the VAS column is ticked, then the row dims down and stops nagging.']);
+    const arc=_all.filter(r=>r.st==='archiving');
+    if(arc.length)
+      out.push(['info','<b>🗄 '+arc.length+' finished batch(es) are on their way to the archive:</b> '+
+        arc.slice(0,6).map(r=>_esc(r.bcode)+' <i>('+(r.archDays!=null && r.archDays>0
+          ? ('in '+r.archDays+' d') : 'now')+')</i>').join(', ')+(arc.length>6?'…':'')+
+        '. VASSCM is filed and SAP no longer lists them, so after '+ARCH_WAIT_DAYS+' days they leave the '+
+        'table and are kept on Firebase. Nothing is lost — read them back by month. '+
+        '<button class="bond-btn" onclick="BOND.openArch()">🗄 Open the archive</button>']);
     const nw=_all.filter(r=>r.noInfo && r.inSap);
     if(nw.length)
       out.push(['warn','<b>✎ '+nw.length+' batch(es) in SAP have no details yet:</b> '+
@@ -1996,6 +2428,10 @@ const BOND = (function(){
     _renderCards();
     _renderAlerts();
     _fillPeriodSel();
+    _arcBtn();
+    /* v4.118 — dọn những lô đã xong hẳn. Chạy SAU khi đã vẽ, và tự im lặng
+       khi chưa tới hạn hoặc khi số SAP chưa đáng tin. */
+    _autoArchive();
     const m=_el('bondMonth'); if(m && !m.value) m.value=_month||_ym(_asOf());
     const n=_el('bondCount');
     if(n) n.textContent=(filterOn()?(_rows.length+'/'+_all.length):(_all.length))+' batches'+
@@ -2072,13 +2508,21 @@ const BOND = (function(){
     init, onEnter, render, recalc, setMode,
     setInfo, delRow,
     savePeriod, openPeriod, closePeriod, delPeriod,
+    /* v4.118 — kho lưu trữ + sổ theo dõi */
+    openArch, closeArch, loadArchMonth, closeArchMonth, delArchMonth, delArchYear, archiveNow,
     openOl1, closeOl1, onOl1Month, onOl1Unit, setUse, addUseRow, fillMonth, delUseRow,
     toggleCards, toggleSlim, toggleAlerts, onMonth, exportXlsx,
     pickFile, fileChosen, pasteOpen, pasteRead, pasteCancel,
     impSet, impApply, impCancel,
     onFilter, clearFilter, filterOn,
     /* hook kiểm thử — không dùng trong app */
-    _state:{ INFO, USE, rows:()=>_rows, all:()=>_all, periods:()=>PERIODS,
+    _state:{ INFO, USE, WATCH, rows:()=>_rows, all:()=>_all, periods:()=>PERIODS,
+             aidx:()=>AIDX, setAidx:v=>{ AIDX=v||{}; },
+             arcTotal:_arcTotal, arcMonths:_arcMonths, arcCount:_arcCount,
+             archYm:_archYm, archDueOf:_archDueOf, archPending:_archPending, archDue:_archDue,
+             archiveRows:_archiveRows, autoArchive:_autoArchive, watchOk:_watchOk,
+             syncWatch:_syncWatch, renderArch:_renderArch, arcM:()=>_arcM,
+             ARCH_WAIT_DAYS,
              prevDay:()=>_prevDay, ST_NAME,
              setFilter:(q,m,l,st)=>{ _fq=(q||'').toLowerCase(); _fMat=m||''; _fLot=l||''; _fSt=st||''; },
              filter:()=>({q:_fq,mat:_fMat,lot:_fLot,st:_fSt}),
