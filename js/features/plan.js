@@ -761,6 +761,7 @@ function _makePlanModule(opts){
       }
       refreshCounts();
       try{ renderLedger(); }catch(_){}
+      try{ _ledFlash(oid); }catch(_){}   /* v4.124 */
     }, 30);
     toast('Row '+(row.plate||oid)+': Auto-sync '+(goingAuto?'ON':'OFF (manual)'), 'ok');
   }
@@ -800,6 +801,7 @@ function _makePlanModule(opts){
       if(table){ try{ const r = table.getRow(oid); if(r){ r.reformat(); rowFmt(r); } }catch(_){} }
       refreshCounts();
       try{ renderLedger(); }catch(_){}
+      try{ _ledFlash(oid); }catch(_){}   /* v4.124 */
     }, 30);
     toast('Row '+(row.plate||oid)+': '+status.toUpperCase()+' (Auto-sync OFF — re-check ☑ to undo)', 'ok');
   }
@@ -2101,9 +2103,22 @@ function _makePlanModule(opts){
 
   function rebuildTableData(){
     if(!table){ buildTable(); renderLedger(); return; }
+    /* v4.124 — chế độ TABLE cũng phải đứng yên: replaceData của Tabulator
+       thỉnh thoảng trả khung về đầu. Chụp scrollTop của .tabulator-tableholder
+       rồi đặt lại ngay sau khi thay dữ liệu (và một lần nữa sau lượt rowFmt,
+       vì reformat có thể đổi chiều cao dòng). */
+    let _hold = null, _holdTop = 0, _holdLeft = 0;
+    try{
+      _hold = document.getElementById(PANE) && document.getElementById(PANE).querySelector('.tabulator-tableholder');
+      if(_hold){ _holdTop = _hold.scrollTop; _holdLeft = _hold.scrollLeft; }
+    }catch(_){}
     try{ table.replaceData(tableRows()); }
     catch(_){ buildTable(); }
-    setTimeout(()=>{ table.getRows().forEach(r=>rowFmt(r)); }, 30);
+    if(_hold && (_holdTop || _holdLeft)){ try{ _hold.scrollTop = _holdTop; _hold.scrollLeft = _holdLeft; }catch(_){} }
+    setTimeout(()=>{
+      table.getRows().forEach(r=>rowFmt(r));
+      if(_hold && (_holdTop || _holdLeft)){ try{ _hold.scrollTop = _holdTop; _hold.scrollLeft = _holdLeft; }catch(_){} }
+    }, 30);
     renderLedger();   /* v4.35.0 — keep the Customer Ledger view in sync */
   }
 
@@ -2758,6 +2773,7 @@ function _makePlanModule(opts){
       }
     }catch(_){}
     rebuildTableData();   /* re-renders table + ledger */
+    try{ _ledFlash(oid); }catch(_){}   /* v4.124 */
   }
   /* Click a data cell → swap to an inline input; Enter / blur commit, Esc cancels. */
   function ledgerCellEdit(oid, field, td, ev){
@@ -2830,7 +2846,95 @@ function _makePlanModule(opts){
     if(!isFinite(n)) return '0.000';
     return n.toLocaleString('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
   }
+  /* ══ v4.124 — ĐỔI TRẠNG THÁI KHÔNG ĐƯỢC LÀM BẢNG NHẢY LÊN ĐẦU ═══════════
+     BỆNH: ledger vẽ lại bằng host.innerHTML = h, tức khung cuộn .pv-scroll bị
+     THAY MỚI hoàn toàn ⇒ scrollTop về 0. Nhân viên đang làm ở dòng thứ 40,
+     bấm đổi trạng thái một cái là màn hình văng lên đầu bảng, phải cuộn lại
+     và rất dễ bấm nhầm sang dòng khác.
+     CÁCH CHỮA: TRƯỚC khi vẽ, ghi lại DÒNG (data-oid) đang nằm sát mép trên
+     khung cuộn cùng khoảng cách của nó tới mép; SAU khi vẽ, tìm lại đúng dòng
+     đó và kéo scrollTop sao cho nó về lại đúng chỗ cũ.
+     Vì sao neo theo DÒNG chứ không nhớ mỗi con số scrollTop: chiều cao bảng
+     có thể đổi giữa hai lần vẽ (dòng bị bộ lọc loại bỏ, thanh chip đếm xuống
+     hàng, badge cảnh báo mọc thêm…) — nhớ số thô sẽ lệch. Không tìm thấy dòng
+     neo (ví dụ dòng vừa bị lọc mất) thì trả lại scrollTop cũ.
+     Giữ cả scrollLeft (bảng rộng, hay đang cuộn ngang), scrollTop của các
+     khung cuộn CHA và của cả trang. */
+  function _ledScrollSave(){
+    const host = document.getElementById(ID + 'Ledger');
+    if(!host) return null;
+    const anc = [];
+    for(let el = host.parentElement; el && el.nodeType === 1; el = el.parentElement){
+      if(el.scrollTop > 0 || el.scrollLeft > 0) anc.push({ el:el, t:el.scrollTop, l:el.scrollLeft });
+    }
+    const st = { sc:null, anc:anc, win:(window.pageYOffset || 0) };
+    const sc = host.querySelector('.pv-scroll');
+    if(sc){
+      st.sc = { top: sc.scrollTop, left: sc.scrollLeft, oid:'', delta:0 };
+      const base = sc.getBoundingClientRect().top;
+      const rows = sc.querySelectorAll('tr.pv-row[data-oid]');
+      for(let i = 0; i < rows.length; i++){
+        const d = rows[i].getBoundingClientRect().top - base;
+        if(d >= -1){ st.sc.oid = rows[i].getAttribute('data-oid'); st.sc.delta = d; break; }
+      }
+      /* đã cuộn quá cuối bảng → neo vào dòng cuối cùng */
+      if(!st.sc.oid && rows.length){
+        const last = rows[rows.length - 1];
+        st.sc.oid   = last.getAttribute('data-oid');
+        st.sc.delta = last.getBoundingClientRect().top - base;
+      }
+    }
+    return st;
+  }
+  function _ledScrollRestore(st){
+    if(!st) return;
+    const host = document.getElementById(ID + 'Ledger');
+    if(!host) return;
+    const sc = host.querySelector('.pv-scroll');
+    if(sc && st.sc){
+      sc.scrollLeft = st.sc.left;
+      sc.scrollTop  = st.sc.top;                 /* mặc định: y như trước */
+      if(st.sc.oid){
+        let sel = null;
+        try{ sel = 'tr.pv-row[data-oid="' + ((window.CSS && CSS.escape) ? CSS.escape(st.sc.oid) : st.sc.oid) + '"]'; }catch(_){}
+        let el = null;
+        try{ el = sel ? sc.querySelector(sel) : null; }catch(_){}
+        if(el){
+          const d = el.getBoundingClientRect().top - sc.getBoundingClientRect().top;
+          sc.scrollTop += (d - st.sc.delta);     /* kéo dòng neo về đúng mép cũ */
+        }
+      }
+    }
+    st.anc.forEach(a=>{ try{ a.el.scrollTop = a.t; a.el.scrollLeft = a.l; }catch(_){} });
+    if(st.win){ try{ window.scrollTo(window.pageXOffset || 0, st.win); }catch(_){} }
+  }
+  /* v4.124 — nháy vàng dòng vừa sửa. Trước đây bảng nhảy lên đầu nên người
+     dùng "biết" là máy đã ăn lệnh; nay bảng đứng yên thì phải có dấu hiệu
+     khác, nếu không lại tưởng bấm hụt và bấm thêm lần nữa. Gọi SAU khi vẽ
+     lại (renderLedger tự lo), chỉ đụng class nên không tốn Firebase. */
+  function _ledFlash(oid){
+    if(!oid || viewMode !== 'ledger') return;
+    const host = document.getElementById(ID + 'Ledger');
+    if(!host) return;
+    let el = null;
+    try{
+      el = host.querySelector('tr.pv-row[data-oid="'
+        + ((window.CSS && CSS.escape) ? CSS.escape(String(oid)) : String(oid)) + '"]');
+    }catch(_){}
+    if(!el) return;
+    el.classList.remove('pl-flash');
+    void el.offsetWidth;              /* ép trình duyệt chạy lại animation */
+    el.classList.add('pl-flash');
+  }
+  /* Lớp bọc DUY NHẤT: mọi nơi trong app vẫn gọi renderLedger() như cũ, không
+     phải sửa ~15 chỗ gọi. Hàm vẽ thật đổi tên thành _renderLedgerRaw. */
   function renderLedger(){
+    if(viewMode !== 'ledger') return;
+    const st = _ledScrollSave();
+    _renderLedgerRaw();
+    try{ _ledScrollRestore(st); }catch(e){ console.warn('[PLAN] ledger scroll restore', e); }
+  }
+  function _renderLedgerRaw(){
     if(viewMode !== 'ledger') return;
     const host = document.getElementById(ID + 'Ledger');
     if(!host) return;
@@ -3029,7 +3133,7 @@ function _makePlanModule(opts){
         const sgStyle = statusCls ? '' : (' style="background-color:'+SG_COLORS[colorIdx]+';border-left:3px solid '+SG_BORDERS[colorIdx]+'"');
 
         const ec = (field)=>' pv-editable" onclick="'+G+'.ledgerCellEdit(\''+oid+'\',\''+field+'\',this,event)';
-        body += '<tr class="pv-row'+statusCls+warnCls+'"'+sgStyle+'>'
+        body += '<tr class="pv-row'+statusCls+warnCls+'" data-oid="'+oid+'"'+sgStyle+'>'
           + '<td class="pv-no">'+escapeHtml(String(r.no||idx+1))+'</td>'
           + (isTmr?'':'<td class="pv-autoc">'+autoH+'</td>')
           + '<td class="pv-datec">'+dateH+'</td>'

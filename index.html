@@ -10,7 +10,7 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=4123">
+<link rel="stylesheet" href="css/core.css?v=4124">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
@@ -4744,7 +4744,7 @@
 <script src="js/data/tlxk.js?v=486"></script><!-- v4.86 — TL Data → sheet "Detail" của PHIẾU XUẤT KHO (.xlsm) -->
 <script src="js/data/wg.js"></script>
 <script src="js/data/ws.js"></script>
-<script src="js/data/sp.js?v=4123"></script><!-- v4.108 — SP.tankEnd(sloc,date): End Stock của một bồn tại một ngày, tách C3/C4, cho bảng đối chiếu chuyển kho -->
+<script src="js/data/sp.js?v=4124"></script><!-- v4.108 — SP.tankEnd(sloc,date): End Stock của một bồn tại một ngày, tách C3/C4, cho bảng đối chiếu chuyển kho -->
 <!-- v4.99 — SLoc 1100 LUÔN tách theo mã batch (mã lạ vẫn giữ dòng, chỉ cảnh báo), tìm/sắp theo mã batch; dòng gộp cũ dọn ngay trong bảng xác nhận khi dán -->
 <script src="js/data/ct.js"></script>
 <script src="js/data/pp.js"></script>
@@ -4753,7 +4753,7 @@
 <script src="js/checks/wgcheck.js?v=4112"></script><!-- v4.112 — phiếu PTT của xe GỘP liệt kê đủ mọi DO kèm số của từng DO (trước đây chỉ in một đơn) -->
 <!-- features -->
 <script src="js/features/fleet.js"></script>
-<script src="js/features/plan.js?v=4112"></script><!-- v4.109 — 🔗 LINK ORDERS: một đơn hàng thật nằm trên nhiều dòng kế hoạch. Nhóm ALT (một trong N xe sẽ vào lấy) chỉ được tính MỘT lần vào PLAN/LOADED/REMAIN — trước đây 1 đơn 25 MT khai 3 xe bị cộng thành 75 MT; xe nào vào station trước thì các dòng anh em tự park (cancel + cờ _altSkip) và tự mở lại nếu xe đó rời station. Nhóm MDO (một xe nhiều DO) khai trước để tab Scale gộp thẳng lúc assign. Cột ACTUAL + mọi số MT hiện 3 số thập phân (đọc được tới kg) · v4.112 — TP.lnkLinkMdo: nhân viên cân chọn "bán gộp" ngay lúc assign thì nhóm 🔗 MULTI-DO được lập luôn trên Today Plan -->
+<script src="js/features/plan.js?v=4124"></script><!-- v4.124 — GIỮ NGUYÊN VỊ TRÍ CUỘN khi đổi trạng thái: ledger vẽ lại bằng innerHTML nên khung .pv-scroll bị thay mới và văng lên đầu bảng; nay mỗi dòng có data-oid, trước khi vẽ ghi lại dòng sát mép trên + khoảng lệch, vẽ xong kéo về đúng chỗ (bù được cả khi bảng đổi chiều cao). Chế độ TABLE giữ scrollTop của .tabulator-tableholder quanh replaceData · v4.109 — 🔗 LINK ORDERS: một đơn hàng thật nằm trên nhiều dòng kế hoạch. Nhóm ALT (một trong N xe sẽ vào lấy) chỉ được tính MỘT lần vào PLAN/LOADED/REMAIN — trước đây 1 đơn 25 MT khai 3 xe bị cộng thành 75 MT; xe nào vào station trước thì các dòng anh em tự park (cancel + cờ _altSkip) và tự mở lại nếu xe đó rời station. Nhóm MDO (một xe nhiều DO) khai trước để tab Scale gộp thẳng lúc assign. Cột ACTUAL + mọi số MT hiện 3 số thập phân (đọc được tới kg) · v4.112 — TP.lnkLinkMdo: nhân viên cân chọn "bán gộp" ngay lúc assign thì nhóm 🔗 MULTI-DO được lập luôn trên Today Plan -->
 <script src="js/features/scale.js?v=4119"></script><!-- v4.110 — SỬA LỖI IN GỘP/TÁCH MULTI-DO chạy chập chờn: hộp hỏi chuyển từ ô kết quả tìm kiếm của trạm (bị handler click-outside + scRenderCtrl ghi đè) sang MODAL riêng không đóng khi bấm ra nền; CẢ HAI đường assign (dò tìm & đã link) đều hỏi cách in một lần duy nhất; số chia per-DO (_mdoNets), turn đã chốt (_tlTurn) và cách in (_pttMode) lưu lên trạm nên sống sót qua F5 và sang máy khác; chặn dòng thiếu số DO; hộp hỏi phiếu DN mở sẵn đúng lựa chọn lúc assign · v4.109 — thẻ PLAN dùng chung TP.lnkTotals nên không còn lệch với Today Plan (+3 số thập phân) · v4.112 — KHÔI PHỤC phép dò tìm multi-DO lúc assign chạy SONG SONG với 🔗 Link Orders: bỏ cửa chặn im lặng (tổng ≤27, bắt buộc trùng tài xế, anh em đang xếp hàng đợi), chọn gộp thì link ngược về Today Plan, PTT in đủ mọi DO, TL Data ghi khoá mdoG -->
 <script src="js/features/fnote.js?v=484"></script><!-- Sổ ghi chú xe/tài xế — lazy, không tự đọc Firebase -->
 <script src="js/features/eng.js?v=4111"></script><!-- v4.107 — cột Filled LPG = ΣCOQ (lùi GC khi lot chưa có COQ), hai cột Filled C3/C4 (GC) hạ nổi bật · v4.108 — thêm 4 cột Open/End C3/C4 THỰC TẾ (INIT/FINAL VOL đo được × nền COQ), chỉ tính trên máy · v4.111 — thêm 4 cột Gap C3/C4 + Adj ST C3/C4 (kg) ghi kết quả đối chiếu chuyển kho -->
@@ -4773,7 +4773,7 @@
 <script src="js/features/mixnotify.js?v=4114"></script><!-- v4.111 — thẻ thông báo Tank Mix hiện thêm System opening (sửa được tại chỗ), Gap và số chuyển kho ĐÃ ĐIỀU CHỈNH; ✅ ghi luôn kết quả đối chiếu vào 4 cột mới của Tank Log · v4.113 — hiện dòng "+N thông báo nữa đang chờ" khi vượt quá 4 ô · v4.114 — ô nhập đổi sang type=text để giữ được con trỏ -->
 <script src="js/features/cav.js"></script>
 <script src="js/features/vs.js"></script>
-<script src="js/features/fcst.js?v=4123"></script><!-- v4.120 — ⭐ DỰ BÁO TỒN KHO trên thanh SCALE CONSOLE · CHỈ lô D + E (P/X không tính), đơn xuất khẩu trừ lô E, nội địa trừ lô D, thêm ô nhập tàu/heater tạm tính · v4.119 — bản đầu: tồn ĐÃ THÔNG QUAN của SAP (1100+2100+2101) trừ MỌI kế hoạch có ngày SAU ngày SAP (Today Plan + Tomorrow Plan). Tỉ lệ bán (%vol) được ghép với lot có %vol gần nhất — lot đang trong bồn → lịch sử Tank Log → tạm tính — rồi lấy %wt của lot đó tách ra kg C3/C4. Cảnh báo khi kế hoạch bán LỐ hơn hàng đã thông quan (rủi ro bơm nhầm hàng chưa thông quan) -->
+<script src="js/features/fcst.js?v=4124"></script><!-- v4.120 — ⭐ DỰ BÁO TỒN KHO trên thanh SCALE CONSOLE · CHỈ lô D + E (P/X không tính), đơn xuất khẩu trừ lô E, nội địa trừ lô D, thêm ô nhập tàu/heater tạm tính · v4.119 — bản đầu: tồn ĐÃ THÔNG QUAN của SAP (1100+2100+2101) trừ MỌI kế hoạch có ngày SAU ngày SAP (Today Plan + Tomorrow Plan). Tỉ lệ bán (%vol) được ghép với lot có %vol gần nhất — lot đang trong bồn → lịch sử Tank Log → tạm tính — rồi lấy %wt của lot đó tách ra kg C3/C4. Cảnh báo khi kế hoạch bán LỐ hơn hàng đã thông quan (rủi ro bơm nhầm hàng chưa thông quan) -->
 <script src="js/features/scx2.js?v=4117"></script><!-- v4.108 — nút 📏 trên thẻ tank mở bảng đối chiếu chuyển kho · v4.117 — thêm nút 🔍 WMS stock check (đo tại chỗ → câu lệnh chuyển kho rõ chiều bồn ⇄ hầm 1100) -->
 <!-- integrations -->
 <script src="js/integrations/ptt-early.js?v=4110"></script><!-- v4.87 — chọn kỹ sư cho phiếu KTPTVC khi in early/today -->

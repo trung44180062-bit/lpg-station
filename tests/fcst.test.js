@@ -335,8 +335,8 @@ const CSS=fs.readFileSync(path.join(ROOT,'css','core.css'),'utf8');
   '.fc-fullwrap','.fc-full','.fc-warn.bad','.fc-m td.lf','.fc-b.big','.fc-keys',
   '.fc-tbl tr.fc-key td','.fc-cap b','.fc-cap u']
   .forEach(c=>chk('css co '+c, CSS.indexOf(c)>=0));
-chk('index.html nap fcst.js + core.css + sp.js ban 4123',
-    /fcst\.js\?v=4123/.test(HTML) && /core\.css\?v=4123/.test(HTML) && /sp\.js\?v=4123/.test(HTML));
+chk('index.html nap fcst.js + core.css + sp.js ban 4124',
+    /fcst\.js\?v=4124/.test(HTML) && /core\.css\?v=4124/.test(HTML) && /sp\.js\?v=4124/.test(HTML));
 chk('⭐ bang ben tab SAP MAC DINH AN (da co san ben Scale)',
     /class="fc-fullwrap collapsed"/.test(HTML) && />Show forecast</.test(HTML) &&
     /let _analysisVisible = false/.test(fs.readFileSync(path.join(ROOT,'js','data','sp.js'),'utf8')));

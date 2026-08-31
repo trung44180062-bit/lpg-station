@@ -3217,6 +3217,16 @@ body{font-family:'Barlow',system-ui,sans-serif;background:var(--bg);color:var(--
 .tabulator-row.pl-flash{animation:plFlash 1.6s ease-out;}
 @keyframes plFlash{0%,60%{background:#fff3c4 !important;}100%{background:transparent;}}
 
+/* ══ v4.124 — NHÁY VÀNG DÒNG VỪA SỬA TRÊN LEDGER ═══════════════════════
+   Bảng không còn nhảy lên đầu sau mỗi lần đổi trạng thái nữa, nghĩa là
+   mắt người dùng cũng không còn cú "giật" nào để biết máy đã ăn lệnh.
+   Nháy vàng 1.6s vào đúng dòng vừa sửa để thấy ngay mình bấm trúng dòng
+   nào. Tô vào TD chứ không tô TR: nền dòng trên .pv-tbl vốn đặt ở td
+   (.pv-row.done td, .loading td…) nên tô ở tr sẽ bị td đè mất. Dùng
+   opacity 1 để dòng done/cancel (đang mờ) vẫn nhìn rõ lúc nháy. */
+.pv-tbl tr.pv-row.pl-flash td{animation:pvFlash 1.6s ease-out;}
+@keyframes pvFlash{0%,55%{background:#fff3c4;opacity:1;}100%{background:transparent;}}
+
 /* ════════ v4.36.1 — SCALE "OPERATIONS CONSOLE v2.1" (prefix scx2-) ════════
    Dark frame, no pipes, no right rail (user feedback): tanks column left,
    bays + info row (PLAN · QUEUE · EXPIRED CERTS) + dock fill the yard.
