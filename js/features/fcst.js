@@ -80,7 +80,13 @@ const FCST = (function(){
   function _who(){ try{ return (typeof CURRENT_USER!=='undefined' && CURRENT_USER && CURRENT_USER.name)
     ? CURRENT_USER.name : ''; }catch(_){ return ''; } }
   function _canWrite(){
-    try{ return (typeof canWrite==='function') ? canWrite('plan_today') : true; }catch(_){ return true; }
+    try{
+      /* v4.126 — tài khoản SALE mượn khoá quyền 'plan_today' nên lọt qua đây,
+         nhưng fcst ghi vào node fcst_map/fcst_extra (ngoài hai bảng plan) và
+         sẽ bị cổng đường dẫn ở auth.js chặn. Chặn sớm cho gọn thông báo. */
+      if(typeof AUTH!=='undefined' && AUTH && AUTH.isSale && AUTH.isSale()) return false;
+      return (typeof canWrite==='function') ? canWrite('plan_today') : true;
+    }catch(_){ return true; }
   }
   function _num(v){
     if(v===''||v==null) return null;

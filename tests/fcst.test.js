@@ -351,8 +351,10 @@ const CSS=fs.readFileSync(path.join(ROOT,'css','core.css'),'utf8');
 chk('index.html nap dung ban: fcst 4125 + helpers 4125 + scale 4125 + cav 4125',
     /fcst\.js\?v=4125/.test(HTML) && /helpers\.js\?v=4125/.test(HTML) &&
     /scale\.js\?v=4125/.test(HTML) && /cav\.js\?v=4125/.test(HTML));
-chk('… core.css + sp.js giu ban 4124 (khong doi gi ben trong)',
-    /core\.css\?v=4124/.test(HTML) && /sp\.js\?v=4124/.test(HTML));
+/* v4.126 — core.css ĐÃ đổi (thêm style thông báo SALENOTIF + cờ vai trò hạn chế)
+   nên phải nâng ?v=; chỉ còn canh sp.js giữ nguyên 4124. */
+chk('… sp.js giu ban 4124 (khong doi gi ben trong)',
+    /core\.css\?v=4126/.test(HTML) && /sp\.js\?v=4124/.test(HTML));
 chk('⭐ bang ben tab SAP MAC DINH AN (da co san ben Scale)',
     /class="fc-fullwrap collapsed"/.test(HTML) && />Show forecast</.test(HTML) &&
     /let _analysisVisible = false/.test(fs.readFileSync(path.join(ROOT,'js','data','sp.js'),'utf8')));

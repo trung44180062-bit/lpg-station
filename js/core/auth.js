@@ -34,8 +34,41 @@ window.AUTH = (function () {
   var MATRIX = {
     admin:  '*',                                   // ghi mọi vùng
     editor: '*',                                   // ghi mọi vùng — hiện editor = admin (mọi tab)
+    // v4.126 — SALE: chỉ xem toàn app, CHỈ được thao tác trên Today Plan + Tomorrow Plan.
+    //   Hai khoá dưới đây khớp permKey của TP/TMR (xem plan.js dòng 3261/3268).
+    sale:   ['plan_today', 'plan_tomorrow'],
     viewer: []                                     // chỉ xem
   };
+
+  /* v4.126 — CỔNG CHẶN THỨ HAI, THEO ĐƯỜNG DẪN FIREBASE.
+     canWrite(area) chỉ chặn được những chỗ có GỌI nó; rất nhiều module (scale,
+     tl, staff, vmix, inv, tkv…) ghi thẳng xuống Firebase mà không hỏi ai. Với
+     vai trò hạn chế (sale / viewer) ta vá luôn Reference.prototype nên MỌI
+     lệnh set/update/remove/push đều phải qua đây — không sót đường nào.
+     ⚠ Đây là lưới an toàn phía client; khoá thật vẫn phải đặt ở Firebase Rules. */
+  var PATH_ALLOW = {
+    sale: [
+      /^plan_today(\/|$)/,
+      /^plan_tomorrow(\/|$)/,
+      /^plan_today_version$/,
+      /^plan_tomorrow_version$/
+    ],
+    viewer: []
+  };
+
+  /* Danh sách hàm IN / XUẤT FILE bị khoá với vai trò hạn chế. Mấy hàm này không
+     ghi Firebase nên cổng đường dẫn ở trên không chạm tới được — phải thay thân
+     hàm. Tên viết dạng "TEN_TOAN_CUC" hoặc "OBJ.method". */
+  var LOCK_FNS = [
+    'exportCsv', 'tpExportCsv', 'tmrExportCsv', 'tlExportCsv', 'wgExportCsv',
+    'wsExportCsv', 'spExportCsv', 'ctExportCsv', 'ppExportCsv', 'vsExport',
+    'rptExecuteExport', 'ENG.exportXlsx', 'BOND.exportXlsx', 'MTHR.exportXlsx',
+    'PLOG.exportXlsx', 'VLOG.exportXlsx', 'VLOG.exportCsv', 'ODOR.exportCsv',
+    'CAV.exportReport', 'INV.openExport', 'TLXK.run', 'TLXK.open',
+    'pfPrint', 'pfPrint3DN', 'pttOvPrint', 'dnOvPrint', 'dnOvPrint3',
+    'ktPrint', 'ENG.openPrint', 'ENG.doPrint', 'SCALE.techPrintDone',
+    'PTT_EARLY.open', 'PTT_EARLY.openFor', 'KTPTVC.open'
+  ];
 
   function emailKey(email) {
     return String(email || '').trim().toLowerCase().replace(/\./g, ',');
@@ -44,10 +77,11 @@ window.AUTH = (function () {
   function applyRole(role, name, email, uid) {
     window.CURRENT_USER = { uid: uid || '', name: name || email || '', email: email || '', role: role || 'viewer' };
     _paintUser();
+    _applyLock();
   }
 
   // Cap nhat goc nguoi dung tren thanh nav tu CURRENT_USER (khong con hardcode "Dev User").
-  var ROLE_LABEL = { admin: 'Administrator', editor: 'Editor', viewer: 'Viewer' };
+  var ROLE_LABEL = { admin: 'Administrator', editor: 'Editor', sale: 'Sales (plan only)', viewer: 'Viewer' };
   function _paintUser() {
     var u = window.CURRENT_USER || {};
     var nm = document.querySelector('.nav-user .uname');
@@ -57,6 +91,145 @@ window.AUTH = (function () {
     if (nm) nm.textContent = name;
     if (rl) rl.textContent = u.email ? (ROLE_LABEL[u.role] || u.role || 'Viewer') : '—';
     if (av) av.textContent = (name && name !== '—') ? name.trim().charAt(0).toUpperCase() : '–';
+  }
+
+
+  /* ══════════ v4.126 · LƯỚI AN TOÀN CHO VAI TRÒ HẠN CHẾ ══════════ */
+
+  function isRestricted() {
+    var u = window.CURRENT_USER || {};
+    return MATRIX[u.role] !== '*';
+  }
+  function isSale() {
+    return String((window.CURRENT_USER || {}).role || '') === 'sale';
+  }
+
+  /* Đường dẫn tương đối của một Reference: "https://host/a/b" → "a/b". */
+  function _refPath(ref) {
+    try {
+      var s = String(ref);
+      var i = s.indexOf('://'); if (i < 0) return '';
+      var j = s.indexOf('/', i + 3); if (j < 0) return '';
+      var q = s.indexOf('?', j); if (q >= 0) s = s.slice(0, q);
+      return decodeURIComponent(s.slice(j + 1)).replace(/^\/+|\/+$/g, '');
+    } catch (_) { return ''; }
+  }
+
+  // Vai trò này có được ghi vào đường dẫn Firebase đó không.
+  function mayWritePath(path) {
+    var u = window.CURRENT_USER || {};
+    if (MATRIX[u.role] === '*') return true;
+    var list = PATH_ALLOW[u.role];
+    if (!list || !list.length) return false;
+    var p = String(path || '').replace(/^\/+|\/+$/g, '');
+    if (!p) return false;                       // ghi đè cả gốc: cấm tuyệt đối
+    for (var i = 0; i < list.length; i++) if (list[i].test(p)) return true;
+    return false;
+  }
+
+  // Toast gom lại: một lần / 2,5 giây, tránh spam khi một thao tác bắn nhiều lệnh ghi.
+  var _lastDeny = 0;
+  function _deny(what, msg) {
+    var now = Date.now();
+    if (now - _lastDeny > 2500) {
+      _lastDeny = now;
+      try { if (typeof toast === 'function') toast(msg || 'Your account is view-only — this action is blocked', 'er'); } catch (_) {}
+    }
+    console.warn('[AUTH] blocked ·', what);
+  }
+
+  // Vá Reference.prototype MỘT LẦN. Lúc chưa hạn chế thì các hàm vá chỉ gọi thẳng bản gốc.
+  var _guarded = false;
+  function installWriteGuard() {
+    if (_guarded) return false;
+    if (typeof firebase === 'undefined' || !firebase.database) return false;
+    var proto;
+    try { proto = Object.getPrototypeOf(firebase.database().ref()); } catch (_) { return false; }
+    if (!proto || proto.__lpgGuard) return false;
+    proto.__lpgGuard = true; _guarded = true;
+
+    ['set', 'remove', 'setWithPriority', 'transaction'].forEach(function (m) {
+      var orig = proto[m];
+      if (typeof orig !== 'function') return;
+      proto[m] = function () {
+        var p = _refPath(this);
+        if (!mayWritePath(p)) {
+          _deny(m + ' ' + p);
+          return Promise.reject(new Error('AUTH_WRITE_DENIED:' + p));
+        }
+        return orig.apply(this, arguments);
+      };
+    });
+
+    var origUpd = proto.update;
+    if (typeof origUpd === 'function') {
+      proto.update = function (values) {
+        var base = _refPath(this), bad = null;
+        var keys = (values && typeof values === 'object') ? Object.keys(values) : [];
+        if (!keys.length) {
+          if (!mayWritePath(base)) bad = base;
+        } else {
+          for (var i = 0; i < keys.length; i++) {
+            var full = (base ? base + '/' : '') + String(keys[i]).replace(/^\/+/, '');
+            if (!mayWritePath(full)) { bad = full; break; }
+          }
+        }
+        if (bad !== null) {
+          _deny('update ' + bad);
+          return Promise.reject(new Error('AUTH_WRITE_DENIED:' + bad));
+        }
+        return origUpd.apply(this, arguments);
+      };
+    }
+
+    /* push(value) vừa cấp khoá vừa ghi. Bị cấm thì vẫn trả về một Reference thật
+       (gọi push() rỗng) để chỗ gọi còn lấy .key mà không nổ — nhưng KHÔNG ghi gì. */
+    var origPush = proto.push;
+    if (typeof origPush === 'function') {
+      proto.push = function (value) {
+        if (arguments.length && value !== undefined && value !== null) {
+          var p = _refPath(this);
+          if (!mayWritePath(p)) { _deny('push ' + p); return origPush.call(this); }
+        }
+        return origPush.apply(this, arguments);
+      };
+    }
+    return true;
+  }
+
+  /* Thay thân các hàm IN / XUẤT FILE bằng thông báo từ chối. Chạy lại được nhiều
+     lần (đánh dấu __lpgLocked) và bọc try/catch vì có object dùng getter. */
+  function _lockFn(sig) {
+    var parts = String(sig).split('.');
+    var host = window, name = parts[0];
+    if (parts.length === 2) { host = window[parts[0]]; name = parts[1]; }
+    if (!host || typeof host[name] !== 'function' || host[name].__lpgLocked) return;
+    var stub = function () {
+      _deny('fn ' + sig, 'Your account is not allowed to print or export');
+      return false;
+    };
+    stub.__lpgLocked = true;
+    try { host[name] = stub; } catch (_) {}
+  }
+
+  /* Gắn cờ vai trò lên <body> (CSS dùng để mờ/ẩn nút) + khoá hàm in/xuất. */
+  function _applyLock() {
+    var u = window.CURRENT_USER || {};
+    var ro = isRestricted();
+    try {
+      var b = document.body;
+      if (b) {
+        b.classList.toggle('role-restricted', ro);
+        b.classList.toggle('role-sale', u.role === 'sale');
+        b.classList.toggle('role-viewer', ro && u.role !== 'sale');
+        b.setAttribute('data-role', u.role || '');
+      }
+    } catch (_) {}
+    if (!ro) return;
+    installWriteGuard();
+    /* Chỉ SALE bị cấm in / xuất file. `viewer` giữ nguyên nếp cũ — xem và in được,
+       vì in/xuất không đổi dữ liệu; chốt này do người dùng quyết (v4.126). */
+    if (u.role === 'sale') LOCK_FNS.forEach(_lockFn);
   }
 
   // canWrite(area) — cổng trung tâm MỌI lệnh ghi phải đi qua (giữ nguyên chữ ký cũ).
@@ -267,6 +440,10 @@ window.AUTH = (function () {
           if (!wl || wl.active !== true) { showBlocked(user.email); return; }
           hideOverlay();
           applyRole(wl.role || 'viewer', wl.name || user.displayName, user.email, user.uid);
+          /* Chạy lại sau khi boot đã nạp xong feature: lúc applyRole() gọi lần đầu
+             có module chưa định nghĩa hàm in/xuất nên _lockFn() chưa vá được. */
+          setTimeout(_applyLock, 0);
+          setTimeout(_applyLock, 2500);
           ready(window.CURRENT_USER);
         }).catch(function (e) { console.error('[AUTH] whitelist loi', e); showBlocked(user.email); });
       });
@@ -283,5 +460,9 @@ window.AUTH = (function () {
   window.canWrite = canWrite;   // giu canWrite() la global nhu V4-54
 
   return { init: init, login: login, logout: logout, canWrite: canWrite,
-           lookupWhitelist: lookupWhitelist, emailKey: emailKey, MATRIX: MATRIX };
+           lookupWhitelist: lookupWhitelist, emailKey: emailKey, MATRIX: MATRIX,
+           /* v4.126 */
+           PATH_ALLOW: PATH_ALLOW, LOCK_FNS: LOCK_FNS, mayWritePath: mayWritePath,
+           isRestricted: isRestricted, isSale: isSale,
+           installWriteGuard: installWriteGuard, applyLock: _applyLock };
 })();

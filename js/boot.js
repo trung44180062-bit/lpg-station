@@ -62,6 +62,11 @@ document.addEventListener('DOMContentLoaded', function () {
      * onReady nen khong dinh. Day la fix loi "force xong fleet mat trang". */
     step('P0 · SC.attach (fleet, post-auth)', () => SC.attach());
 
+    /* v4.126 · SALENOTIF — thông báo "tài khoản sale vừa đổi Today/Tomorrow Plan".
+       Chạy SỚM (trước SCALE) để nút 📨 ở tab Scale có sẵn badge, và để bảng plan
+       gọi SALENOTIF.push() được ngay từ sự kiện đồng bộ đầu tiên. RAM-only. */
+    step('P0 · SALENOTIF', () => SALENOTIF.init());
+
     step('P0 · navGo(sales)', () => navGo('sales'));
 
     /* P1 · next frame · Sales->Scale subtab dependencies */

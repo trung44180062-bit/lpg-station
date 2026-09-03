@@ -73,8 +73,10 @@ const NOTIF = (function(){
     const m = document.getElementById('notif-modal');
     if(m) m.classList.remove('on');
   }
+  /* v4.126 — nút 📨 nay do SALENOTIF quản. Giữ hàm này cho chỗ gọi cũ. */
   function openSale(){
-    if(typeof toast==='function') toast('Sale notifications — coming soon','info');
+    if(typeof SALENOTIF !== 'undefined' && SALENOTIF && SALENOTIF.open){ SALENOTIF.open(); return; }
+    if(typeof toast==='function') toast('Sale notifications not loaded','er');
   }
 
   return { open, close, tab, setCount, openSale, get counts(){ return Object.assign({}, _counts); } };

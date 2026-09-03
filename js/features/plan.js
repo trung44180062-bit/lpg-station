@@ -79,6 +79,89 @@ function _makePlanModule(opts){
     saveCache();
   }
 
+  /* ═══════════ v4.126 · DẤU VẾT SỬA: AI · LÚC NÀO · VAI TRÒ ═══════════
+     lastBy/lastAt đã có từ trước nhưng nằm rải rác 6 chỗ, mỗi chỗ chép tay một
+     kiểu. Gom về ĐÚNG MỘT hàm và thêm lastRole — máy khác cần biết thay đổi này
+     do TÀI KHOẢN SALE gây ra để bật thông báo ở tab Scale.
+     ⚠ KHÔNG có node Firebase riêng cho thông báo: nó được sinh TẠI CHỖ trên
+     từng máy từ chính sự kiện đồng bộ của bảng (xem _saleNotify bên dưới). */
+  /* Đóng dấu THẲNG vào object dòng — dùng khi ghi NGUYÊN dòng (thêm mới / đổi
+     _oid). ⚠ KHÔNG được đóng dấu bằng payload dạng "plan_today/X/lastBy" khi
+     trong cùng payload đã có "plan_today/X" — Firebase từ chối multi-path update
+     có đường dẫn cha-con chồng nhau, cả lệnh dán Excel sẽ hỏng. */
+  function _stampRow(row, now){
+    if(!row) return row;
+    const u = (typeof CURRENT_USER !== 'undefined' && CURRENT_USER) ? CURRENT_USER : {};
+    row.lastBy   = u.name || u.email || 'unknown';
+    row.lastAt   = now || Date.now();
+    row.lastRole = u.role || '';
+    return row;
+  }
+
+  function _stampWho(payload, oid, now){
+    const u  = (typeof CURRENT_USER !== 'undefined' && CURRENT_USER) ? CURRENT_USER : {};
+    const nm = u.name || u.email || 'unknown';
+    const rl = u.role || '';
+    const t  = now || Date.now();
+    const row = PLAN[oid];
+    if(row){ row.lastBy = nm; row.lastAt = t; row.lastRole = rl; }
+    payload[`${FBN}${oid}/lastBy`]   = nm;
+    payload[`${FBN}${oid}/lastAt`]   = t;
+    payload[`${FBN}${oid}/lastRole`] = rl;
+    return t;
+  }
+
+  /* Nhãn tiếng Anh cho từng trường, dùng trong câu thông báo. */
+  const NOTIF_LBL = {
+    no:'No', customer:'Customer', contractQty:'Contract Qty', type:'Type',
+    plate:'Truck', rmooc:'Rmooc', driver:'Driver', qty:'Qty',
+    tolerance:'Tolerance', allowGate:'Allow gate', allowLoad:'Allow load',
+    doNum:'DO', note:'Note', forDate:'Plan date', _status:'Status',
+    _actualQty:'Actual', _autoSync:'Auto-sync', _lnkK:'Order link'
+  };
+  const NOTIF_FIELDS = Object.keys(NOTIF_LBL);
+
+  function _notifDiff(prev, next){
+    const out = [];
+    if(!prev || !next) return out;
+    NOTIF_FIELDS.forEach(f=>{
+      const a = String(prev[f] === undefined || prev[f] === null ? '' : prev[f]).trim();
+      const b = String(next[f] === undefined || next[f] === null ? '' : next[f]).trim();
+      if(a !== b) out.push({ field:f, label:NOTIF_LBL[f] || f, old:a, new:b });
+    });
+    return out;
+  }
+
+  /* Biến một sự kiện đồng bộ thành thông báo — CHỈ khi người sửa là tài khoản
+     role "sale", và không phải chính mình. Trả về true nếu có đẩy thông báo
+     (dùng cho test). */
+  function _saleNotify(kind, oid, prev, next){
+    try{
+      const src = next || prev;
+      if(!src) return false;
+      if(String(src.lastRole || '').toLowerCase() !== 'sale') return false;
+      const me = (typeof CURRENT_USER !== 'undefined' && CURRENT_USER) ? CURRENT_USER : {};
+      /* chính người sale vừa sửa thì không tự báo lại cho mình */
+      if(String(me.role||'') === 'sale' && String(me.name||'') === String(src.lastBy||'')) return false;
+      const fields = (kind === 'edit') ? _notifDiff(prev, next) : [];
+      if(kind === 'edit' && !fields.length) return false;   /* chỉ đổi lastAt — bỏ qua */
+      if(typeof SALENOTIF === 'undefined' || !SALENOTIF || !SALENOTIF.push) return false;
+      SALENOTIF.push({
+        table : UILABEL,
+        area  : PERMK,
+        kind  : kind,                       /* add | edit | del */
+        oid   : oid,
+        who   : src.lastBy || 'sale',
+        at    : src.lastAt || Date.now(),
+        doNum : src.doNum || oid,
+        cust  : src.customer || '',
+        plate : src.plate || '',
+        fields: fields
+      });
+      return true;
+    }catch(_){ return false; }
+  }
+
   /* -------- helpers -------- */
   function isoToday(){
     const d = new Date(), p = n => String(n).padStart(2,'0');
@@ -558,8 +641,11 @@ function _makePlanModule(opts){
 
     /* additions — write full row at once (it's brand new, no point in deltas) */
     diff.added.forEach(nr=>{
-      PLAN[nr._oid] = sanitizeForStorage(nr);
-      payload[`${FBN}${nr._oid}`] = sanitizeForStorage(nr);
+      /* v4.126 — dòng mới cũng phải mang dấu vết; đóng dấu vào CHÍNH object rồi
+         mới ghi nguyên dòng (không tách path con — xem chú thích _stampRow). */
+      const _nrow = _stampRow(sanitizeForStorage(nr));
+      PLAN[nr._oid] = _nrow;
+      payload[`${FBN}${nr._oid}`] = _nrow;
       writes++;
     });
 
@@ -571,8 +657,9 @@ function _makePlanModule(opts){
       if(oldOid !== newOid){
         delete PLAN[oldOid];
         payload[`${FBN}${oldOid}`] = null;
-        PLAN[newOid] = sanitizeForStorage(c.new);
-        payload[`${FBN}${newOid}`] = sanitizeForStorage(c.new);
+        const _nrow = _stampRow(sanitizeForStorage(c.new));   /* v4.126 */
+        PLAN[newOid] = _nrow;
+        payload[`${FBN}${newOid}`] = _nrow;
         writes++;
       } else {
         const row = PLAN[oldOid] || (PLAN[oldOid] = sanitizeForStorage(c.old));
@@ -581,11 +668,8 @@ function _makePlanModule(opts){
           payload[`${FBN}${oldOid}/${d.field}`] = d.new;
           writes++;
         });
-        /* stamp last-edit */
-        row.lastBy = CURRENT_USER.name;
-        row.lastAt = Date.now();
-        payload[`${FBN}${oldOid}/lastBy`] = CURRENT_USER.name;
-        payload[`${FBN}${oldOid}/lastAt`] = Date.now();
+        /* stamp last-edit (v4.126 — kèm vai trò người sửa) */
+        _stampWho(payload, oldOid);
       }
     });
 
@@ -672,12 +756,9 @@ function _makePlanModule(opts){
       return;
     }
     row[field] = value;
-    row.lastBy = CURRENT_USER.name;
-    row.lastAt = Date.now();
     const payload = {};
     payload[`${FBN}${oid}/${field}`] = value;
-    payload[`${FBN}${oid}/lastBy`] = CURRENT_USER.name;
-    payload[`${FBN}${oid}/lastAt`] = Date.now();
+    _stampWho(payload, oid);
     bumpVersion(payload);
     _suppressEcho++;
     FB_DB.ref().update(payload)
@@ -745,10 +826,7 @@ function _makePlanModule(opts){
       row._autoSync = false;
       row._status   = snap;
     }
-    payload[`${FBN}${oid}/lastBy`] = CURRENT_USER.name;
-    payload[`${FBN}${oid}/lastAt`] = now;
-    row.lastBy = CURRENT_USER.name;
-    row.lastAt = now;
+    _stampWho(payload, oid, now);
     bumpVersion(payload);
     _suppressEcho++;
     FB_DB.ref().update(payload)
@@ -784,13 +862,10 @@ function _makePlanModule(opts){
     payload[`${FBN}${oid}/_autoSync`]  = false;
     payload[`${FBN}${oid}/_status`]    = status;
     payload[`${FBN}${oid}/_actualQty`] = snapAct || '';
-    payload[`${FBN}${oid}/lastBy`]     = CURRENT_USER.name;
-    payload[`${FBN}${oid}/lastAt`]     = now;
     row._autoSync  = false;
     row._status    = status;
     row._actualQty = snapAct || '';
-    row.lastBy = CURRENT_USER.name;
-    row.lastAt = now;
+    _stampWho(payload, oid, now);
     bumpVersion(payload);
     _suppressEcho++;
     FB_DB.ref().update(payload)
@@ -999,9 +1074,7 @@ function _makePlanModule(opts){
       }
       payload[`${FBN}${oid}/_altSkip`] = null;
       r._altSkip = false;
-      payload[`${FBN}${oid}/lastBy`] = CURRENT_USER.name;
-      payload[`${FBN}${oid}/lastAt`] = now;
-      r.lastBy = CURRENT_USER.name; r.lastAt = now;
+      _stampWho(payload, oid, now);
     });
     bumpVersion(payload);
     _suppressEcho++;
@@ -1279,12 +1352,9 @@ function _makePlanModule(opts){
     const row = PLAN[oid];
     if(!row || !FB_DB) return;
     row[field] = value;
-    row.lastBy = CURRENT_USER.name;
-    row.lastAt = Date.now();
     const payload = {};
     payload[`${FBN}${oid}/${field}`] = value;
-    payload[`${FBN}${oid}/lastBy`] = CURRENT_USER.name;
-    payload[`${FBN}${oid}/lastAt`] = Date.now();
+    _stampWho(payload, oid);
     bumpVersion(payload);
     _suppressEcho++;
     FB_DB.ref().update(payload)
@@ -1504,6 +1574,14 @@ function _makePlanModule(opts){
 
     const ref = FB_DB.ref(FBN);
 
+    /* v4.126 — đợt child_added ĐẦU TIÊN là replay toàn bộ bảng lúc mở app, không
+       phải thay đổi mới ⇒ chưa được phép bắn thông báo. Cờ mở sau once('value').
+       ⚠ PHẢI khai báo TRƯỚC khối once('value') bên dưới: trong test (và với
+       Firebase đang có cache) promise đó có thể resolve NGAY, gọi ngược lên đây
+       khi biến còn trong vùng chết của `const` → ReferenceError, hỏng cả bảng. */
+    let _replayDone = false;
+    const _openNotifGate = ()=>{ setTimeout(()=>{ _replayDone = true; }, 1500); };
+
     /* ── CRITICAL: Reconcile local cache against Firebase BEFORE trusting listeners ──
        Firebase RTDB child_added/changed/removed listeners only fire for events that
        occur WHILE the listener is attached. If another machine deleted rows while
@@ -1544,8 +1622,10 @@ function _makePlanModule(opts){
           if(v > _versions.plan){ _versions.plan = v; saveCache(); }
         });
       }catch(_){}
+      _openNotifGate();                 /* v4.126 */
     }).catch(e => {
       console.warn(`[${PERMK}] reconcile read failed (offline?) — relying on incremental listeners`, e);
+      _openNotifGate();                 /* v4.126 */
     });
 
     /* ── v4.34.0 — child events coalesce into ONE debounced refresh.
@@ -1569,7 +1649,9 @@ function _makePlanModule(opts){
       const oid = snap.key, row = snap.val();
       if(!row) return;
       row._oid = oid;
+      const prev = PLAN[oid];
       PLAN[oid] = row;
+      if(_replayDone && !prev) _saleNotify('add', oid, null, row);
       _scheduleSync();
     });
     ref.on('child_changed', snap=>{
@@ -1577,13 +1659,17 @@ function _makePlanModule(opts){
       const oid = snap.key, row = snap.val();
       if(!row) return;
       row._oid = oid;
+      const prev = PLAN[oid];
       PLAN[oid] = row;
+      if(_replayDone) _saleNotify('edit', oid, prev, row);
       _scheduleSync();
     });
     ref.on('child_removed', snap=>{
       if(_suppressEcho) return;
       const oid = snap.key;
+      const prev = PLAN[oid];
       delete PLAN[oid];
+      if(_replayDone) _saleNotify('del', oid, prev, null);
       _scheduleSync();
     });
 
@@ -3235,6 +3321,8 @@ function _makePlanModule(opts){
     getEffectiveActual,   /* RAM-only ACTUAL loaded (kg) for a row from TL weights.
                               Dùng cho PLAN card donut (SCALE._updateRow1) để LOADED
                               lấy ĐÚNG khối lượng cân thực, không dùng plan qty. */
+    /* v4.126 — mở ra để test kiểm chứng được luật sinh thông báo (không dùng ở UI) */
+    _saleNotify, _notifDiff, _stampWho, _stampRow,
     get table(){ return table; },
     get PLAN(){ return PLAN; },
     get planDate(){ return planDate; },
@@ -3388,8 +3476,9 @@ function tmrConfirmPromote(){
        with _autoSync:false stayed frozen on "Pending" all day (never synced
        Loading/Done from the scale) until someone noticed the unchecked box. */
     cloned._autoSync  = true;
-    cloned.lastBy = (typeof CURRENT_USER !== 'undefined' && CURRENT_USER.name) ? CURRENT_USER.name : 'system';
-    cloned.lastAt = Date.now();
+    cloned.lastBy   = (typeof CURRENT_USER !== 'undefined' && CURRENT_USER.name) ? CURRENT_USER.name : 'system';
+    cloned.lastAt   = Date.now();
+    cloned.lastRole = (typeof CURRENT_USER !== 'undefined' && CURRENT_USER.role) ? CURRENT_USER.role : '';
     payload['plan_today/'+r._oid] = cloned;
   });
   /* bump both version counters so all listeners refresh */

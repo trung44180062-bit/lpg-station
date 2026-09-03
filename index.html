@@ -10,7 +10,7 @@
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=4124">
+<link rel="stylesheet" href="css/core.css?v=4126">
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
@@ -267,7 +267,9 @@
               <span class="sc-notif-lbl">Engineer Notification</span>
               <span class="sc-notif-badge" id="scNotifEngBadge">0</span>
             </button>
-            <button class="sc-notif-btn sc-notif-btn-sale" id="scNotifSaleBtn" onclick="NOTIF.openSale()" title="Sale notifications (future)" disabled>
+            <!-- v4.126 — mở khoá: nút này gom thông báo "tài khoản sale vừa đổi
+                 Today/Tomorrow Plan". Danh sách nằm trong RAM, xác nhận là mất hẳn. -->
+            <button class="sc-notif-btn sc-notif-btn-sale" id="scNotifSaleBtn" onclick="SALENOTIF.open()" title="Sale notifications — plan changes made by Sales accounts">
               <span class="sc-notif-ico">📨</span>
               <span class="sc-notif-lbl">Sale Notification</span>
               <span class="sc-notif-badge" id="scNotifSaleBadge" style="display:none">0</span>
@@ -4779,6 +4781,7 @@
 <script src="js/integrations/ptt-early.js?v=4110"></script><!-- v4.87 — chọn kỹ sư cho phiếu KTPTVC khi in early/today -->
 <script src="js/integrations/sync2.js"></script>
 <script src="js/integrations/notif.js"></script>
+<script src="js/integrations/salenotify.js?v=4126"></script><!-- v4.126 — thông báo "sale vừa đổi Today/Tomorrow Plan": nổi 5s rồi nằm trong nút 📨 ở tab Scale. KHÔNG có node Firebase riêng — mỗi máy tự sinh từ dấu vết lastBy/lastAt/lastRole trên chính dòng plan; bấm ✓ Confirm là xoá hẳn trên máy đó. -->
 <!-- v4.84 — hàng đợi thông báo Zalo cho hàng ≠50:50. KHÔNG chứa token.
      Tên file cố tình KHÔNG có chữ "zalo": proxy mạng công ty đã từng
      giết js/21-zalo.js bên Chấm Công bằng HTTP 499. -->

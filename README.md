@@ -237,6 +237,71 @@ nằm ở **Firebase Security Rules** (phía server), không phải ở client �
 trong `docs/PLAN-TACH-MODULE.md` §7. `apiKey` trong cấu hình Firebase là công khai theo
 thiết kế, commit được.
 
+### 🔐 VAI TRÒ `sale` (v4.126) — chỉ xem, chỉ thao tác hai bảng kế hoạch
+
+| Vai trò | Được ghi |
+|---|---|
+| `admin` / `editor` | mọi vùng (`'*'`) |
+| **`sale`** | **CHỈ** Today Plan + Tomorrow Plan |
+| `viewer` | không gì cả |
+
+Cấp quyền: trên Firebase, node `/users_whitelist/<email có dấu . đổi thành ,>` đặt
+
+```json
+{ "active": true, "role": "sale", "name": "Nguyen Van A" }
+```
+
+**Sale làm được gì:** xem mọi trang; trên Today Plan & Tomorrow Plan thì toàn quyền —
+sửa ô, đổi trạng thái / cancel, thêm–xoá dòng, **📋 Paste from Excel**, 🔗 Link Orders,
+promote Tomorrow → Today.
+**Sale KHÔNG làm được gì:** ghi bất cứ node nào khác (Scale/trạm, TL Data, Fleet, SAP,
+Engineer, Staff, Cavern, Vessel, dự báo tồn…), **in phiếu** và **xuất Excel/CSV**.
+
+**Hai lớp khoá** — vì rất nhiều module ghi thẳng Firebase mà không hỏi `canWrite()`:
+
+1. `canWrite(area)` — như cũ, `MATRIX.sale = ['plan_today','plan_tomorrow']`.
+2. ⭐ **Cổng theo đường dẫn** — `AUTH.installWriteGuard()` vá
+   `Reference.prototype.set/update/remove/push/transaction`. Với vai trò hạn chế, mọi
+   lệnh ghi đều bị soi đường dẫn: chỉ `plan_today/*`, `plan_tomorrow/*`,
+   `plan_today_version`, `plan_tomorrow_version` được đi qua; một lệnh `update()`
+   đa-đường-dẫn mà lẫn **một** node cấm thì **cả lệnh** bị chặn.
+   Tiền tố không đủ để lọt: `plan_today_backup/x` vẫn bị cấm.
+   Hàm in/xuất bị thay thân bằng thông báo từ chối (`AUTH.LOCK_FNS`).
+
+⚠ Đây vẫn là **lưới an toàn phía client**. Rules mẫu tương ứng cần đặt trên server:
+
+```
+"plan_today":    { ".write": "auth != null && root.child('users_whitelist')
+                              .child(auth.token.email.replace('.', ',')).child('role').val()
+                              .matches(/^(admin|editor|sale)$/)" }
+```
+(áp tương tự cho `plan_tomorrow`, `plan_today_version`, `plan_tomorrow_version`; mọi node
+còn lại chỉ cho `admin|editor`.)
+
+### 📨 THÔNG BÁO "SALE VỪA ĐỔI KẾ HOẠCH" (v4.126)
+
+Mỗi dòng plan mang sẵn **dấu vết sửa**: `lastBy` · `lastAt` · **`lastRole`** (mới) —
+đóng dấu ở đúng một chỗ, [`_stampWho()` / `_stampRow()`](js/features/plan.js).
+Cột **Last Edit** trên bảng đọc thẳng từ đó.
+
+Đường đi của thông báo — **KHÔNG có node Firebase nào cho nó**:
+
+1. Máy sale sửa dòng → ghi Firebase như thường, kèm `lastRole:"sale"`.
+2. Máy khác vốn đã nghe sẵn `child_added/changed/removed` của hai node plan →
+   thấy `lastRole==='sale'` thì **tự sinh** thông báo tại chỗ (so dòng cũ ↔ dòng mới
+   để biết trường nào đổi, cũ → mới).
+3. [`SALENOTIF`](js/integrations/salenotify.js) cho **nổi ~5 giây** ở góc phải
+   (mọi trang, không riêng tab Scale), sau đó nằm trong nút **📨 Sale Notification**
+   ở *Sales ▸ Scale* kèm badge đếm.
+4. Bấm **✓ Confirm** (trên tấm nổi hoặc trong bảng) là **xoá hẳn** trên máy đó.
+   Danh sách sống trong RAM: F5 / đóng tab là sạch.
+
+Không báo khi: người sửa không phải role `sale`; chính người sale đó tự sửa; hoặc chỉ có
+`lastAt` đổi mà không trường nghiệp vụ nào khác. Đợt `child_added` lúc mới mở app (replay
+cả bảng) bị chặn bằng cờ `_replayDone`.
+
+Test canh: [`tests/sale-role.test.js`](tests/sale-role.test.js) — `node tests/sale-role.test.js`.
+
 ## Kiểm thử nhanh (không cần trình duyệt)
 
 ```bash
