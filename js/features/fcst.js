@@ -1,5 +1,5 @@
 /* ============================================================
- * FCST — fcst.js  ·  v4.120
+ * FCST — fcst.js  ·  v4.125
  * ------------------------------------------------------------
  * DỰ BÁO TỒN KHO SAU KHI BÁN THEO KẾ HOẠCH — TÁCH RIÊNG LÔ D VÀ E
  * Global: window.FCST · dải số nằm trên thanh tiêu đề SCALE CONSOLE.
@@ -17,8 +17,10 @@
  *     KHÔNG được cộng vào** — chúng chạy xuống FEED OL1 chứ không bán qua
  *     trạm cân, gộp vào là con số "còn bán được" phồng lên vô lý.
  *   · Đơn **xuất khẩu trừ vào lô E**, đơn **nội địa trừ vào lô D**.
- *     Hướng đọc từ cột Type của Sale Plan (bộ từ khoá dùng chung với
- *     Daily Stock của CAV), không thấy thì Note, rồi tên khách.
+ *     ⭐ v4.125 — hướng bán lấy từ **TRADE (js/core/helpers.js)**, đúng bộ
+ *     luật đã chạy từ lúc DÁN Sale Plan: cột `trade` đã chốt → TÊN KHÁCH →
+ *     Type → Note. Bản cũ tự dò và khớp CHUỖI CON "EX" nên khách nội địa
+ *     PETIMEX / PETROLIMEX / ...IMEX bị đếm sang EXPORT.
  *   · Đơn không nhận ra hướng ⇒ **tính về NỘI ĐỊA (D)** nhưng ĐẾM RIÊNG và
  *     kể tên, để không ai tưởng đó là số chắc.
  *   · Hai khoản dùng lô D mà KHÔNG có trong Sale Plan — **hàng xuống tàu**
@@ -126,26 +128,30 @@ const FCST = (function(){
   }
 
   /* ══ HƯỚNG BÁN: XUẤT KHẨU (E) hay NỘI ĐỊA (D) ══════════════════════
-     ⚠ BỘ TỪ KHOÁ CHÉP TỪ cav.js `_dir` — Daily Stock đã phân loại
-     Domestic/Export bằng đúng bộ này từ lâu, hai chỗ nói khác nhau là
-     báo cáo và dải số đá nhau. Sửa luật thì phải sửa CẢ HAI.
-     Đọc cột Type trước (Sale Plan ghi trade type ở đó), không thấy thì
-     Note, cuối cùng mới tới tên khách. */
+     ⭐ v4.125 — KHÔNG CÒN TỰ DÒ NỮA. Hướng bán do `TRADE` trong
+     js/core/helpers.js quyết định — ĐÚNG BỘ LUẬT đã chạy từ lúc DÁN Sale
+     Plan (scale.js lấy TÊN KHÁCH để ghi cột `trade` của TL Data).
+
+     Vì sao phải sửa: bản cũ tự dò bằng một bộ từ khoá chép tay và đọc cột
+     Type TRƯỚC tên khách. Chuỗi "EX" khớp CHUỖI CON, nên mọi khách NỘI ĐỊA
+     tên có EX — PETIMEX, PETROLIMEX, các công ty ...IMEX — bị đếm sang
+     EXPORT. Khối lượng domestic vì thế sai, và sai theo hướng nguy hiểm:
+     lô D trông như còn nhiều hàng hơn thực tế.
+
+     Thứ tự đọc nay là: cột `trade` đã chốt → TÊN KHÁCH → Type → Note →
+     không ai nói gì thì NỘI ĐỊA (D).
+     ⚠ Sửa luật thì sửa TRADE trong helpers.js — KHÔNG chép lại ở đây nữa. */
   function _dir(s){
-    const t=String(s||'').toUpperCase().trim(); if(!t) return '';
-    if(/EX|EXPORT|수출|XK|XUAT/.test(t)) return 'E';
-    if(/DOM|DOMESTIC|내수|NOIDIA|\bND\b/.test(t)) return 'D';
-    if(t==='E') return 'E'; if(t==='D') return 'D';
-    return '';
+    return (typeof TRADE!=='undefined' && TRADE.dirOfText) ? TRADE.dirOfText(s) : '';
   }
-  /* Trả { dir, sure }. `sure=false` = không có chữ export/domestic nào.
-     ⚠ v4.123 — KHÔNG còn cảnh báo cho trường hợp này: đơn không ghi export
-     thì ĐÚNG LÀ hàng nội địa, tức lô D — đó là LUẬT, không phải phỏng đoán.
-     Cờ `sure` được GIỮ LẠI trong kết quả (unsureMT/unsure) để gỡ rối và cho
-     bộ test, nhưng không hiện ra giao diện ở đâu cả. */
+  /* Trả { dir, src, sure }. `sure=false` = không ô nào nói ra hướng bán.
+     ⚠ v4.123 — KHÔNG cảnh báo cho trường hợp này: đơn không ghi export thì
+     ĐÚNG LÀ hàng nội địa, tức lô D — đó là LUẬT, không phải phỏng đoán. Cờ
+     `sure` được GIỮ trong kết quả (unsureMT/unsure) để gỡ rối và cho bộ
+     test, nhưng không hiện ra giao diện ở đâu cả. */
   function _rowDir(r){
-    const d=_dir(r&&r.type) || _dir(r&&r.note) || _dir(r&&r.customer);
-    return d ? { dir:d, sure:true } : { dir:'D', sure:false };
+    if(typeof TRADE!=='undefined' && TRADE.dirOfRow) return TRADE.dirOfRow(r);
+    return { dir:'D', src:'default', sure:false };
   }
 
   /* ══ SỐ SAP — CHỈ LÔ D VÀ E ════════════════════════════════════════

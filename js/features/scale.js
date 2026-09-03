@@ -2043,7 +2043,10 @@ const SCALE = (function(){
     const contract  = String(cur.type||'');
     const shortCust = (typeof CT!=='undefined' && CT.lookup)   ? CT.lookup(fullCust)   : fullCust;
     const wmsCust   = (typeof CT!=='undefined' && CT.wmsName)  ? CT.wmsName(fullCust)  : fullCust;
-    const isExport  = /export/i.test(fullCust);
+    /* v4.125 — MỘT NGUỒN DUY NHẤT: TRADE trong js/core/helpers.js. Cùng
+       luật này FCST dùng để chia lô D / lô E, nên hai chỗ không thể lệch. */
+    const isExport  = (typeof TRADE!=='undefined' && TRADE.isExportName)
+                        ? TRADE.isExportName(fullCust) : /export/i.test(fullCust);
     /* v4.67 — no ASCII "thuan": matches place-name "Binh Thuan"/"Ninh Thuan" */
     const isPure    = /pure|thuần/i.test(contract);
     const trade     = (isExport ? 'Export' : 'Domestic') + (isPure ? ' (Pure)' : '');
@@ -2200,7 +2203,10 @@ const SCALE = (function(){
     const contract = String(lr.type || cur.type || '');
     const shortCust = (typeof CT!=='undefined' && CT.lookup)  ? CT.lookup(fullCust)  : fullCust;
     const wmsCust   = (typeof CT!=='undefined' && CT.wmsName) ? CT.wmsName(fullCust) : fullCust;
-    const isExport  = /export/i.test(fullCust);
+    /* v4.125 — MỘT NGUỒN DUY NHẤT: TRADE trong js/core/helpers.js. Cùng
+       luật này FCST dùng để chia lô D / lô E, nên hai chỗ không thể lệch. */
+    const isExport  = (typeof TRADE!=='undefined' && TRADE.isExportName)
+                        ? TRADE.isExportName(fullCust) : /export/i.test(fullCust);
     /* v4.67 — no ASCII "thuan": matches place-name "Binh Thuan"/"Ninh Thuan" */
     const isPure    = /pure|thuần/i.test(contract);
     const trade     = (isExport ? 'Export' : 'Domestic') + (isPure ? ' (Pure)' : '');

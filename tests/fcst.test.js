@@ -104,6 +104,9 @@ function order(store,id,date,type,qty,st,extra){
   store[id]=Object.assign({ _oid:id, _forDate:date, type:type, qty:qty, _status:st||'' }, extra||{});
 }
 
+/* TRADE lấy NGUYÊN VĂN từ helpers.js — hướng bán chỉ có MỘT nguồn duy nhất. */
+eval(fs.readFileSync(path.join(ROOT,'js','core','helpers.js'),'utf8'));
+global.TRADE=TRADE;
 eval(fs.readFileSync(path.join(ROOT,'js','features','fcst.js'),'utf8'));
 const S=FCST._state;
 let fail=0;
@@ -160,7 +163,17 @@ chk('doc huong tu chu EXPORT trong cot Type', S.rowDir({type:'LPG Export July'})
 chk('doc huong tu chu DOMESTIC', S.rowDir({type:'LPG Domestic'}).dir==='D');
 chk('doc duoc ca chu XK / XUAT', S.rowDir({type:'Hang XK'}).dir==='E');
 chk('Type khong ghi thi doc sang Note', S.rowDir({type:'LPG',note:'xuat khau'}).dir==='E');
-chk('… roi moi den ten khach', S.rowDir({type:'LPG',customer:'ABC EXPORT CO'}).dir==='E');
+chk('TEN KHACH la nguon chinh', S.rowDir({type:'LPG',customer:'ABC EXPORT CO'}).dir==='E');
+chk('… ten khach THANG ca cot Type',
+    S.rowDir({type:'LPG Domestic',customer:'DARA T.C. ANGKOR GROUP LTD (EXPORT)'}).dir==='E');
+chk('⭐ PETIMEX la khach NOI DIA — khong duoc thanh EXPORT vi chua "EX"',
+    S.rowDir({type:'LPG',customer:'PETIMEX (KHI HOA LONG DONG THAP)'}).dir==='D');
+chk('… PETROLIMEX cung vay',
+    S.rowDir({type:'LPG',customer:'PETROLIMEX GAS SAI GON'}).dir==='D');
+chk('… con "EXPORT" nguyen chu thi van ra E',
+    S.rowDir({customer:'THAI LYHUOT IMPORT EXPORT CO LTD'}).dir==='E');
+chk('cot `trade` da chot thi tin tuyet doi',
+    S.rowDir({trade:'Domestic (Pure)',customer:'ABC EXPORT CO'}).dir==='D');
 const u=S.rowDir({type:'LPG',note:'',customer:'CTY ABC'});
 chk('⭐ khong noi ra huong ⇒ tinh ve NOI DIA nhung GAN CO', u.dir==='D' && u.sure===false);
 order(TPROWS,'u1','2026-08-31','LPG',40,'',{ customer:'CTY MO HO' });
@@ -335,8 +348,11 @@ const CSS=fs.readFileSync(path.join(ROOT,'css','core.css'),'utf8');
   '.fc-fullwrap','.fc-full','.fc-warn.bad','.fc-m td.lf','.fc-b.big','.fc-keys',
   '.fc-tbl tr.fc-key td','.fc-cap b','.fc-cap u']
   .forEach(c=>chk('css co '+c, CSS.indexOf(c)>=0));
-chk('index.html nap fcst.js + core.css + sp.js ban 4124',
-    /fcst\.js\?v=4124/.test(HTML) && /core\.css\?v=4124/.test(HTML) && /sp\.js\?v=4124/.test(HTML));
+chk('index.html nap dung ban: fcst 4125 + helpers 4125 + scale 4125 + cav 4125',
+    /fcst\.js\?v=4125/.test(HTML) && /helpers\.js\?v=4125/.test(HTML) &&
+    /scale\.js\?v=4125/.test(HTML) && /cav\.js\?v=4125/.test(HTML));
+chk('… core.css + sp.js giu ban 4124 (khong doi gi ben trong)',
+    /core\.css\?v=4124/.test(HTML) && /sp\.js\?v=4124/.test(HTML));
 chk('⭐ bang ben tab SAP MAC DINH AN (da co san ben Scale)',
     /class="fc-fullwrap collapsed"/.test(HTML) && />Show forecast</.test(HTML) &&
     /let _analysisVisible = false/.test(fs.readFileSync(path.join(ROOT,'js','data','sp.js'),'utf8')));
@@ -356,9 +372,19 @@ chk('boot khoi dong FCST SAU SCX2', BOOT.indexOf('FCST.init()')>BOOT.indexOf('SC
 const SCJS=fs.readFileSync(path.join(ROOT,'js','features','scale.js'),'utf8');
 chk('SCALE ve lai dai so moi khi plan / ton doi', /FCST\.schedule\(\)/.test(SCJS));
 const CAV=fs.readFileSync(path.join(ROOT,'js','features','cav.js'),'utf8');
-chk('⚠ bo tu khoa huong ban van khop voi cav.js (Daily Stock)',
-    /EX\|EXPORT\|수출\|XK\|XUAT/.test(CAV) &&
-    /EX\|EXPORT\|수출\|XK\|XUAT/.test(fs.readFileSync(path.join(ROOT,'js','features','fcst.js'),'utf8')));
+const FJS=fs.readFileSync(path.join(ROOT,'js','features','fcst.js'),'utf8');
+const HLP=fs.readFileSync(path.join(ROOT,'js','core','helpers.js'),'utf8');
+chk('⭐ huong ban chi co MOT nguon: TRADE trong helpers.js',
+    /var TRADE = \(function\(\)/.test(HLP));
+chk('… fcst.js KHONG con tu do bang bo tu khoa rieng',
+    !/EX\|EXPORT\|수출\|XK\|XUAT/.test(FJS) && /TRADE\.dirOfRow/.test(FJS));
+chk('… cav.js (Daily Stock) doc dong TL Data qua cung TRADE',
+    /TRADE\.dirOfRow/.test(CAV));
+chk('… scale.js ghi cot `trade` cung bang TRADE',
+    /TRADE\.isExportName/.test(SCJS));
+chk('⭐ khong con khop CHUOI CON "EX" (PETIMEX/PETROLIMEX bi doc nham)',
+    TRADE.dirOfText('PETIMEX')==='' && TRADE.dirOfText('PETROLIMEX GAS')==='' &&
+    TRADE.dirOfText('DARA GROUP (EXPORT)')==='E');
 
 console.log(fail?('\n❌ '+fail+' assert HỎNG'):'\n✅ TẤT CẢ ĐỀU PASS');
 process.exit(fail?1:0);

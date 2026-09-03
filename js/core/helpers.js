@@ -99,3 +99,87 @@ function deriveProductTypeMulti(linkedRows){
 /* ============================================================
    SUB-TAB DEFINITIONS  (unchanged — # is hard key)
    ============================================================ */
+
+
+/* ============================================================
+   TRADE — MỘT NGUỒN DUY NHẤT CHO CÂU HỎI "XUẤT KHẨU HAY NỘI ĐỊA"
+   ------------------------------------------------------------
+   ⚠ v4.125 — VÁ LỖI ĐẾM NHẦM KHỐI LƯỢNG DOMESTIC.
+
+   Luật ĐÚNG đã có sẵn ngay từ lúc DÁN Sale Plan: scale.js khi đẩy dòng
+   trạm sang TL Data đọc TÊN KHÁCH của dòng kế hoạch
+        isExport = /export/i.test(customer)
+   rồi ghi cột `trade` = 'Export' / 'Domestic' (+ ' (Pure)'). Mọi báo cáo
+   phía sau (Daily Stock của cav.js, mthr.js, inv.js) đọc CỘT `trade` đó
+   nên chúng đúng.
+
+   Riêng FCST (dải DỰ BÁO TỒN KHO) đọc DÒNG KẾ HOẠCH — xe chưa cân nên
+   dòng kế hoạch CHƯA CÓ cột `trade` — vì vậy nó tự dò lại bằng bộ từ khoá
+   riêng. Bộ đó khớp CHUỖI CON "EX", nên khách NỘI ĐỊA có chữ EX trong tên
+   (PETIMEX, PETROLIMEX, mọi công ty ...IMEX) bị đẩy sang cột EXPORT ⇒ khối
+   lượng domestic sai, và sai theo hướng NGUY HIỂM: tưởng lô D còn nhiều
+   hàng hơn thực tế.
+
+   Từ nay CHỈ CÓ MỘT CHỖ quyết định hướng bán — TRADE dưới đây:
+     ① cột `trade` đã chốt (dòng TL Data)  — đã chốt thì tin tuyệt đối
+     ② TÊN KHÁCH  ← đúng luật lúc dán Sale Plan, đây là NGUỒN CHÍNH
+     ③ cột Type (hợp đồng)   ④ cột Note    — chỉ khi ①② không nói gì
+     ⑤ không ai nói gì ⇒ NỘI ĐỊA (D). Đó là LUẬT, không phải phỏng đoán.
+
+   ⭐ KHỚP NGUYÊN CHỮ, KHÔNG KHỚP CHUỖI CON. Chuỗi được chuẩn hoá (hoa hoá,
+   mọi ký tự không phải chữ/số biến thành khoảng trắng) rồi mới dò từ khoá
+   có khoảng trắng hai bên, nên "PETIMEX" không bao giờ ra EXPORT nữa.
+   ============================================================ */
+var TRADE = (function(){
+  'use strict';
+  /* từ khoá ĐÃ KÈM khoảng trắng hai bên — chỉ khớp khi đứng riêng một chữ */
+  var EXP = [' EXPORT ', ' EXPORTS ', ' XK ', ' XUAT KHAU ', ' XUẤT KHẨU ', '수출'];
+  var DOM = [' DOMESTIC ', ' DOM ', ' ND ', ' NOI DIA ', ' NỘI ĐỊA ', '내수'];
+
+  /* ' ABC DEF ' — hoa hoá, bỏ dấu câu, kẹp khoảng trắng hai đầu */
+  function _norm(s){
+    return ' ' + String(s == null ? '' : s).toUpperCase()
+      .replace(/[^0-9A-ZÀ-ỹ가-힯]+/g, ' ')
+      .replace(/\s+/g, ' ').trim() + ' ';
+  }
+  function _hit(list, t){
+    for(var i = 0; i < list.length; i++){ if(t.indexOf(list[i]) >= 0) return true; }
+    return false;
+  }
+  /* 'E' | 'D' | '' — '' nghĩa là ô này KHÔNG nói gì về hướng bán */
+  function dirOfText(s){
+    var t = _norm(s);
+    if(t === ' ') return '';
+    if(_hit(EXP, t)) return 'E';
+    if(_hit(DOM, t)) return 'D';
+    if(t === ' E ') return 'E';
+    if(t === ' D ') return 'D';
+    return '';
+  }
+  function isExportName(s){ return dirOfText(s) === 'E'; }
+
+  /* nhãn ghi vào cột `trade` của TL Data — giữ nguyên định dạng cũ */
+  function label(cust, contract){
+    /* v4.67 — không nhận ASCII "thuan": trùng địa danh "Binh Thuan"/"Ninh Thuan" */
+    var pure = /pure|thuần/i.test(String(contract || ''));
+    return (isExportName(cust) ? 'Export' : 'Domestic') + (pure ? ' (Pure)' : '');
+  }
+
+  /* { dir, src, sure } cho MỘT DÒNG — dùng chung cho dòng kế hoạch lẫn TL */
+  function dirOfRow(r){
+    if(!r) return { dir:'D', src:'', sure:false };
+    var tr = String(r.trade == null ? '' : r.trade).trim();
+    if(tr) return { dir: (/^EXPORT/i.test(tr) ? 'E' : 'D'), src:'trade', sure:true };
+    var name = (r.customer != null && String(r.customer).trim()) ? r.customer
+             : ((r.custFull != null && String(r.custFull).trim()) ? r.custFull : r.cust);
+    var d = dirOfText(name);
+    if(d) return { dir:d, src:'customer', sure:true };
+    d = dirOfText(r.type); if(d) return { dir:d, src:'type', sure:true };
+    d = dirOfText(r.note); if(d) return { dir:d, src:'note', sure:true };
+    d = dirOfText(r.dest); if(d) return { dir:d, src:'dest', sure:true };
+    return { dir:'D', src:'default', sure:false };
+  }
+
+  return { dirOfText:dirOfText, dirOfRow:dirOfRow, isExportName:isExportName,
+           label:label, EXP:EXP, DOM:DOM };
+})();

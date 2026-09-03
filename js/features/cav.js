@@ -231,7 +231,16 @@ const CAV = (function(){
     if(t==='E') return 'E'; if(t==='D') return 'D';
     return '';
   }
-  function _tlDir(r){ return _dir(r.trade) || _dir(r.dest) || _dir(r.type); }
+  /* v4.125 — dòng TL Data đi qua TRADE (js/core/helpers.js) — CÙNG bộ luật
+     mà FCST dùng để chia lô D / lô E, nên báo cáo và dải dự báo không lệch
+     nhau. `_dir` bên dưới GIỮ NGUYÊN cho hai chỗ còn lại (mã ship-to của WMS
+     và cột type của Vessel Log) vì ở đó "EX" là tiền tố mã, không phải tên. */
+  function _tlDir(r){
+    if(typeof TRADE!=='undefined' && TRADE.dirOfRow){
+      const t=TRADE.dirOfRow(r); return t.sure ? t.dir : '';
+    }
+    return _dir(r.trade) || _dir(r.dest) || _dir(r.type);
+  }
   function _isPure(r){
     /* v4.67 — no ASCII "thuan": matches place-name "Binh Thuan"/"Ninh Thuan" */
     if(/pure|순수|thuần/i.test(String(r.type||''))) return true;
