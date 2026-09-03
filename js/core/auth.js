@@ -51,9 +51,23 @@ window.AUTH = (function () {
       /^plan_today(\/|$)/,
       /^plan_tomorrow(\/|$)/,
       /^plan_today_version$/,
-      /^plan_tomorrow_version$/
+      /^plan_tomorrow_version$/,
+      /* v4.130 — CHỈ ô Phone của tab DRIVER (kèm dấu vết sửa của đúng dòng đó).
+         Hẹp tới từng ô: ghi sang cột khác hay sang tab tanklorry/tractor/rmooc/
+         twavg đều rơi ra ngoài mấy regex này. */
+      /^fleet_\/driver\/[^/]+\/(phone|lastBy|lastAt)$/,
+      /^fleet_version$/
     ],
     viewer: []
+  };
+
+  /* v4.130 — QUYỀN THEO Ô (mịn hơn canWrite(area)).
+     Nghiệp vụ: sale phải bổ sung được số điện thoại tài xế, nhưng KHÔNG được
+     đụng gì khác trong Fleet. canWrite('fleet') vẫn = false cho sale ⇒ thêm
+     dòng · xoá dòng · dán Excel · Clear all · tick ⛔ đều chặn như cũ.
+     { area, tab, fields } — area khớp khoá của canWrite, tab là sub-tab Fleet. */
+  var FIELD_ALLOW = {
+    sale: [ { area: 'fleet', tab: 'driver', fields: ['phone'] } ]
   };
 
   /* Danh sách hàm IN / XUẤT FILE bị khoá với vai trò hạn chế. Mấy hàm này không
@@ -240,6 +254,29 @@ window.AUTH = (function () {
     if (allow === '*') return true;
     if (!allow) return false;
     return allow.indexOf(area) !== -1;
+  }
+
+  /* Vai trò này có được sửa ĐÚNG MỘT Ô đó không.
+     Có quyền cả vùng thì khỏi xét ô. Không có quyền vùng thì tra FIELD_ALLOW. */
+  function canWriteField(area, tab, field) {
+    if (canWrite(area)) return true;
+    var u = window.CURRENT_USER || {};
+    var list = FIELD_ALLOW[u.role];
+    if (!list || !list.length) return false;
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (r.area === area && r.tab === tab && r.fields.indexOf(field) !== -1) return true;
+    }
+    return false;
+  }
+
+  // Vai trò này có ô nào được sửa trong vùng đó không (dùng để bật/tắt UI).
+  function hasFieldGrant(area) {
+    var u = window.CURRENT_USER || {};
+    var list = FIELD_ALLOW[u.role];
+    if (!list) return false;
+    for (var i = 0; i < list.length; i++) if (list[i].area === area) return true;
+    return false;
   }
 
   // Đọc whitelist theo email → {active, role, name} hoặc null nếu không có.
@@ -463,6 +500,8 @@ window.AUTH = (function () {
            lookupWhitelist: lookupWhitelist, emailKey: emailKey, MATRIX: MATRIX,
            /* v4.126 */
            PATH_ALLOW: PATH_ALLOW, LOCK_FNS: LOCK_FNS, mayWritePath: mayWritePath,
+           /* v4.130 — quyền theo Ô */
+           FIELD_ALLOW: FIELD_ALLOW, canWriteField: canWriteField, hasFieldGrant: hasFieldGrant,
            isRestricted: isRestricted, isSale: isSale,
            installWriteGuard: installWriteGuard, applyLock: _applyLock };
 })();

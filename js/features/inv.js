@@ -1208,6 +1208,8 @@ const INV = (function(){
   function stxLotChange(sloc){
     const li = document.getElementById('stxLot'+sloc);
     _stxLotIn[sloc] = li ? li.value.trim() : '';
+    /* v4.128 — số batch D là của MẺ CŨ, đổi lot mà giữ lại là đọc nhầm. */
+    try{ const b = _stxBd[sloc]; if(b){ b.src=''; b.c3=''; b.c4=''; b.w3=''; } }catch(_){}
     renderStx(true);
     _stxRenderNotif();
   }
@@ -1274,6 +1276,232 @@ const INV = (function(){
       + '</div>';
   }
 
+  /* ══ v4.128 — TÁCH SỐ CHUYỂN KHO THÀNH BATCH D + BATCH E ═══════════════
+     BÀI TOÁN THẬT: hầm sắp hết batch D, không đủ khối lượng để chuyển trọn
+     số đề nghị. Phần thiếu phải lấy từ batch E. Nhân viên biết batch D còn
+     bao nhiêu của MỘT cấu tử (C3 hoặc C4), gõ số đó vào; cấu tử kia suy ra
+     theo %wt C3 của lot — vì hàng rút khỏi hầm là LPG đã trộn, hai cấu tử
+     đi cùng nhau theo đúng tỉ lệ của mẻ, không tách rời được.
+
+       gõ C3 ⇒ C4 = C3 × (1 − w3) / w3          (w3 = %wt C3 / 100)
+       gõ C4 ⇒ C3 = C4 × w3 / (1 − w3)
+       batch E = số chuyển kho đề nghị − batch D, tính RIÊNG từng cấu tử
+
+     %wt lấy nền COQ CUỐI MẺ của lot (đúng nền đã dựng ra số chuyển kho), có
+     ô đè để gõ tay khi cần. TẤT CẢ chỉ nằm trong RAM: không ghi Firebase,
+     không vào Tank Log, không vào nút Copy — đây là phép chia tại chỗ cho
+     một lần lập lệnh chuyển kho, đóng bảng là xong.
+
+     ⚠ Vì sao khối này có container RIÊNG (#stxSplit…) chứ không nằm trong
+     chân khung #stxFoot…: chân khung bị ghi đè innerHTML mỗi lần gõ ô System
+     opening. Ô nhập đặt trong đó sẽ bị huỷ giữa chừng — đúng lỗi "ô đơ" đã
+     vá ở v4.114. Ô nhập batch D vì thế cũng sống trong kho ẩn .stx-inp-pool
+     và được CHUYỂN vào khối, y như ô System opening. */
+  const _stxBd = { '2100':{ src:'', c3:'', c4:'', w3:'' },
+                   '2101':{ src:'', c3:'', c4:'', w3:'' } };
+
+  /* Đọc số người dùng gõ: chấp nhận "12,345", "12 345", "12.345,6" kiểu ô
+     System opening. Trả null khi ô trống hoặc không ra số. */
+  function _stxBdN(v){
+    const t = String(v == null ? '' : v).replace(/[,\s]/g, '').trim();
+    if(!t) return null;
+    const n = parseFloat(t);
+    return isFinite(n) ? n : null;
+  }
+  /* w3 dùng để suy cấu tử còn lại. Ưu tiên ô gõ tay (nhận cả "50.53" lẫn
+     "0.5053"), không thì nền COQ cuối mẻ của lot. Trả null khi không dùng
+     được — 0 hoặc 100 %wt thì một cấu tử bằng 0, chia là ra vô cực. */
+  function _stxBdW3(sloc, F){
+    const typed = _stxBdN(_stxBd[sloc].w3);
+    if(typed !== null){
+      const w = typed > 1.5 ? typed / 100 : typed;
+      if(w > 0 && w < 1) return { w3:w, typed:true, ok:true };
+      return { w3:null, typed:true, ok:false };
+    }
+    const s = F && F.ctx && F.ctx.split;
+    const w = (s && s.fW3 != null) ? +s.fW3 : null;
+    if(w !== null && w > 0 && w < 1) return { w3:w, typed:false, ok:true };
+    return { w3:null, typed:false, ok:false };
+  }
+  /* THUẦN TÍNH — không đụng DOM, để test gọi thẳng được. */
+  function _stxBdCalc(sloc, F){
+    const st = _stxBd[sloc];
+    const W  = _stxBdW3(sloc, F);
+    const out = { on:false, w3:W.w3, w3Typed:W.typed, w3Ok:W.ok, src:st.src,
+                  d3:null, d4:null, dL:null, e3:null, e4:null, eL:null,
+                  eW3:null, warn:[] };
+    if(!F || !F.ok || !F.hasSys) return out;
+    const xC3 = F.xC3, xC4 = F.xC4;
+    const typed = st.src === '3' ? _stxBdN(st.c3)
+                : st.src === '4' ? _stxBdN(st.c4) : null;
+    if(typed === null) return out;
+    out.on = true;
+    if(!W.ok){
+      out.warn.push(W.typed ? 'The %wt C3 you typed must be between 0 and 100.'
+                            : 'This lot has no %wt C3 basis — type one to derive the other component.');
+      return out;
+    }
+    const w3 = W.w3;
+    if(st.src === '3'){ out.d3 = typed; out.d4 = typed * (1 - w3) / w3; }
+    else              { out.d4 = typed; out.d3 = typed * w3 / (1 - w3); }
+    /* v4.129 — CHỐT VỀ SỐ NGUYÊN KG NGAY TẠI ĐÂY, rồi mới trừ ra batch E.
+       Mấy con số này được chép tay vào lệnh chuyển kho SAP, nên ba dòng
+       trên màn hình phải CỘNG KHỚP TUYỆT ĐỐI. Bản đầu giữ phần lẻ trong
+       lúc tính rồi mới làm tròn lúc hiện: batch D 58.741 + batch E 94.697
+       ra 153.438 trong khi dòng Total ghi 153.439 — lệch 1 kg, đủ để người
+       dùng mất tin vào cả bảng. Đơn vị là KG, phần lẻ không có nghĩa gì. */
+    const R = v => Math.round(v);
+    out.d3 = R(out.d3);  out.d4 = R(out.d4);  out.dL = out.d3 + out.d4;
+    out.e3 = R(xC3) - out.d3;  out.e4 = R(xC4) - out.d4;  out.eL = out.e3 + out.e4;
+    if(out.eL > 0.5) out.eW3 = out.e3 / out.eL;
+    if(out.d3 < 0 || out.d4 < 0)
+      out.warn.push('Batch D cannot be negative.');
+    else if(out.e3 < -0.5 || out.e4 < -0.5)
+      out.warn.push('Batch D is larger than the transfer itself — batch E comes out negative. '
+                  + 'Cap batch D at ' + _stxNum(xC3, 0) + ' kg C3 / ' + _stxNum(xC4, 0) + ' kg C4.');
+    return out;
+  }
+
+  /* Khối HTML. Ô số mang data-b để lượt GÕ chỉ ghi lại đúng mấy ô đó, không
+     dựng lại cả khối (dựng lại = chuyển ô đang focus = mất con trỏ). */
+  function _stxBdHtml(sloc, F){
+    if(!F || !F.ok || !F.hasSys) return '';
+    const B = _stxBdCalc(sloc, F);
+    const N = v => _stxNum(v, 0);
+    const slot = id => '<span class="stx-inp-slot" data-for="' + id + sloc + '"></span>';
+    const wtNote = B.w3Typed ? 'typed in'
+                 : (B.w3 != null ? 'from lot COQ' : 'not available');
+    return '<div class="stx-bd">'
+      + '<div class="stx-bd-hd">⇄ SPLIT ACROSS BATCHES'
+      +   '<span>batch D first — batch E covers what is missing</span></div>'
+      + '<div class="stx-bd-wt">%wt C3 ' + slot('stxBdW')
+      +   '<i data-b="wtnote">' + _esc2(wtNote) + '</i>'
+      +   '<button class="stx-bd-clr" onclick="INV.stxBdReset(\'' + sloc + '\')" '
+      +     'title="Clear the batch D figures and the %wt override">⟳ Clear</button>'
+      + '</div>'
+      + '<table class="stx-bd-tbl"><thead><tr>'
+      +   '<th class="lbl"></th><th class="n">C3</th><th class="n">C4</th><th class="n tot">LPG</th>'
+      + '</tr></thead><tbody>'
+      + '<tr class="d"><td class="lbl">Batch D<i>type either one — the other follows %wt</i></td>'
+      +   '<td class="n">' + slot('stxBd3') + '</td>'
+      +   '<td class="n">' + slot('stxBd4') + '</td>'
+      +   '<td class="n tot" data-b="dL">' + N(B.dL) + '</td></tr>'
+      + '<tr class="e"><td class="lbl">Batch E<i data-b="enote">still needed</i></td>'
+      +   '<td class="n" data-b="e3">' + N(B.e3) + '</td>'
+      +   '<td class="n" data-b="e4">' + N(B.e4) + '</td>'
+      +   '<td class="n tot" data-b="eL">' + N(B.eL) + '</td></tr>'
+      + '<tr class="sum"><td class="lbl">Total = suggested transfer</td>'
+      +   '<td class="n">' + N(F.xC3) + '</td>'
+      +   '<td class="n">' + N(F.xC4) + '</td>'
+      +   '<td class="n tot">' + N(F.xC3 + F.xC4) + '</td></tr>'
+      + '</tbody></table>'
+      + '<div class="stx-bd-warn' + (B.warn.length ? ' on' : '') + '" data-b="warn">'
+      +   (B.warn.length ? '⚠ ' + _esc2(B.warn.join(' ')) : '') + '</div>'
+      + '</div>';
+  }
+  /* Ô nhập batch D: kho ẩn → khối, cùng lý do với ô System opening. */
+  function _stxParkBd(sloc){
+    const pool = document.querySelector('.stx-inp-pool');
+    if(!pool) return;
+    ['stxBd3','stxBd4','stxBdW'].forEach(id=>{
+      const inp = document.getElementById(id + sloc);
+      if(inp && inp.parentNode !== pool) pool.appendChild(inp);
+    });
+  }
+  function _stxMountBd(sloc, root){
+    if(!root) return;
+    ['stxBd3','stxBd4','stxBdW'].forEach(id=>{
+      const slot = root.querySelector('.stx-inp-slot[data-for="' + id + sloc + '"]');
+      const inp  = document.getElementById(id + sloc);
+      if(slot && inp) slot.appendChild(inp);
+    });
+    _stxRestoreFocus(sloc);
+  }
+  /* Đổ giá trị vào ô nhập. KHÔNG bao giờ ghi đè ô đang được gõ — chỉ ô SUY RA.
+     Ô suy ra mang class .derived để nhìn là biết số đó máy tự tính. */
+  function _stxBdSyncInputs(sloc, B){
+    const st = _stxBd[sloc];
+    const e3 = document.getElementById('stxBd3' + sloc);
+    const e4 = document.getElementById('stxBd4' + sloc);
+    const ew = document.getElementById('stxBdW' + sloc);
+    /* v4.129 — ĐIỀN SẴN %wt C3 của lot vừa mix xong (nền COQ CUỐI MẺ, đúng
+       con số hiện cạnh FINISHED ở đầu thẻ). Trước đây ô để trống với chữ mờ
+       "%wt": phép chia vẫn chạy đúng vì bên trong đã lấy nền COQ, nhưng nhân
+       viên KHÔNG NHÌN THẤY mình đang chia theo tỉ lệ nào — số quan trọng nhất
+       của cả khối lại là số duy nhất không hiện ra.
+       Vẫn giữ `st.w3` RỖNG khi chưa ai gõ, nên đổi lot là ô tự cập nhật theo
+       lot mới; gõ đè thì nhãn bên cạnh đổi thành "typed in". */
+    if(ew && document.activeElement !== ew)
+      ew.value = st.w3 !== '' ? st.w3
+               : (B.w3 != null ? (+(B.w3*100).toFixed(2)) + '' : '');
+    const put = (el, own, isSrc, val)=>{
+      if(!el) return;
+      el.classList.toggle('derived', !isSrc && B.on);
+      if(document.activeElement === el) return;      /* đang gõ — không đụng */
+      el.value = isSrc ? own : (B.on && val !== null ? String(Math.round(val)) : '');
+    };
+    put(e3, st.c3, st.src === '3', B.d3);
+    put(e4, st.c4, st.src === '4', B.d4);
+  }
+  /* Vẽ lại CẢ khối (dùng khi số đề nghị đổi hoặc đổi lot). Ô nhập batch D
+     được cất đi trước rồi gắn lại nên không bị huỷ. */
+  function _stxSplitRender(sloc, F){
+    const box = document.getElementById('stxSplit' + sloc);
+    if(!box) return;
+    _stxParkBd(sloc);
+    box.innerHTML = _stxBdHtml(sloc, F);
+    _stxMountBd(sloc, box);
+    _stxBdSyncInputs(sloc, _stxBdCalc(sloc, F));
+  }
+  /* Lượt GÕ trong khối: chỉ ghi lại mấy ô số, tuyệt đối không đụng innerHTML. */
+  function _stxBdLive(sloc){
+    const box = document.getElementById('stxSplit' + sloc);
+    const F   = _stxFigures(sloc);
+    if(!box || !box.querySelector('.stx-bd')){ _stxSplitRender(sloc, F); return; }
+    const B = _stxBdCalc(sloc, F);
+    const N = v => _stxNum(v, 0);
+    const set = (k, html)=>{ const el = box.querySelector('[data-b="' + k + '"]'); if(el) el.innerHTML = html; };
+    set('dL', N(B.dL));
+    set('e3', N(B.e3)); set('e4', N(B.e4)); set('eL', N(B.eL));
+    set('wtnote', _esc2(B.w3Typed ? 'typed in' : (B.w3 != null ? 'from lot COQ' : 'not available')));
+    set('enote', B.eW3 != null
+          ? 'still needed · ' + (B.eW3 * 100).toFixed(2) + ' %wt C3'
+          : 'still needed');
+    const w = box.querySelector('[data-b="warn"]');
+    if(w){
+      w.className = 'stx-bd-warn' + (B.warn.length ? ' on' : '');
+      w.innerHTML = B.warn.length ? '⚠ ' + _esc2(B.warn.join(' ')) : '';
+    }
+    _stxBdSyncInputs(sloc, B);
+  }
+  /* which = '3' | '4' | 'w'. Gõ ô nào thì ô đó thành NGUỒN, ô kia suy ra. */
+  function stxBdEdit(sloc, which){
+    const st = _stxBd[sloc];
+    if(!st) return;
+    if(which === 'w'){
+      const ew = document.getElementById('stxBdW' + sloc);
+      st.w3 = ew ? ew.value : '';
+    } else {
+      const el = document.getElementById('stxBd' + which + sloc);
+      const v  = el ? el.value : '';
+      st.src = which;
+      if(which === '3'){ st.c3 = v; st.c4 = ''; }
+      else             { st.c4 = v; st.c3 = ''; }
+      if(_stxBdN(v) === null && !String(v).trim()) st.src = '';
+    }
+    _stxBdLive(sloc);
+  }
+  function stxBdReset(sloc){
+    const st = _stxBd[sloc];
+    if(!st) return;
+    st.src = ''; st.c3 = ''; st.c4 = ''; st.w3 = '';
+    const e3 = document.getElementById('stxBd3' + sloc);
+    const e4 = document.getElementById('stxBd4' + sloc);
+    const ew = document.getElementById('stxBdW' + sloc);
+    [e3, e4, ew].forEach(el=>{ if(el){ el.value = ''; el.classList.remove('derived'); } });
+    _stxBdLive(sloc);
+  }
+
   /* ══ v4.114 — CẬP NHẬT TẠI CHỖ KHI ĐANG GÕ ═════════════════════════════
      LỖI ĐÃ SỬA: mỗi lần gõ một chữ số, `oninput` gọi renderStx → hàm này
      ghi đè `body.innerHTML`, mà trước đó phải KÉO hai ô <input> ra kho ẩn
@@ -1310,6 +1538,10 @@ const INV = (function(){
     set('gclose-3',    SG(gClC3));   set('gclose-4', SG(gClC4));
     set('gclose-t',    SG(hasSys ? gClC3 + gClC4 : null));
     foot.innerHTML = _stxFootHtml(sloc, F);
+    /* v4.128 — số chuyển kho vừa đổi ⇒ phần batch E phải tính lại. Lúc này
+       con trỏ đang nằm ở ô System opening, không phải ô batch D, nên vẽ lại
+       cả khối là an toàn. */
+    _stxSplitRender(sloc, F);
     _stxTsvRebuild();
   }
 
@@ -1359,6 +1591,7 @@ const INV = (function(){
           + (ctx.lot ? ' for lot <b>'+_esc2(ctx.lot)+'</b>' : '')
           + '. Type a lot number above, or press <b>📥 Load All</b> in the Tank Log if it is an older lot.</div>';
         foot.innerHTML = '';
+        _stxSplitRender(sloc, F);      /* v4.128 — F.ok=false ⇒ khối tự rỗng */
         _stxSysFill(sloc, ctx, F, refill);
         return;
       }
@@ -1423,6 +1656,7 @@ const INV = (function(){
       _stxMountInputs(sloc, body);
 
       foot.innerHTML = _stxFootHtml(sloc, F);
+      _stxSplitRender(sloc, F);        /* v4.128 — tách batch D / batch E */
     });
     _stxFocusKeep = null;
     _stxTsvRebuild();
@@ -1665,7 +1899,8 @@ const INV = (function(){
   function _stxSnapFocus(){
     try{
       const act = document.activeElement;
-      if(act && act.id && /^stxSys[34]/.test(act.id)){
+      /* v4.128 — nhận cả ba ô batch D (stxBd3 / stxBd4 / stxBdW) */
+      if(act && act.id && /^(stxSys[34]|stxBd[34W])/.test(act.id)){
         const k = { id:act.id, ss:null, se:null };
         try{ k.ss = act.selectionStart; k.se = act.selectionEnd; }catch(_){}
         return k;
@@ -1687,17 +1922,19 @@ const INV = (function(){
       const inp  = document.getElementById('stxSys'+k+sloc);
       if(slot && inp) slot.appendChild(inp);
     });
-    /* v4.114 — LƯỚI AN TOÀN: đường gõ đã không đi qua renderStx nữa, nhưng
-       một lượt vẽ ĐẦY ĐỦ (máy khác đẩy về, bản nháp vừa nạp…) vẫn có thể
-       rơi đúng lúc nhân viên đang gõ. Trả lại focus + con trỏ cho đúng ô. */
+    _stxRestoreFocus(sloc);
+  }
+  /* v4.114 — LƯỚI AN TOÀN: đường gõ đã không đi qua renderStx nữa, nhưng
+     một lượt vẽ ĐẦY ĐỦ (máy khác đẩy về, bản nháp vừa nạp…) vẫn có thể rơi
+     đúng lúc nhân viên đang gõ. Trả lại focus + con trỏ cho đúng ô.
+     v4.128 — tách ra dùng chung cho cả ô System opening lẫn ô batch D. */
+  function _stxRestoreFocus(sloc){
     const keep = _stxFocusKeep;
-    if(keep && keep.id.slice(-4) === String(sloc)){
-      const el = document.getElementById(keep.id);
-      if(el){
-        try{ el.focus(); }catch(_){}
-        try{ if(keep.ss !== null && keep.ss !== undefined) el.setSelectionRange(keep.ss, keep.se); }catch(_){}
-      }
-    }
+    if(!keep || keep.id.slice(-4) !== String(sloc)) return;
+    const el = document.getElementById(keep.id);
+    if(!el) return;
+    try{ el.focus(); }catch(_){}
+    try{ if(keep.ss !== null && keep.ss !== undefined) el.setSelectionRange(keep.ss, keep.se); }catch(_){}
   }
 
   function copyStx(){
@@ -2068,6 +2305,7 @@ const INV = (function(){
            openSplit, pickSplit, calcSplit, copySplit,
            /* v4.108 — ⚖ Stock-transfer reconciliation (nút 📏 trên thẻ tank) */
            openStx, renderStx, copyStx, stxLotChange, stxSysEdit, stxSysReset,
+           stxBdEdit, stxBdReset, stxBdCalc: _stxBdCalc, _stxBd,   /* v4.128 — tách batch D/E */
            stxCtx: _stxCtx, stxSapDate: _stxSapDate,
            /* v4.111 — dùng chung với ô thông báo Tank Mix + ghi vào Tank Log */
            stxFigures: _stxFigures, stxSetSys, stxSlocOf, stxSave, stxSaveFor,

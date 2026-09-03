@@ -5,12 +5,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HSVC LPG STATION — v4 (modular)</title>
 
+<!-- ⭐ v4.127 — index.html KHÔNG ĐƯỢC NẰM LẠI TRONG CACHE.
+     Mọi file js/css đều có ?v=… để ép trình duyệt tải lại khi sửa mã, NHƯNG
+     danh sách ?v=… đó nằm trong CHÍNH file này. Nếu trình duyệt giữ lại bản
+     index.html cũ thì nó cứ xin đúng những URL cũ ⇒ mọi bản vá đều vô hình,
+     phần mềm chạy mã cũ mà không báo gì. Triệu chứng đã gặp: dải STOCK
+     FORECAST chia sai Domestic/Export theo đúng luật đã bỏ từ v4.125.
+     Ba thẻ dưới đây bắt trình duyệt hỏi lại máy chủ mỗi lần mở trang. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="app-build" content="4.130">
+
 <!-- Fonts (giữ từ V4-54) -->
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Barlow:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
 <!-- CSS theo module (nạp core trước) -->
 <link rel="stylesheet" href="vendor/tabulator.min.css">
-<link rel="stylesheet" href="css/core.css?v=4126">
+<link rel="stylesheet" href="css/core.css?v=4130"><!-- v4.127 — chip số hiệu bản + dải cảnh báo chạy bản cũ -->
 <link rel="stylesheet" href="css/monthly.css"><!-- Monthly Report (mthr) — file tách riêng, link ACTIVE -->
 <link rel="stylesheet" href="css/tldata.css"><!-- TL Data paste (mthr) — link ACTIVE -->
 <link rel="stylesheet" href="css/vessel.css"><!-- Vessel data tab (LPG Sales) — link ACTIVE -->
@@ -99,7 +111,7 @@
   <!-- TODAY PLAN PAGE (LPG SALES) -->
   <section class="page on" id="page-sales">
     <div class="page-hdr">
-      <div class="ph-title"><h2>LPG SALES</h2><span class="sub">Today Plan &amp; Sales Operations</span></div>
+      <div class="ph-title"><h2>LPG SALES</h2><span class="sub">Today Plan &amp; Sales Operations</span><span class="build-chip" id="buildChip" title="Loading…">build …</span></div>
       <div class="subtabs" id="salesSubs">
         <button class="stab on" data-sub="scale" onclick="switchSalesTab('scale')">⚖ SCALE</button>
         <button class="stab" data-sub="tl" onclick="switchSalesTab('tl')">⚖ TL DATA<span class="stab-badge" id="tlBadgeCount">0</span></button>
@@ -4100,6 +4112,10 @@
           <div class="stx-body" id="stxBody2100"></div>
           <div class="stx-src s-na" id="stxSrc2100"></div>
           <div class="stx-foot" id="stxFoot2100"></div>
+          <!-- v4.128 — tách số chuyển kho thành batch D + batch E. Container RIÊNG,
+               KHÔNG nằm trong stxFoot: chân khung bị vẽ lại mỗi lần gõ ô System
+               opening, để ô nhập batch D trong đó là lặp lại đúng lỗi "ô đơ" v4.114. -->
+          <div class="stx-split" id="stxSplit2100"></div>
         </div>
 
         <div class="stx-pane p-3502" id="stxPane2101">
@@ -4120,6 +4136,10 @@
           <div class="stx-body" id="stxBody2101"></div>
           <div class="stx-src s-na" id="stxSrc2101"></div>
           <div class="stx-foot" id="stxFoot2101"></div>
+          <!-- v4.128 — tách số chuyển kho thành batch D + batch E. Container RIÊNG,
+               KHÔNG nằm trong stxFoot: chân khung bị vẽ lại mỗi lần gõ ô System
+               opening, để ô nhập batch D trong đó là lặp lại đúng lỗi "ô đơ" v4.114. -->
+          <div class="stx-split" id="stxSplit2101"></div>
         </div>
 
       </div>
@@ -4136,6 +4156,14 @@
         <input type="text" inputmode="decimal" autocomplete="off" id="stxSys42100" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxSysEdit('2100')">
         <input type="text" inputmode="decimal" autocomplete="off" id="stxSys32101" class="stx-inp c3" placeholder="C3 kg" oninput="INV.stxSysEdit('2101')">
         <input type="text" inputmode="decimal" autocomplete="off" id="stxSys42101" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxSysEdit('2101')">
+        <!-- v4.128 — batch D: gõ MỘT trong hai ô, ô kia tự suy ra theo %wt C3.
+             Cùng cơ chế kho ẩn với ô System opening vì lý do y hệt. -->
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxBd32100" class="stx-inp c3" placeholder="C3 kg" oninput="INV.stxBdEdit('2100','3')">
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxBd42100" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxBdEdit('2100','4')">
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxBdW2100" class="stx-inp wt" placeholder="%wt" oninput="INV.stxBdEdit('2100','w')">
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxBd32101" class="stx-inp c3" placeholder="C3 kg" oninput="INV.stxBdEdit('2101','3')">
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxBd42101" class="stx-inp c4" placeholder="C4 kg" oninput="INV.stxBdEdit('2101','4')">
+        <input type="text" inputmode="decimal" autocomplete="off" id="stxBdW2101" class="stx-inp wt" placeholder="%wt" oninput="INV.stxBdEdit('2101','w')">
       </div>
 
       <div class="stx-legend">
@@ -4731,12 +4759,12 @@
      ============================================================ -->
 <!-- core (thứ tự: nav → config → helpers → sync → auth → globals; globals PHẢI trước data) -->
 <script src="js/core/nav.js"></script>
-<script src="js/core/config.js?v=484"></script>
-<script src="js/core/helpers.js?v=4125"></script>
-<script src="js/core/sync.js"></script>
+<script src="js/core/config.js?v=4130"></script><!-- v4.127 — APP_BUILD: số hiệu bản đang chạy -->
+<script src="js/core/helpers.js?v=4127"></script><!-- v4.127 — window.TWAVG: nguồn DUY NHẤT tra khối lượng xe rỗng, khớp CẶP đầu xe + rơ-moóc -->
+<script src="js/core/sync.js?v=4130"></script><!-- v4.127 — SC.upsertRows: dán theo kiểu GỘP (cập nhật / thêm mới / giữ nguyên dòng không dán) -->
 <script src="js/core/forcesync.js"></script>
-<script src="js/core/auth.js"></script>
-<script src="js/core/globals.js?v=484"></script>
+<script src="js/core/auth.js?v=4130"></script><!-- v4.130 — vai trò sale: QUYỀN THEO Ô (Fleet ▸ Driver ▸ cột Phone) ngoài hai bảng Today/Tomorrow Plan -->
+<script src="js/core/globals.js?v=4130"></script><!-- v4.127 — dán bảng TW AVG không còn xoá sạch tab: khoá theo cặp đầu xe + rơ-moóc -->
 <!-- paste-guard (chống paste nhầm tab) — nạp sớm, dùng runtime bởi data modules -->
 <script src="js/checks/pasteguard.js"></script>
 <!-- data -->
@@ -4746,7 +4774,7 @@
 <script src="js/data/tlxk.js?v=486"></script><!-- v4.86 — TL Data → sheet "Detail" của PHIẾU XUẤT KHO (.xlsm) -->
 <script src="js/data/wg.js"></script>
 <script src="js/data/ws.js"></script>
-<script src="js/data/sp.js?v=4124"></script><!-- v4.108 — SP.tankEnd(sloc,date): End Stock của một bồn tại một ngày, tách C3/C4, cho bảng đối chiếu chuyển kho -->
+<script src="js/data/sp.js?v=4129"></script><!-- v4.108 — SP.tankEnd(sloc,date): End Stock của một bồn tại một ngày, tách C3/C4, cho bảng đối chiếu chuyển kho -->
 <!-- v4.99 — SLoc 1100 LUÔN tách theo mã batch (mã lạ vẫn giữ dòng, chỉ cảnh báo), tìm/sắp theo mã batch; dòng gộp cũ dọn ngay trong bảng xác nhận khi dán -->
 <script src="js/data/ct.js"></script>
 <script src="js/data/pp.js"></script>
@@ -4756,7 +4784,7 @@
 <!-- features -->
 <script src="js/features/fleet.js"></script>
 <script src="js/features/plan.js?v=4124"></script><!-- v4.124 — GIỮ NGUYÊN VỊ TRÍ CUỘN khi đổi trạng thái: ledger vẽ lại bằng innerHTML nên khung .pv-scroll bị thay mới và văng lên đầu bảng; nay mỗi dòng có data-oid, trước khi vẽ ghi lại dòng sát mép trên + khoảng lệch, vẽ xong kéo về đúng chỗ (bù được cả khi bảng đổi chiều cao). Chế độ TABLE giữ scrollTop của .tabulator-tableholder quanh replaceData · v4.109 — 🔗 LINK ORDERS: một đơn hàng thật nằm trên nhiều dòng kế hoạch. Nhóm ALT (một trong N xe sẽ vào lấy) chỉ được tính MỘT lần vào PLAN/LOADED/REMAIN — trước đây 1 đơn 25 MT khai 3 xe bị cộng thành 75 MT; xe nào vào station trước thì các dòng anh em tự park (cancel + cờ _altSkip) và tự mở lại nếu xe đó rời station. Nhóm MDO (một xe nhiều DO) khai trước để tab Scale gộp thẳng lúc assign. Cột ACTUAL + mọi số MT hiện 3 số thập phân (đọc được tới kg) · v4.112 — TP.lnkLinkMdo: nhân viên cân chọn "bán gộp" ngay lúc assign thì nhóm 🔗 MULTI-DO được lập luôn trên Today Plan -->
-<script src="js/features/scale.js?v=4125"></script><!-- v4.110 — SỬA LỖI IN GỘP/TÁCH MULTI-DO chạy chập chờn: hộp hỏi chuyển từ ô kết quả tìm kiếm của trạm (bị handler click-outside + scRenderCtrl ghi đè) sang MODAL riêng không đóng khi bấm ra nền; CẢ HAI đường assign (dò tìm & đã link) đều hỏi cách in một lần duy nhất; số chia per-DO (_mdoNets), turn đã chốt (_tlTurn) và cách in (_pttMode) lưu lên trạm nên sống sót qua F5 và sang máy khác; chặn dòng thiếu số DO; hộp hỏi phiếu DN mở sẵn đúng lựa chọn lúc assign · v4.109 — thẻ PLAN dùng chung TP.lnkTotals nên không còn lệch với Today Plan (+3 số thập phân) · v4.112 — KHÔI PHỤC phép dò tìm multi-DO lúc assign chạy SONG SONG với 🔗 Link Orders: bỏ cửa chặn im lặng (tổng ≤27, bắt buộc trùng tài xế, anh em đang xếp hàng đợi), chọn gộp thì link ngược về Today Plan, PTT in đủ mọi DO, TL Data ghi khoá mdoG -->
+<script src="js/features/scale.js?v=4127"></script><!-- v4.110 — SỬA LỖI IN GỘP/TÁCH MULTI-DO chạy chập chờn: hộp hỏi chuyển từ ô kết quả tìm kiếm của trạm (bị handler click-outside + scRenderCtrl ghi đè) sang MODAL riêng không đóng khi bấm ra nền; CẢ HAI đường assign (dò tìm & đã link) đều hỏi cách in một lần duy nhất; số chia per-DO (_mdoNets), turn đã chốt (_tlTurn) và cách in (_pttMode) lưu lên trạm nên sống sót qua F5 và sang máy khác; chặn dòng thiếu số DO; hộp hỏi phiếu DN mở sẵn đúng lựa chọn lúc assign · v4.109 — thẻ PLAN dùng chung TP.lnkTotals nên không còn lệch với Today Plan (+3 số thập phân) · v4.112 — KHÔI PHỤC phép dò tìm multi-DO lúc assign chạy SONG SONG với 🔗 Link Orders: bỏ cửa chặn im lặng (tổng ≤27, bắt buộc trùng tài xế, anh em đang xếp hàng đợi), chọn gộp thì link ngược về Today Plan, PTT in đủ mọi DO, TL Data ghi khoá mdoG -->
 <script src="js/features/fnote.js?v=484"></script><!-- Sổ ghi chú xe/tài xế — lazy, không tự đọc Firebase -->
 <script src="js/features/eng.js?v=4111"></script><!-- v4.107 — cột Filled LPG = ΣCOQ (lùi GC khi lot chưa có COQ), hai cột Filled C3/C4 (GC) hạ nổi bật · v4.108 — thêm 4 cột Open/End C3/C4 THỰC TẾ (INIT/FINAL VOL đo được × nền COQ), chỉ tính trên máy · v4.111 — thêm 4 cột Gap C3/C4 + Adj ST C3/C4 (kg) ghi kết quả đối chiếu chuyển kho -->
 <!-- v4.101 — Density (cột 33) & ρ COQ đầu (cột 63) giữ ĐỦ 4 số thập phân ở ô sửa dòng + bảng Tank Log + bản in -->
@@ -4764,7 +4792,7 @@
 <script src="js/features/rpt.js?v=4112"></script><!-- v4.112 — cột Trips: dòng TL mang chung khoá mdoG chỉ tính MỘT lượt xe -->
 <script src="js/features/mthr.js"></script>
 <script src="js/features/bond.js?v=4118"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
-<script src="js/features/inv.js?v=4119"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh · v4.111 — lot đang tính hiện cạnh tên bồn, nút 💾 Save to Tank Log, tồn đầu hệ thống dùng chung với ô thông báo Tank Mix · v4.113 — số tồn đầu gõ tay lưu tạm lên /stx_draft theo TỪNG LOT (sống sót qua F5 / đổi máy / bồn trộn mẻ mới) và tự xoá khi đã lưu vào Tank Log · v4.114 — VÁ LỖI GÕ: ô System opening không còn bị cắt focus sau mỗi chữ số (cập nhật tại chỗ, type=text) · v4.117 — 🔍 WMS stock check (modal #stxWmsModal): gõ thể tích vừa đo + số C3/C4 WMS đang hiện ⇒ độ vênh và CÂU LỆNH chuyển kho rõ chiều (bồn ➜ hầm 1100 để GIẢM, hầm 1100 ➜ bồn để TĂNG); không lưu gì, số gõ giữ trong RAM suốt phiên -->
+<script src="js/features/inv.js?v=4129"></script><!-- v4.108 — ⚖ Stock-transfer reconciliation: tồn C3/C4 thực tế vs tồn hệ thống (SAP End Stock tự lấy theo giờ finish) → số chuyển kho đã điều chỉnh · v4.111 — lot đang tính hiện cạnh tên bồn, nút 💾 Save to Tank Log, tồn đầu hệ thống dùng chung với ô thông báo Tank Mix · v4.113 — số tồn đầu gõ tay lưu tạm lên /stx_draft theo TỪNG LOT (sống sót qua F5 / đổi máy / bồn trộn mẻ mới) và tự xoá khi đã lưu vào Tank Log · v4.114 — VÁ LỖI GÕ: ô System opening không còn bị cắt focus sau mỗi chữ số (cập nhật tại chỗ, type=text) · v4.117 — 🔍 WMS stock check (modal #stxWmsModal): gõ thể tích vừa đo + số C3/C4 WMS đang hiện ⇒ độ vênh và CÂU LỆNH chuyển kho rõ chiều (bồn ➜ hầm 1100 để GIẢM, hầm 1100 ➜ bồn để TĂNG); không lưu gì, số gõ giữ trong RAM suốt phiên -->
 <script src="js/features/tkv.js"></script>
 <script src="js/features/vlog.js"></script>
 <script src="js/features/plog.js"></script>
@@ -4778,7 +4806,7 @@
 <script src="js/features/fcst.js?v=4125"></script><!-- v4.120 — ⭐ DỰ BÁO TỒN KHO trên thanh SCALE CONSOLE · CHỈ lô D + E (P/X không tính), đơn xuất khẩu trừ lô E, nội địa trừ lô D, thêm ô nhập tàu/heater tạm tính · v4.119 — bản đầu: tồn ĐÃ THÔNG QUAN của SAP (1100+2100+2101) trừ MỌI kế hoạch có ngày SAU ngày SAP (Today Plan + Tomorrow Plan). Tỉ lệ bán (%vol) được ghép với lot có %vol gần nhất — lot đang trong bồn → lịch sử Tank Log → tạm tính — rồi lấy %wt của lot đó tách ra kg C3/C4. Cảnh báo khi kế hoạch bán LỐ hơn hàng đã thông quan (rủi ro bơm nhầm hàng chưa thông quan) -->
 <script src="js/features/scx2.js?v=4117"></script><!-- v4.108 — nút 📏 trên thẻ tank mở bảng đối chiếu chuyển kho · v4.117 — thêm nút 🔍 WMS stock check (đo tại chỗ → câu lệnh chuyển kho rõ chiều bồn ⇄ hầm 1100) -->
 <!-- integrations -->
-<script src="js/integrations/ptt-early.js?v=4110"></script><!-- v4.87 — chọn kỹ sư cho phiếu KTPTVC khi in early/today -->
+<script src="js/integrations/ptt-early.js?v=4127"></script><!-- v4.87 — chọn kỹ sư cho phiếu KTPTVC khi in early/today -->
 <script src="js/integrations/sync2.js"></script>
 <script src="js/integrations/notif.js"></script>
 <script src="js/integrations/salenotify.js?v=4126"></script><!-- v4.126 — thông báo "sale vừa đổi Today/Tomorrow Plan": nổi 5s rồi nằm trong nút 📨 ở tab Scale. KHÔNG có node Firebase riêng — mỗi máy tự sinh từ dấu vết lastBy/lastAt/lastRole trên chính dòng plan; bấm ✓ Confirm là xoá hẳn trên máy đó. -->
@@ -4787,6 +4815,6 @@
      giết js/21-zalo.js bên Chấm Công bằng HTTP 499. -->
 <script src="js/integrations/loadnotify.js?v=484"></script>
 <!-- boot (cuối cùng) -->
-<script src="js/boot.js"></script>
+<script src="js/boot.js?v=4127"></script><!-- v4.127 — canh bản đang chạy trước khi boot -->
 </body>
 </html>

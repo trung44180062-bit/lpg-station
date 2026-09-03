@@ -15,6 +15,53 @@
  *   - RPT, TKV, PTT_EARLY, SYNC, NOTIF -> lazy, mo theo thao tac (nhu ban goc)
  * Ban goc de doi chieu: js/boot.original.js
  * ============================================================ */
+/* ============================================================
+   v4.127 — CANH BẢN ĐANG CHẠY (chống "mã đã sửa mà máy vẫn chạy bản cũ")
+   ------------------------------------------------------------
+   Chạy TRƯỚC mọi thứ, không cần đăng nhập, không đụng Firebase.
+   Hai phép so:
+     ① APP_BUILD (config.js) vs <meta name="app-build"> (index.html)
+        — lệch nhau nghĩa là trình duyệt trộn file của hai bản khác nhau.
+     ② TRADE.dirOfText('PETIMEX') — bản trước v4.125 khớp CHUỖI CON "EX"
+        nên trả 'E'. Đây là mẫu thử rẻ và chắc chắn cho một lỗi ĐÃ XẢY RA:
+        khách nội địa PETIMEX / PETROLIMEX bị dải STOCK FORECAST đếm sang
+        cột EXPORT, sai 240 MT trong một ngày mà không có thông báo nào.
+   Sai kiểu này KHÔNG tự lộ ra — số vẫn hiện, chỉ là số sai — nên phải nói
+   thẳng ra màn hình chứ không chỉ ghi console.
+   ============================================================ */
+document.addEventListener('DOMContentLoaded', function () {
+  try{
+    var chip = document.getElementById('buildChip');
+    var meta = document.querySelector('meta[name="app-build"]');
+    var htmlB = meta ? String(meta.getAttribute('content')||'').trim() : '';
+    var jsB   = (typeof APP_BUILD !== 'undefined') ? String(APP_BUILD) : '';
+    var bad   = [];
+    if(htmlB && jsB && htmlB !== jsB)
+      bad.push('index.html is build ' + htmlB + ' but the scripts are build ' + jsB);
+    if(typeof TRADE !== 'undefined' && TRADE.dirOfText &&
+       TRADE.dirOfText('PETIMEX') === 'E')
+      bad.push('the Domestic/Export rule is the pre-4.125 one — PETIMEX reads as Export');
+    if(chip){
+      chip.textContent = 'build ' + (jsB || '?');
+      chip.title = bad.length
+        ? ('STALE FILES: ' + bad.join('; ') + '. Press Ctrl+Shift+R to reload.')
+        : ('Build ' + jsB + ' — all scripts match.');
+      if(bad.length) chip.className = 'build-chip stale';
+    }
+    console.log('[BUILD] scripts ' + (jsB||'?') + ' · index.html ' + (htmlB||'?')
+                + (bad.length ? ' · ⚠ STALE: ' + bad.join('; ') : ' · ok'));
+    if(bad.length){
+      var bar = document.createElement('div');
+      bar.className = 'build-stale-bar';
+      bar.innerHTML = '\u26A0 <b>You are running a stale cached build.</b> ' +
+        bad.join('. ') + '. Numbers on screen may be wrong \u2014 press ' +
+        '<b>Ctrl+Shift+R</b> (Cmd+Shift+R on Mac) to reload, then check the build chip.';
+      bar.onclick = function(){ try{ location.reload(true); }catch(_){ location.reload(); } };
+      document.body.insertBefore(bar, document.body.firstChild);
+    }
+  }catch(e){ console.warn('[BUILD] check failed', e); }
+});
+
 document.addEventListener('DOMContentLoaded', function () {
   'use strict';
 

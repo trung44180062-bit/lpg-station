@@ -71,7 +71,16 @@ const SC = (function(){
   */
   function applyAndPush(changes, reason){
     if(!changes || !changes.length) return null;
-    if(!canWrite('fleet')) { toast('You do not have permission to edit','er'); return null; }
+    /* v4.130 — CỔNG QUYỀN THEO Ô.
+       Vai trò không có quyền cả vùng 'fleet' vẫn được ghi, MIỄN LÀ mọi thay đổi
+       trong lô đều nằm trong danh sách ô cho phép (hiện tại: sale ↔ tab driver
+       ↔ cột phone). Chỉ cần MỘT ô ngoài danh sách là chặn CẢ lô — ghi nửa vời
+       còn tệ hơn không ghi. Xoá dòng mang field '__DELETE__' nên tự động rớt. */
+    if(!canWrite('fleet')){
+      const _fw = (typeof AUTH !== 'undefined' && AUTH && AUTH.canWriteField) ? AUTH.canWriteField : null;
+      const _okAll = !!_fw && changes.every(c => _fw('fleet', c.tab, c.field));
+      if(!_okAll){ toast('You do not have permission to edit','er'); return null; }
+    }
 
     const now = Date.now();
     const payload = {};
@@ -428,6 +437,61 @@ const SC = (function(){
         Object.entries(r).forEach(([k,v])=> batch.push({tab,rid,field:k,value:v}));
       });
       applyAndPush(batch, reason||'paste');
+    },
+    /* v4.127 — GỘP (upsert) thay vì thay thế cả tab.
+       replaceTab xoá sạch rồi ghi lại: mọi dòng KHÔNG có trong lần paste đều
+       biến mất, kèm theo cờ ⛔ và ghi chú của chúng. Với bảng TW AVG thì nhân
+       viên chỉ dán một PHẦN đội xe mỗi lần, nên cần:
+         · dòng đã có (trùng khoá)  → cập nhật những ô THỰC SỰ đổi
+         · dòng chưa có             → thêm mới
+         · dòng không nằm trong lần paste → GIỮ NGUYÊN, không đụng tới
+       keyOf(row) → chuỗi khoá định danh; '' nghĩa là bỏ qua dòng đó.
+       altKeyOf(row) → khoá NỚI (tuỳ chọn), chỉ dùng khi khoá chặt không khớp;
+       dùng để vá dữ liệu cũ (dòng cũ nhập thiếu rơ-moóc) thay vì đẻ dòng trùng.
+       hooks.onUpdate(rowMới, rowCũ) / hooks.onAdd(rowMới) → trả về đối tượng ô
+       thực sự ghi. Dùng để giữ lại những ô KHÔNG nên bị lần dán ghi đè (số thứ
+       tự chẳng hạn) mà vẫn ghi các ô còn lại.
+       Chỉ MỘT applyAndPush cho cả lô ⇒ một lượt ghi Firebase. */
+    upsertRows(tab, newRowsArr, keyOf, reason, altKeyOf, hooks){
+      const existing = DATA[tab] || {};
+      const origRids = Object.keys(existing);
+      const idx = {};                       /* khoá → rid, dòng đầu tiên thắng */
+      origRids.forEach(rid=>{
+        const k = keyOf(existing[rid]);
+        if(k && !(k in idx)) idx[k] = rid;
+      });
+      const batch = [];
+      const seen  = {};
+      const stat  = { updated:0, added:0, unchanged:0, kept:0, skipped:0 };
+      (newRowsArr||[]).forEach(r=>{
+        const k = keyOf(r);
+        if(!k){ stat.skipped++; return; }
+        let rid = idx[k];
+        if(!rid && typeof altKeyOf === 'function'){
+          const ak = altKeyOf(r);
+          /* chỉ nhận khoá nới khi nó chưa bị dòng nào trong lần paste này chiếm */
+          if(ak && idx[ak] && !seen[idx[ak]]) rid = idx[ak];
+        }
+        if(rid){
+          let touched = 0;
+          const upd = (hooks && hooks.onUpdate) ? hooks.onUpdate(r, existing[rid]) : r;
+          Object.entries(upd).forEach(([f,v])=>{
+            if(existing[rid] && existing[rid][f] === v) return;
+            batch.push({tab, rid, field:f, value:v}); touched++;
+          });
+          touched ? stat.updated++ : stat.unchanged++;
+          seen[rid] = 1;
+          idx[k] = rid;                     /* khoá mới trỏ về đúng dòng vừa vá */
+        } else {
+          const nid = newRid();
+          const add = (hooks && hooks.onAdd) ? hooks.onAdd(r) : r;
+          Object.entries(add).forEach(([f,v])=> batch.push({tab, rid:nid, field:f, value:v}));
+          idx[k] = nid; seen[nid] = 1; stat.added++;
+        }
+      });
+      stat.kept = origRids.filter(rid=>!seen[rid]).length;
+      if(batch.length) applyAndPush(batch, reason||'paste merge');
+      return stat;
     },
     /* nuke every row in a tab (Clear-all button). Same delta semantics —
        each row issues a __DELETE__ change. Audit log gets one row entry

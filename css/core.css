@@ -4305,3 +4305,84 @@ body.role-sale [onclick*="openExport"],
 body.role-sale [onclick*="Print"],
 body.role-sale [onclick*="pfPrint"],
 body.role-sale [onclick*="ktPrint"]{opacity:.45;filter:grayscale(.7);}
+
+/* v4.130 — Fleet: sale CHỈ gõ được ô Phone của tab DRIVER.
+   Nút trên thanh công cụ Fleet (dán Excel · thêm dòng · xoá sạch) làm mờ cho
+   biết là không dùng được; ô nào không được sửa thì con trỏ về mặc định để
+   nhìn là biết ngay (Tabulator vẫn để con trỏ text ở ô có editor). */
+body.role-sale .fleet-toolbar .ft-right .btn{opacity:.45;filter:grayscale(.7);}
+body.role-sale .fleet-grid .tabulator-cell{cursor:default;}
+body.role-sale .fleet-grid .cell-phone{cursor:text;background:#f2fbff;}
+body.role-sale .fleet-grid .cell-del,
+body.role-sale .fleet-grid .cell-blk-tick{opacity:.4;}
+
+/* ============================================================
+   v4.127 — CHIP SỐ HIỆU BẢN + DẢI CẢNH BÁO CHẠY BẢN CŨ
+   Mã sửa đúng mà máy vẫn chạy bản cũ là lỗi KHÔNG tự lộ ra: số vẫn hiện,
+   chỉ là số sai. Chip nhỏ cạnh "LPG SALES" trả lời trong một cái liếc
+   "máy này đang chạy bản nào"; lệch bản thì cả dải đỏ trên đầu trang.
+   ============================================================ */
+.build-chip{
+  display:inline-block; margin-left:10px; padding:2px 8px; border-radius:10px;
+  font-size:11px; font-weight:700; letter-spacing:.02em; vertical-align:middle;
+  background:#eef2f7; color:#5b6b7c; border:1px solid #d7dfe8; cursor:default;
+}
+.build-chip.stale{ background:#fdecea; color:#a4231b; border-color:#f2b8b3; }
+.build-stale-bar{
+  position:sticky; top:0; z-index:9999; cursor:pointer;
+  padding:9px 16px; background:#c0392b; color:#fff;
+  font-size:13px; line-height:1.45; text-align:center;
+  box-shadow:0 2px 6px rgba(0,0,0,.25);
+}
+.build-stale-bar b{ font-weight:800; }
+
+/* ============================================================
+   v4.128 — ⇄ TÁCH SỐ CHUYỂN KHO THÀNH BATCH D + BATCH E
+   Khối đứng ngay dưới ➜ SUGGESTED STOCK TRANSFER. Dùng tông CAM để
+   phân biệt rõ với khối xanh phía trên: khối xanh là số máy tính ra,
+   khối cam là phép chia do nhân viên tự đặt cho một lần lập lệnh.
+   Ô nào máy SUY RA thì nền xám + chữ nghiêng (.derived), nhìn là biết
+   số đó không phải mình gõ.
+   ============================================================ */
+.stx-split{padding:0 11px 11px;}
+.stx-bd{border:1.5px solid #f0d3ac;background:linear-gradient(180deg,#fffaf2 0%,#fdf3e6 100%);
+  border-radius:10px;padding:9px 11px;}
+.stx-bd-hd{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  font-family:'Oswald',sans-serif;font-size:10.5px;font-weight:700;letter-spacing:.9px;color:#a8620d;}
+.stx-bd-hd span{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:400;
+  letter-spacing:0;color:#6b8299;text-transform:none;}
+.stx-bd-wt{display:flex;align-items:center;gap:7px;margin-top:8px;
+  font-family:'Oswald',sans-serif;font-size:9px;font-weight:700;letter-spacing:.8px;color:#7c6244;}
+.stx-bd-wt .stx-inp-slot{display:inline-block;width:74px;}
+.stx-bd-wt input.stx-inp{max-width:74px;height:24px;text-align:right;}
+.stx-bd-wt i{font-family:'Barlow',sans-serif;font-size:10px;font-weight:400;font-style:italic;
+  letter-spacing:0;color:#9a8a76;}
+.stx-bd-clr{margin-left:auto;background:#fff;border:1px solid #e6d3b8;border-radius:7px;color:#a8620d;
+  font-family:'Barlow',sans-serif;font-size:9.5px;font-weight:600;padding:2px 8px;cursor:pointer;opacity:.85;}
+.stx-bd-clr:hover{opacity:1;}
+.stx-bd-tbl{width:100%;border-collapse:collapse;font-size:11.5px;table-layout:fixed;margin-top:7px;}
+.stx-bd-tbl th{font-family:'Oswald',sans-serif;font-size:8.5px;font-weight:700;letter-spacing:1px;
+  color:#9a8a76;text-transform:uppercase;padding:0 5px 3px;text-align:right;border-bottom:1px solid #ecdcc4;}
+.stx-bd-tbl th.lbl{text-align:left;width:40%;}
+.stx-bd-tbl th.n{width:19%;} .stx-bd-tbl th.tot{width:22%;}
+.stx-bd-tbl td{padding:5px;border-bottom:1px solid #f2e7d6;vertical-align:middle;}
+.stx-bd-tbl td.lbl{font-weight:600;color:#4a5b6b;}
+.stx-bd-tbl td.lbl i{display:block;font-size:9.5px;font-weight:400;font-style:normal;color:#9a8a76;}
+.stx-bd-tbl td.n{text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:#2c3e50;}
+.stx-bd-tbl td.tot{font-weight:700;}
+.stx-bd-tbl tr.e td.n{color:#a8620d;font-weight:700;}
+.stx-bd-tbl tr.sum td{border-bottom:none;border-top:1.5px solid #e6d3b8;color:#1b7f3b;font-weight:700;}
+.stx-bd-tbl tr.sum td.lbl{font-size:10px;letter-spacing:.3px;}
+.stx-bd-tbl input.stx-inp{max-width:none;height:26px;text-align:right;border-color:#e0b985;}
+.stx-bd-tbl input.stx-inp:focus{border-color:#c2761a;box-shadow:0 0 0 3px rgba(194,118,26,.16);}
+.stx-bd-tbl input.stx-inp.derived{background:#f4f6f8;border-color:#dbe3ec;border-style:dashed;
+  color:#5b6b7c;font-style:italic;}
+.stx-bd-warn{display:none;}
+.stx-bd-warn.on{display:block;margin-top:7px;padding:6px 8px;border-radius:7px;
+  background:#fdecea;border:1px solid #f2b8b3;color:#a4231b;font-size:10.5px;line-height:1.45;}
+
+/* v4.129 — ô tick "xoá dòng đã chết" trong bảng xác nhận dán SAP.
+   Đứng ngay trong dải cảnh báo để không ai bấm Confirm mà chưa thấy nó. */
+.sp-stale-opt{display:flex;align-items:flex-start;gap:7px;margin-top:7px;padding-top:7px;
+  border-top:1px dashed rgba(0,0,0,.14);cursor:pointer;line-height:1.45;}
+.sp-stale-opt input{margin-top:2px;flex:none;width:14px;height:14px;cursor:pointer;}

@@ -173,12 +173,9 @@ var PTT_EARLY = (function(){
   /* ── RAM-only Fleet lookups (no Firebase) — identical sources to the
         assign-into-station PTT (SCALE.pttPrint). Used to fill the fields the
         early PTT previously left blank: TW average, safe-fill cap. ── */
-  function _twAvgFor(plate){
-    try{
-      var twd = (typeof DATA!=='undefined' && DATA.twavg) ? DATA.twavg : {};
-      var pl = String(plate||'').trim().toUpperCase();
-      for(var rid in twd){ if(String(twd[rid].truck||twd[rid].plate||'').trim().toUpperCase()===pl) return parseFloat(twd[rid].avgWt)||null; }
-    }catch(_){}
+  /* v4.127 — khớp CẶP đầu xe + rơ-moóc qua TWAVG (helpers.js). */
+  function _twAvgFor(plate, rmooc){
+    try{ if(window.TWAVG) return TWAVG.find(plate, rmooc); }catch(_){}
     return null;
   }
   function _sfKgFor(plate, rmooc){
@@ -249,7 +246,7 @@ var PTT_EARLY = (function(){
     var prodType = (typeof _pfDeriveType==='function') ? _pfDeriveType(r.type||'') : (r.type||'');
     var lotPlaceholder = _lotTankStr(r.type);   /* v4.59 — real tank/lot in 'today' mode */
     var custName = _custVN(r.customer);
-    var twAvg = _twAvgFor(r.plate);
+    var twAvg = _twAvgFor(r.plate, r.rmooc);
     var sfKg  = _sfKgFor(r.plate, r.rmooc);
     var sf = _sfAdjust(parseFloat(r.qty)||0, parseFloat(r.tolerance||r.maxTol||0)||0, sfKg);
     var dX = sf.x, dY = sf.y, boothNote = sf.note;
@@ -405,7 +402,7 @@ var PTT_EARLY = (function(){
     var total = rows.reduce(function(s,r){ return s + (parseFloat(r.qty)||0); }, 0);
     var totalStr = total ? String(Math.round(total*100)/100) : '';
     /* RAM Fleet lookups keyed on the shared truck (r0). Gross = TW avg + total. */
-    var twAvg = _twAvgFor(r0.plate);
+    var twAvg = _twAvgFor(r0.plate, r0.rmooc);
     var sfKg  = _sfKgFor(r0.plate, r0.rmooc);
     var sfStr = sfKg ? sfKg.toLocaleString('en-US') : '';
     var twStr = twAvg ? Math.round(twAvg).toLocaleString('en-US') : '';

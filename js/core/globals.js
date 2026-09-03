@@ -204,10 +204,35 @@ function blockNoteColumn(){
   };
 }
 
+/* ============================================================
+   v4.130 — QUYỀN THEO Ô TRÊN LƯỚI FLEET
+   ------------------------------------------------------------
+   Vai trò không có quyền cả vùng 'fleet' (hiện tại: sale, viewer) thì lưới
+   phải KHOÁ CỨNG bằng mắt, không chỉ chặn lúc ghi: gỡ `editor` khỏi mọi cột
+   trừ những ô AUTH.canWriteField() cho phép, và thay `cellClick` (ô 🗑 xoá
+   dòng, ô ⛔ tick block) bằng câu từ chối.
+   ⚠ Ô 🗑 và ô ⛔ KHÔNG có editor — chúng ghi qua cellClick, nên gỡ editor
+   thôi là chưa đủ.
+   Khoá thật vẫn nằm ở SC.applyAndPush + cổng đường dẫn trong auth.js.
+   ============================================================ */
+function applyFleetFieldPerm(cols){
+  try{
+    if(typeof canWrite !== 'function' || canWrite('fleet')) return cols;   /* toàn quyền → giữ nguyên */
+    const fw = (typeof AUTH !== 'undefined' && AUTH && AUTH.canWriteField) ? AUTH.canWriteField : null;
+    cols.forEach(c=>{
+      const allow = !!(fw && c.field && fw('fleet', curTab, c.field));
+      if(allow) return;
+      delete c.editor;
+      if(c.cellClick) c.cellClick = ()=>{ toast('You do not have permission to edit','er'); };
+    });
+  }catch(_){}
+  return cols;
+}
+
 function buildColumns(){
   const d=CERT_DEFS[curTab];
   if(curTab==='twavg'){
-    return[
+    return applyFleetFieldPerm([
       {title:'#',field:'stt',width:50,hozAlign:'center',editor:'number',headerSort:true,
         sorter:'number',cssClass:'cell-num'},
       {title:'Truck',field:'truck',width:150,editor:'input',cssClass:'cell-plate'},
@@ -220,7 +245,7 @@ function buildColumns(){
       {title:'Last Edit',field:'lastAt',width:90,headerSort:true,formatter:lastEditFormatter,cssClass:'cell-lastedit-wrap'},
       {title:'🗑',width:44,hozAlign:'center',headerSort:false,formatter:()=>'✕',cssClass:'cell-del',
         cellClick:(e,cell)=>{ requestDeleteRow(cell.getRow().getData()); }}
-    ];
+    ]);
   }
   const cols=[{title:'#',field:'stt',width:50,hozAlign:'center',editor:'number',
     headerSort:true, sorter:'number', cssClass:'cell-num',frozen:true}];
@@ -255,7 +280,7 @@ function buildColumns(){
   // Delete column — rightmost
   cols.push({title:'🗑',width:44,hozAlign:'center',headerSort:false,formatter:()=>'✕',cssClass:'cell-del',
     cellClick:(e,cell)=>{ requestDeleteRow(cell.getRow().getData()); }});
-  return cols;
+  return applyFleetFieldPerm(cols);
 }
 function rowFormatter(row){
   const el=row.getElement();
@@ -469,6 +494,21 @@ function switchFleetTab(t){
 function openPaste(){document.getElementById('pasteModal').classList.add('on');
   setTimeout(()=>document.getElementById('pasteArea').focus(),50);}
 function closePaste(){document.getElementById('pasteModal').classList.remove('on');}
+/* v4.127 — khoá định danh một dòng TW AVG.
+   Chuẩn hoá biển số về CHỮ+SỐ viết hoa nên '51R-20972', '51r 20972' và
+   '51R20972' là MỘT. Trả '' khi thiếu biển đầu xe ⇒ dòng đó bị bỏ qua. */
+function twavgKey(r){
+  const p = v => String(v==null?'':v).toUpperCase().replace(/[^0-9A-Z]/g,'');
+  const t = p(r && (r.truck || r.plate));
+  return t ? t + '|' + p(r && r.rmooc) : '';
+}
+/* Khoá NỚI: cùng đầu xe, rơ-moóc TRỐNG. Dùng để vá những dòng cũ nhập thiếu
+   rơ-moóc — dán bảng mới sẽ điền rơ-moóc vào dòng đó thay vì đẻ dòng trùng. */
+function twavgAltKey(r){
+  const p = v => String(v==null?'':v).toUpperCase().replace(/[^0-9A-Z]/g,'');
+  const t = p(r && (r.truck || r.plate));
+  return t ? t + '|' : '';
+}
 function doPaste(){
   /* v4.56 — extra confirm: Fleet cert tabs are usually a first-time load only */
   var _flLabel = 'Fleet';
@@ -483,6 +523,33 @@ function doPaste(){
   const hdr=lines[0].split(delim).map(x=>x.trim().toLowerCase());
   const hasSafeFillCol=hdr.some(h=>h.includes('safe fill'));
   const rows=lines.slice(1).map((l,i)=>{ const c=l.split(delim).map(x=>x.trim()); return mapPasteRow(c,i+1,hasSafeFillCol); });
+  /* v4.127 — TW AVG dán theo kiểu GỘP, không thay thế cả bảng.
+     Bảng này được nạp NHIỀU LẦN (mỗi quý tính lại trung bình xe rỗng từ dữ
+     liệu cân), và mỗi lần chỉ có một PHẦN đội xe. replaceTab sẽ xoá sạch số
+     xe không nằm trong lần dán đó — đúng thứ không được phép mất. Khoá định
+     danh là CẶP đầu xe + rơ-moóc: cùng một đầu kéo đổi rơ-moóc thì khối
+     lượng rỗng lệch tới hơn 2.500 kg nên phải là hai dòng riêng. */
+  if(curTab === 'twavg'){
+    const valid = rows.filter(r => twavgKey(r));
+    if(!valid.length){ toast('No vehicle rows found — check the Truck column','er'); return; }
+    /* Số thứ tự (#) là nhãn do nhân viên tự đánh, KHÔNG phải khoá. Dòng đã có
+       giữ nguyên số cũ; dòng mới đánh tiếp từ số lớn nhất đang có để không
+       đụng số của những xe lần này không dán. */
+    let _nextStt = 0;
+    try{ Object.values(DATA.twavg||{}).forEach(r=>{ const n=parseInt(r&&r.stt,10);
+         if(!isNaN(n) && n>_nextStt) _nextStt=n; }); }catch(_){}
+    const st = SC.upsertRows('twavg', valid, twavgKey,
+                             'paste merge '+valid.length+' rows', twavgAltKey, {
+      onUpdate: (nw)=>{ const o = Object.assign({}, nw); delete o.stt; return o; },
+      onAdd:    (nw)=>Object.assign({}, nw, { stt: ++_nextStt })
+    });
+    closePaste();
+    rebuildTableData(); buildFleetSubs();
+    document.getElementById('pasteArea').value='';
+    toast('TW AVG merged — '+st.updated+' updated, '+st.added+' added, '
+          +st.unchanged+' unchanged, '+st.kept+' left untouched','ok');
+    return;
+  }
   /* v4.80 — Excel KHÔNG có cột ⛔ BLOCK, mà replaceTab xoá sạch tab rồi ghi lại.
      Nếu không gánh lại cờ cấm thì mỗi lần paste cert mới là lệnh cấm biến mất
      âm thầm — đúng thứ tuyệt đối không được mất. Snapshot theo khoá định danh

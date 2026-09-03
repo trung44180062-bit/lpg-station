@@ -81,6 +81,20 @@ function rowBlockNote(row){ return String((row && row[BLOCK_N]) || '').trim(); }
    `rid` (row id) is a stable short id generated locally on create;
    `stt` (#) stays the hand-editable hard key as before.
    ============================================================ */
+/* ============================================================
+   APP_BUILD — SỐ HIỆU BẢN ĐANG CHẠY THẬT SỰ
+   ------------------------------------------------------------
+   v4.127 — phải NHÌN THẤY được bản nào đang chạy. Đã có lần cả ngày làm
+   việc trôi qua với dải STOCK FORECAST chia sai Domestic/Export chỉ vì máy
+   đó còn giữ index.html cũ trong cache: mã trên đĩa đã đúng từ v4.125,
+   nhưng trình duyệt vẫn xin đúng những URL ?v=… của bản cũ. Sai kiểu đó
+   KHÔNG có thông báo lỗi — số vẫn hiện ra, chỉ là sai.
+   Số này hiện thành chip cạnh chữ "LPG SALES" và đối chiếu với thẻ
+   <meta name="app-build"> của index.html; lệch nhau là kêu ngay.
+   ⚠ Sửa mã thì bump SỐ NÀY + thẻ meta trong index.html + ?v=… của file vừa sửa.
+   ============================================================ */
+const APP_BUILD = '4.130';
+
 const DATA={ tanklorry:{}, tractor:{}, rmooc:{}, driver:{}, twavg:{} };
 
 /* short stable id  (12-char base36 — collision-safe for this scale) */

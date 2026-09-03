@@ -183,3 +183,51 @@ var TRADE = (function(){
   return { dirOfText:dirOfText, dirOfRow:dirOfRow, isExportName:isExportName,
            label:label, EXP:EXP, DOM:DOM };
 })();
+
+/* ============================================================
+ * TWAVG — tra khối lượng XE RỖNG trung bình (bảng Fleet ▸ TW AVG)
+ * ------------------------------------------------------------
+ * v4.127 — NGUỒN DUY NHẤT cho mọi chỗ cần TW AVG (thẻ trạm cân, phiếu PTT,
+ * phiếu PTT sớm). Trước đây mỗi module tự dò một kiểu:
+ *   · scale.js "GW AVG ref" đọc nhầm trường `plate` — bảng TW AVG lưu ở
+ *     trường `truck` nên ô tham chiếu này LUÔN TRỐNG;
+ *   · các chỗ còn lại chỉ khớp BIỂN ĐẦU XE, gặp dòng đầu tiên là lấy. Một
+ *     đầu kéo đổi rơ-moóc thì khối lượng rỗng lệch tới hơn 2.500 kg
+ *     (51M-68852: 20.690 kg với 51R-23389, 23.400 kg với 50RM-17285) ⇒ số
+ *     tham chiếu sai gần 3 tấn tuỳ dòng nào nằm trước.
+ * THỨ TỰ TRA: khớp ĐÚNG CẶP đầu xe + rơ-moóc → khớp đầu xe với dòng có
+ * rơ-moóc trống → khớp đầu xe bất kỳ. Không có thì trả null.
+ * ============================================================ */
+window.TWAVG = (function(){
+  'use strict';
+  function key(v){ return String(v == null ? '' : v).toUpperCase().replace(/[^0-9A-Z]/g,''); }
+  function rowsOf(){
+    try{ return (typeof DATA !== 'undefined' && DATA.twavg) ? DATA.twavg : {}; }
+    catch(_){ return {}; }
+  }
+  /* Trả về DÒNG khớp nhất, hoặc null. */
+  function findRow(plate, rmooc){
+    var pk = key(plate); if(!pk) return null;
+    var rk = key(rmooc);
+    var d = rowsOf(), rid, r, tk;
+    var exact = null, blank = null, any = null;
+    for(rid in d){
+      r = d[rid]; if(!r) continue;
+      tk = key(r.truck || r.plate);
+      if(tk !== pk) continue;
+      var mk = key(r.rmooc);
+      if(rk && mk === rk){ exact = r; break; }
+      if(!mk && !blank) blank = r;
+      if(!any) any = r;
+    }
+    return exact || (rk ? (blank || any) : (blank || any));
+  }
+  /* Trả về số kg, hoặc null khi chưa có dữ liệu. */
+  function find(plate, rmooc){
+    var r = findRow(plate, rmooc);
+    if(!r) return null;
+    var n = parseFloat(r.avgWt);
+    return (isFinite(n) && n > 0) ? n : null;
+  }
+  return { find:find, findRow:findRow, key:key };
+})();

@@ -458,8 +458,9 @@ const SP = (function(){
       else adds.push({rid:newRid(),fields:p});
     });
     const legacy=findLegacy1100(parsed.rows);
-    _pendingDiff={adds,changes,legacy,stats:parsed};
-    showDiff(adds,changes,parsed,legacy);
+    const stale=findStale(parsed.rows,legacy);      /* v4.129 */
+    _pendingDiff={adds,changes,legacy,stale,stats:parsed};
+    showDiff(adds,changes,parsed,legacy,stale);
   }
   /* ── DỌN DÒNG 1100 GỘP CŨ ────────────────────────────────────
      Dòng 1100 kiểu CŨ = không có bcode (dán trước v4.89, gộp cả ngày về 1 ký
@@ -481,12 +482,43 @@ const SP = (function(){
       (covered[(r.date||'')+'|'+(r.mat||'')+'|'+(r.batch||'')] ||
        covered[(r.date||'')+'|'+(r.mat||'')]));
   }
+  /* ── v4.129 — DÒNG ĐÃ CHẾT: có trong app, KHÔNG còn trong bản dán ──────
+     LỖI ĐÃ SỬA: dán lại SAP đã được kế toán sửa cho một ngày ĐÃ dán trước
+     đó thì số cũ vẫn nằm nguyên. Vì submitPaste chỉ biết THÊM (khoá mới) và
+     SỬA (khoá trùng, giá trị khác) — chưa bao giờ biết XOÁ. Lô nào SAP đã
+     xuất hết và rơi khỏi kết xuất thì dòng cũ sống mãi trong app, cộng vào
+     mọi tổng. Thực tế đo được: ngày 02/09/26 SAP chỉ còn 2 lô C3 ở SLoc
+     1100 (11.201.816 kg) nhưng app giữ 10 lô, END 49.250.914 kg — sai gấp
+     hơn bốn lần, không một cảnh báo nào.
+
+     PHẠM VI XOÁ HẸP VÀ CÓ CHỦ Ý. Nhân viên hay dán kết xuất ĐÃ LỌC (một
+     SLoc, một mã vật tư, một chữ lô), nên KHÔNG được coi cả bản dán là ảnh
+     chụp toàn kho. Chỉ những NHÓM thật sự có mặt trong bản dán mới bị soi:
+           nhóm = ngày | SLoc | Mat | CHỮ LÔ (P/X/D/E)
+     Dán lọc riêng batch P thì dòng D/E không hề bị đụng; dán riêng C3 thì
+     C4 nguyên vẹn; dán riêng 1100 thì 2100/2101 nguyên vẹn.
+     Danh sách bị xoá luôn được liệt kê đầy đủ trong bảng xác nhận, kèm ô
+     tick để bỏ chọn khi bản dán chỉ là một phần của nhóm. */
+  function findStale(newRows, legacy){
+    const groups = {}, keep = {};
+    (newRows || []).forEach(r=>{
+      groups[(r.date||'')+'|'+(r.sloc||'')+'|'+(r.mat||'')+'|'+(r.batch||'')] = 1;
+      keep[compKey(r)] = 1;
+    });
+    const skip = {};
+    (legacy || []).forEach(r=>{ if(r && r._rid) skip[r._rid] = 1; });
+    return Object.values(ROWS).filter(r=>{
+      if(!r || skip[r._rid]) return false;
+      const g = (r.date||'')+'|'+(r.sloc||'')+'|'+(r.mat||'')+'|'+(r.batch||'');
+      return groups[g] && !keep[compKey(r)];
+    });
+  }
   /* mọi dòng 1100 còn gộp cũ, bất kể đã có bản tách hay chưa */
   function allLegacy1100(){
     return Object.values(ROWS).filter(r=> String(r.sloc||'')==='1100' && !r.bcode);
   }
-  function showDiff(adds,changes,stats,legacy){
-    legacy=legacy||[];
+  function showDiff(adds,changes,stats,legacy,stale){
+    legacy=legacy||[]; stale=stale||[];
     document.getElementById('spDiffTitle').textContent='Confirm: Import SAP ZMMFR022';
     const bad=(stats.bad1100)||[];
     document.getElementById('spDiffSubtitle').textContent=stats.rawCount+' raw → '+stats.rows.length+' aggregated ('+(stats.n1100||0)+' at SLoc 1100, one row per batch code). '+(stats.skippedSloc?stats.skippedSloc+' filtered. ':'')+'Matched on Date+SLoc+Mat+Batch+BatchCode.';
@@ -495,6 +527,7 @@ const SP = (function(){
     html+=`<div class="tp-diff-stat chg"><div class="v">${changes.length}</div><div class="l">Changed</div></div>`;
     html+=`<div class="tp-diff-stat"><div class="v">${stats.n1100||0}</div><div class="l">SLoc 1100 batch codes</div></div>`;
     if(legacy.length) html+=`<div class="tp-diff-stat rem"><div class="v">${legacy.length}</div><div class="l">Merged 1100 removed</div></div>`;
+    if(stale.length) html+=`<div class="tp-diff-stat rem"><div class="v">${stale.length}</div><div class="l">Gone from SAP</div></div>`;
     html+='</div>';
     if(bad.length){
       html+=`<div class="tp-diff-warn">⚠ ${bad.length} SLoc 1100 row(s) have a batch code that does not match the bonded-warehouse pattern <code>YYMMDD+P/X/D/E+nnn</code>. They are <b>kept</b> (quantities still count towards SLoc 1100 totals) and are still stored on their own code, never merged — but the KNQ tab will not be able to match them. Check them in SAP:<br>`+
@@ -506,22 +539,49 @@ const SP = (function(){
         legacy.slice(0,12).map(r=>`<code>${escapeHtml(isoToDisplay(r.date))} · ${escapeHtml(r.mat)} · ${escapeHtml(r.batch)} · End ${(r.end||0).toLocaleString('en-US')}</code>`).join(' · ')+
         (legacy.length>12?(' …and '+(legacy.length-12)+' more'):'')+`</div>`;
     }
+    if(stale.length){
+      const byDay={};
+      stale.forEach(r=>{ const d=isoToDisplay(r.date)||'?'; (byDay[d]=byDay[d]||[]).push(r); });
+      html+=`<div class="tp-diff-section rem"><h4><span class="badge">− GONE FROM SAP</span> ${stale.length} row(s)</h4>`
+        + `<div class="tp-diff-warn" style="margin:0 0 8px">These rows are still in the app but no longer appear in this paste, `
+        + `on days and batch letters the paste <b>does</b> cover. They are stock that SAP has already `
+        + `issued out — leaving them in keeps a dead figure in every total.`
+        + `<br><label class="sp-stale-opt"><input type="checkbox" id="spDiffStale" checked> `
+        + `<b>Remove them</b> — untick if this paste is only part of what those days hold `
+        + `(for example a single batch code filtered in Excel).</label></div>`
+        + '<div class="tp-diff-list">';
+      Object.keys(byDay).sort().forEach(d=>{
+        html+=`<div class="tp-diff-item"><span class="who">${escapeHtml(d)}</span> `
+          + byDay[d].slice(0,14).map(r=>`<code>${escapeHtml(r.sloc)}·${escapeHtml(r.mat)}·`
+              + `${escapeHtml(r.bcode||r.batch)} End ${(r.end||0).toLocaleString('en-US')}</code>`).join(' ')
+          + (byDay[d].length>14?(' …+'+(byDay[d].length-14)):'') + '</div>';
+      });
+      html+='</div></div>';
+    }
     if(adds.length){html+=`<div class="tp-diff-section add"><h4><span class="badge">+ NEW</span> ${adds.length} row(s)</h4><div class="tp-diff-list">`;adds.slice(0,40).forEach(a=>{const r=a.fields;html+=`<div class="tp-diff-item"><span class="who">${escapeHtml(r.date)}</span> · ${escapeHtml(r.sloc)} · ${escapeHtml(r.mat)} · ${r.bcode?('<b>'+escapeHtml(r.bcode)+'</b>'):escapeHtml(r.batch)} · End ${(r.end||0).toLocaleString('en-US')}kg</div>`;});if(adds.length>40)html+='<div class="tp-diff-item" style="font-style:italic;color:var(--ink-3)">…and '+(adds.length-40)+' more</div>';html+='</div></div>';}
     if(changes.length){html+=`<div class="tp-diff-section chg"><h4><span class="badge">~ CHANGED</span> ${changes.length} row(s)</h4><div class="tp-diff-list">`;changes.slice(0,40).forEach(c=>{let line=`<div class="tp-diff-item"><span class="who">${escapeHtml(c.key)}</span> `;c.diffs.forEach(d=>{line+=`<span class="field">${escapeHtml(d.field)}</span><span class="ov">${escapeHtml(d.old||'—')}</span><span class="arr">→</span><span class="nv">${escapeHtml(d.new||'—')}</span> `;});html+=line+'</div>';});if(changes.length>40)html+='<div class="tp-diff-item" style="font-style:italic;color:var(--ink-3)">…and '+(changes.length-40)+' more</div>';html+='</div></div>';}
-    if(!adds.length&&!changes.length) html+='<div class="tp-diff-warn" style="background:var(--green-soft);border-color:#bfe3cc;color:#157a40">✓ No changes — paste identical.</div>';
+    if(!adds.length&&!changes.length&&!stale.length&&!legacy.length) html+='<div class="tp-diff-warn" style="background:var(--green-soft);border-color:#bfe3cc;color:#157a40">✓ No changes — paste identical.</div>';
     document.getElementById('spDiffBody').innerHTML=html;
     document.getElementById('spDiffModal').classList.add('on');
   }
   function closeDiff(){document.getElementById('spDiffModal').classList.remove('on');_pendingDiff=null;}
   function confirmDiff(){
     if(!_pendingDiff){closeDiff();return;} const{adds,changes}=_pendingDiff; const legacy=_pendingDiff.legacy||[]; const batch=[];
+    /* v4.129 — ô tick mặc định BẬT; đọc TRƯỚC khi đóng bảng vì closeDiff xoá DOM. */
+    const _stChk=document.getElementById('spDiffStale');
+    const stale=(_stChk && !_stChk.checked) ? [] : (_pendingDiff.stale||[]);
     adds.forEach(a=>{Object.entries(a.fields).forEach(([k,v])=>batch.push({rid:a.rid,field:k,value:v}));});
     changes.forEach(c=>{c.diffs.forEach(d=>batch.push({rid:c.rid,field:d.field,value:d.new}));});
     legacy.forEach(r=>{ if(r&&r._rid) batch.push({rid:r._rid,field:'__DELETE__',value:null}); });
+    stale.forEach(r=>{ if(r&&r._rid) batch.push({rid:r._rid,field:'__DELETE__',value:null}); });
     if(!batch.length){toast('No changes','er');closeDiff();return;}
-    applyAndPush(batch,'paste '+adds.length+' new / '+changes.length+' updated'+(legacy.length?' / '+legacy.length+' legacy removed':''));
+    applyAndPush(batch,'paste '+adds.length+' new / '+changes.length+' updated'
+      +(legacy.length?' / '+legacy.length+' legacy removed':'')
+      +(stale.length?' / '+stale.length+' gone from SAP':''));
     closeDiff();rebuildTableData();document.getElementById('spPasteArea').value='';
-    toast(`SAP: ${adds.length} added, ${changes.length} updated`+(legacy.length?`, ${legacy.length} legacy 1100 removed`:''),'ok');
+    toast(`SAP: ${adds.length} added, ${changes.length} updated`
+      +(legacy.length?`, ${legacy.length} legacy 1100 removed`:'')
+      +(stale.length?`, ${stale.length} gone from SAP removed`:''),'ok');
   }
   function rangeDelete(){
     if(!Object.keys(ROWS).length){ toast('Already empty','er'); return; }
@@ -607,6 +667,8 @@ const SP = (function(){
   function exportCsv(){if(table)table.download('csv','sap_'+Date.now()+'.csv');}
 
   return{
+    /* v4.129 — hook kiểm thử: dò dòng đã chết khi dán lại SAP */
+    findStale, findLegacy1100, compKey, parseSapSheet,
     init(){const c=loadCache();if(c){Object.assign(ROWS,c.data||{});_versions=c.versions||_versions;}refreshBadge();attachFirebase();},
     buildTable,rebuildTableData,openPaste,closePaste,submitPaste,closeDiff,confirmDiff,rangeDelete,exportCsv,
     openPicker,pickerChange,clearDate,refreshBadge,renderAnalysis,toggleAnalysis,

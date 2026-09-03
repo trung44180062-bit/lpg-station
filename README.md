@@ -253,9 +253,11 @@ Cấp quyền: trên Firebase, node `/users_whitelist/<email có dấu . đổi 
 
 **Sale làm được gì:** xem mọi trang; trên Today Plan & Tomorrow Plan thì toàn quyền —
 sửa ô, đổi trạng thái / cancel, thêm–xoá dòng, **📋 Paste from Excel**, 🔗 Link Orders,
-promote Tomorrow → Today.
-**Sale KHÔNG làm được gì:** ghi bất cứ node nào khác (Scale/trạm, TL Data, Fleet, SAP,
-Engineer, Staff, Cavern, Vessel, dự báo tồn…), **in phiếu** và **xuất Excel/CSV**.
+promote Tomorrow → Today. Thêm **một ô duy nhất** ngoài hai bảng đó: **Fleet ▸ DRIVER ▸
+cột Phone** (v4.130 — xem mục dưới).
+**Sale KHÔNG làm được gì:** ghi bất cứ node nào khác (Scale/trạm, TL Data, phần còn lại
+của Fleet, SAP, Engineer, Staff, Cavern, Vessel, dự báo tồn…), **in phiếu** và
+**xuất Excel/CSV**.
 
 **Hai lớp khoá** — vì rất nhiều module ghi thẳng Firebase mà không hỏi `canWrite()`:
 
@@ -277,6 +279,32 @@ Engineer, Staff, Cavern, Vessel, dự báo tồn…), **in phiếu** và **xuấ
 ```
 (áp tương tự cho `plan_tomorrow`, `plan_today_version`, `plan_tomorrow_version`; mọi node
 còn lại chỉ cho `admin|editor`.)
+
+### 📞 QUYỀN THEO Ô — sale bổ sung số điện thoại tài xế (v4.130)
+
+Nghiệp vụ: sale cần gõ thêm số điện thoại vào Fleet ▸ DRIVER, nhưng không được đụng gì
+khác trong Fleet. `canWrite('fleet')` quá thô (bật là mở toang cả tab) ⇒ thêm một tầng
+mịn hơn: **`AUTH.canWriteField(area, tab, field)`** đọc bảng `AUTH.FIELD_ALLOW`.
+
+```js
+var FIELD_ALLOW = { sale: [ { area:'fleet', tab:'driver', fields:['phone'] } ] };
+```
+
+`canWrite('fleet')` **vẫn = false** cho sale, nên thêm dòng · xoá dòng · dán Excel ·
+🗑 · ⛔ tick · Clear all đều chặn y như cũ. Ba chỗ cùng canh:
+
+1. **`SC.applyAndPush`** (sync.js) — không có quyền cả vùng thì lô ghi chỉ qua được khi
+   **MỌI** thay đổi đều nằm trong `FIELD_ALLOW`. Lẫn **một** ô cấm là chặn **cả lô** —
+   ghi nửa vời còn tệ hơn không ghi. Xoá dòng mang `field:'__DELETE__'` nên tự rớt.
+2. **Cổng đường dẫn** (auth.js) — chỉ `fleet_/driver/<rid>/(phone|lastBy|lastAt)` và
+   `fleet_version` lọt. Ghi sang cột khác, sang tab tanklorry/tractor/rmooc/twavg, hay ghi
+   đè cả dòng `fleet_/driver/<rid>` đều bị chặn.
+3. **`applyFleetFieldPerm()`** (globals.js) — lưới Fleet gỡ `editor` khỏi mọi cột không
+   được phép và thay `cellClick` bằng câu từ chối.
+   ⚠ Ô 🗑 và ô ⛔ ghi qua `cellClick` **chứ không phải** `editor`, gỡ editor thôi là chưa đủ.
+
+Mở thêm ô khác cho sale = thêm một dòng vào `FIELD_ALLOW` **và** một regex vào
+`PATH_ALLOW`. Thiếu một trong hai thì UI cho gõ nhưng lệnh ghi bị chặn (hoặc ngược lại).
 
 ### 📨 THÔNG BÁO "SALE VỪA ĐỔI KẾ HOẠCH" (v4.126)
 

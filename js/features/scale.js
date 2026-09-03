@@ -1930,12 +1930,10 @@ const SCALE = (function(){
         const pl = String(s.plate||'').trim().toUpperCase();
         const rm = String(s.rmooc||'').trim().toUpperCase();
         const fleets = (typeof DATA!=='undefined') ? DATA : {};
-        const twd = fleets.twavg || {};
-        for(const rid in twd){
-          if(String(twd[rid].plate||'').trim().toUpperCase() === pl){
-            twAvg = parseFloat(twd[rid].avgWt) || 0; break;
-          }
-        }
+        /* v4.127 — trước đây dò `twd[rid].plate`, nhưng bảng TW AVG lưu biển ở
+           trường `truck` ⇒ ô "GW AVG ref" LUÔN trống. Nay dùng TWAVG.find,
+           khớp đúng CẶP đầu xe + rơ-moóc. */
+        twAvg = (window.TWAVG ? TWAVG.find(pl, rm) : 0) || 0;
         const findCap = (tab)=>{
           const d = fleets[tab] || {};
           for(const rid in d){
@@ -2653,12 +2651,11 @@ const SCALE = (function(){
       s._linkedRows.forEach(r=>{ const n = String(r.note||'').trim(); if(n && notes.indexOf(n) < 0) notes.push(n); });
       if(notes.length) saleNote = notes.join('  |  ');
     }
-    /* TW AVG from Fleet twavg */
+    /* TW AVG from Fleet twavg — khớp cặp đầu xe + rơ-moóc (v4.127) */
     let twAvg = null;
     try{
-      const twd = (typeof DATA!=='undefined'&&DATA.twavg) ? DATA.twavg : {};
-      const pl = String(s.plate||'').trim().toUpperCase();
-      for(const rid in twd){ if(String(twd[rid].truck||twd[rid].plate||'').trim().toUpperCase()===pl){ twAvg=parseFloat(twd[rid].avgWt)||null; break; } }
+      /* v4.127 — khớp CẶP đầu xe + rơ-moóc, không chỉ biển đầu xe. */
+      twAvg = window.TWAVG ? TWAVG.find(s.plate, s.rmooc || (planRow && planRow.rmooc)) : null;
     }catch(e){}
     /* Safe fill from Fleet */
     let sfKg = null;
@@ -3116,17 +3113,11 @@ const SCALE = (function(){
       tk = { name:'TK-'+pn, key:'pure', lotFull:plot, lotNum:plot, initWt:0 };
     }
     const custName = (typeof CT !== 'undefined' && CT.vnName) ? CT.vnName(item.customer || '') : (item.customer || '');
-    /* TW AVG from Fleet twavg by plate */
+    /* TW AVG from Fleet twavg — khớp cặp đầu xe + rơ-moóc (v4.127) */
     let twAvg = null;
     try{
-      const twd = (typeof DATA !== 'undefined' && DATA.twavg) ? DATA.twavg : {};
-      const pl = String(item.plate || '').trim().toUpperCase();
-      for(const rid in twd){
-        if(String(twd[rid].truck || twd[rid].plate || '').trim().toUpperCase() === pl){
-          twAvg = parseFloat(twd[rid].avgWt) || null;
-          break;
-        }
-      }
+      /* v4.127 — khớp CẶP đầu xe + rơ-moóc, không chỉ biển đầu xe. */
+      twAvg = window.TWAVG ? TWAVG.find(item.plate, item.rmooc) : null;
     }catch(_){}
     /* Safe fill — derive from Fleet cap × density × fillPct */
     let sfKg = null;
