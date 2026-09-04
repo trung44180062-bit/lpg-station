@@ -271,6 +271,17 @@ const MIXNOTIFY = (function(){
                + 'more than the tank actually contains. Check the system opening figure before posting.</div>';
     }
 
+    /* v4.131 — HÀNG TIÊU ĐỀ C3 / C4.
+       Hai cột số trên thẻ trước đây không có nhãn: nhân viên phải nhớ
+       "trái là C3, phải là C4" và thỉnh thoảng gõ nhầm tồn đầu hệ thống
+       vào sai cột. Thêm một hàng nhãn ở đầu thẻ, dùng ĐÚNG khung cột của
+       .ntx-r nên nó thẳng hàng với cả bốn hàng số bên dưới. */
+    const hdrRow =
+        '<div class="ntx-r r-h"><span class="ntx-k"></span>'
+      +   '<span class="ntx-hc c3">C3</span>'
+      +   '<span class="ntx-hc c4">C4</span>'
+      +   '<span class="ntx-hc tot">TOTAL</span></div>';
+
     return '<div class="ntx">'
       + '<div class="ntx-hd">'
       +   '<span class="ntx-tk">' + _esc(item.tkName) + '</span>'
@@ -280,6 +291,7 @@ const MIXNOTIFY = (function(){
       +     'onto this lot in the Tank Log">✅</button>'
       + '</div>'
       + '<div class="ntx-grid">'
+      +   hdrRow
       +   '<div class="ntx-r r-n"><span class="ntx-k">NOTIFIED (COQ)</span>'
       +     '<span class="ntx-v c3">' + (item.c3||0).toLocaleString('en-US') + '</span>'
       +     '<span class="ntx-v c4">' + (item.c4||0).toLocaleString('en-US') + '</span>'

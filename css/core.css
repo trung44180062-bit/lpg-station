@@ -4174,6 +4174,14 @@ input.stx-inp::placeholder{font-weight:400;color:#b9c6d3;}
 .eng-tbl td.td-stx-g.p{color:#2e7d32;} .eng-tbl td.td-stx-g.m{color:#c62828;}
 .eng-tbl td.td-stx-g.z{color:#8798a8;}
 .eng-tbl td.td-stx-na{color:#c8d3de;text-align:center;font-weight:400;}
+/* v4.131 — cột tồn đầu HỆ THỐNG (WMS/SAP) + 6 ô đối chiếu sửa được tay */
+.eng-tbl td.td-stx-w{background:#f2f5f8;color:#42546a;}
+.eng-tbl td.td-stx-ed{cursor:text;}
+.eng-tbl td.td-stx-ed:hover{outline:1.5px solid #7b2d8e;outline-offset:-1.5px;}
+.eng-tbl td.td-stx-ed input.eng-stx-inp{width:100%;box-sizing:border-box;height:18px;
+  border:1.5px solid #7b2d8e;border-radius:3px;padding:0 3px;margin:0;background:#fff;
+  font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;text-align:right;color:#4a2258;}
+.eng-tbl td.td-stx-ed input.eng-stx-inp:focus{outline:none;box-shadow:0 0 0 2px rgba(123,45,142,.18);}
 
 /* ── THẺ THÔNG BÁO TANK MIX (ntx) ──────────────────────────────────────
    Thẻ cũ là một dòng ngang. Nay chứa thêm tồn đầu hệ thống (sửa được),
@@ -4196,6 +4204,12 @@ input.stx-inp::placeholder{font-weight:400;color:#b9c6d3;}
   font-size:16px;font-weight:700;text-align:right;color:var(--ink);}
 .ntx-v.b{font-size:18px;}
 .ntx-t{font-family:'JetBrains Mono',monospace;font-size:10px;color:#6b7f92;text-align:right;}
+/* v4.131 — hàng nhãn C3 / C4 ở đầu thẻ thông báo (không nền, không đệm
+   dọc) để nhân viên không gõ nhầm cột khi nhập tồn đầu hệ thống. */
+.ntx-r.r-h{background:transparent;padding:0 8px 1px;}
+.ntx-hc{font-family:'Oswald',sans-serif;font-size:9px;font-weight:700;letter-spacing:1.6px;text-align:right;}
+.ntx-hc.c3{color:var(--green);} .ntx-hc.c4{color:var(--orange);}
+.ntx-hc.tot{color:#9aa8b6;}
 .ntx-r.r-n{background:rgba(255,255,255,.85);}
 .ntx-r.r-n .ntx-v.c3{color:var(--green);} .ntx-r.r-n .ntx-v.c4{color:var(--orange);}
 .ntx-r.r-s{background:#f5f8ff;}
@@ -4215,6 +4229,9 @@ input.ntx-inp::placeholder{font-weight:400;color:#b9c6d3;font-size:11px;}
   .ntx-r{grid-template-columns:1fr 1fr;}
   .ntx-k{grid-column:1 / -1;}
   .ntx-t{grid-column:1 / -1;text-align:left;}
+  /* hàng nhãn hẹp lại còn 2 cột — bỏ ô TOTAL để C3/C4 không bị đẩy xuống */
+  .ntx-r.r-h .ntx-k{display:none;}
+  .ntx-hc.tot{display:none;}
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

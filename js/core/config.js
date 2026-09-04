@@ -93,7 +93,7 @@ function rowBlockNote(row){ return String((row && row[BLOCK_N]) || '').trim(); }
    <meta name="app-build"> của index.html; lệch nhau là kêu ngay.
    ⚠ Sửa mã thì bump SỐ NÀY + thẻ meta trong index.html + ?v=… của file vừa sửa.
    ============================================================ */
-const APP_BUILD = '4.130';
+const APP_BUILD = '4.131';
 
 const DATA={ tanklorry:{}, tractor:{}, rmooc:{}, driver:{}, twavg:{} };
 

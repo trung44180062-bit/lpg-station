@@ -1708,7 +1708,10 @@ const INV = (function(){
       return done(false, 'eng-not-ready');
     }
     ENG.setStxRecon(F.lot, F.tank,
-      { gap3:F.gapC3, gap4:F.gapC4, adj3:F.xC3, adj4:F.xC4 },
+      /* v4.131 — lưu LUÔN tồn đầu hệ thống đã dùng làm nền, để sau này
+         mở Tank Log ra là dựng lại được cả phép tính chứ không phải suy
+         ngược từ gap. */
+      { wms3:F.sysC3, wms4:F.sysC4, gap3:F.gapC3, gap4:F.gapC4, adj3:F.xC3, adj4:F.xC4 },
       (ok, why)=>{
         /* ══ v4.113 — LƯU XONG THÌ BỎ BẢN NHÁP ═══════════════════════
            Tank Log mới là nơi lưu chính thức. Giữ lại bản nháp vừa thừa

@@ -70,11 +70,27 @@ const ENG = (function(){
      bảng đối chiếu hoặc BẤM ✅ XÁC NHẬN ở ô thông báo — phần mềm KHÔNG
      tự điền, để trống nghĩa là "chưa ai đối chiếu lot này".
      Mục đích: làm cơ sở dữ liệu để review / kiểm tra chéo / tra cứu sau này.
+     v4.131: +2 -> 75 cho SỐ HỆ THỐNG (WMS/SAP) Ở TỒN ĐẦU:
+       [73] WMS C3 (kg) — tồn đầu HỆ THỐNG phần C3, đúng con số đã gõ ở ô
+            SYSTEM OPENING trên thẻ thông báo / bảng đối chiếu
+       [74] WMS C4 (kg)
+     Có ba con số này nằm cạnh nhau trên cùng một dòng thì đọc là hiểu
+     ngay: hệ thống đang giữ bao nhiêu · lệch bao nhiêu · đã chuyển đi
+     con số nào. Trước đây chỉ lưu gap + số đã chuyển nên muốn dựng lại
+     tồn đầu hệ thống phải tính ngược, rất dễ cãi nhau khi review.
+     SÁU Ô [69]–[74] SỬA ĐƯỢC TAY ngay trên bảng (ENG.stxEdit) — nhân
+     viên chỉnh lại số đã đối chiếu mà không phải mở lại bảng 📏.
      Old shorter rows load fine (missing cells default ''). */
-  const ROW_W = 73;
+  const ROW_W = 75;
   const C_ST = 53, C_ST_TS = 54, C_ST_BY = 55;
   /* v4.111 — 4 cột đối chiếu chuyển kho (kg) */
   const S_GAP3 = 69, S_GAP4 = 70, S_ADJ3 = 71, S_ADJ4 = 72;
+  /* v4.131 — 2 cột tồn đầu HỆ THỐNG (WMS/SAP), kg */
+  const S_WMS3 = 73, S_WMS4 = 74;
+  /* nhãn của 6 ô đối chiếu — dùng cho toast + nhật ký thao tác */
+  const STX_LBL = { [S_WMS3]:'WMS C3', [S_WMS4]:'WMS C4',
+                    [S_GAP3]:'Gap C3', [S_GAP4]:'Gap C4',
+                    [S_ADJ3]:'Adj ST C3', [S_ADJ4]:'Adj ST C4' };
   /* v4.85 — cột của 2 cách tính bổ sung (PHẢI khớp mixctrl.js) */
   const A_MID = 56, A_T3 = 57, A_P3 = 58, A_T4 = 59, A_P4 = 60,   /* RETIRED v4.86 */
         A_DC3 = 61, A_DC4 = 62,                                     /* RETIRED v4.86 */
@@ -396,8 +412,11 @@ const ENG = (function(){
         /* v4.111 — bốn ô đối chiếu chuyển kho, đứng ngay sau cờ ST vì cùng
            kể một câu chuyện: đã chuyển kho chưa · lệch bao nhiêu · chuyển
            đi con số nào. */
-        _reconTd(c, S_GAP3) + _reconTd(c, S_GAP4) +
-        _reconTd(c, S_ADJ3) + _reconTd(c, S_ADJ4) +
+        /* v4.131 — WMS (tồn đầu hệ thống) đứng TRƯỚC gap: đọc trái sang
+           phải là đúng thứ tự phép tính  hệ thống → lệch → số đã chuyển. */
+        _reconTd(c, S_WMS3, realIdx) + _reconTd(c, S_WMS4, realIdx) +
+        _reconTd(c, S_GAP3, realIdx) + _reconTd(c, S_GAP4, realIdx) +
+        _reconTd(c, S_ADJ3, realIdx) + _reconTd(c, S_ADJ4, realIdx) +
         '<td class="td-r">'+_fmtNum(c[6],3)+'</td>' +
         '<td class="td-r" style="font-weight:700;color:var(--green)">'+_fmtNum(c[7],2)+'</td>' +
         '<td class="td-r td-c3" style="font-weight:600">'+_fmtPct(c[8])+'</td>' +
@@ -457,6 +476,7 @@ const ENG = (function(){
           '<td class="td-c" style="font-size:9px;color:var(--green)">'+T.stOn+'/'+filtered.length+'</td>' +
           /* v4.111 — Gap là số TẠI MỘT MỐC của từng lot ⇒ không cộng dồn.
              Số chuyển kho đã điều chỉnh thì cộng được (tổng kg đã post). */
+          _totNoSum('td-stx td-stx-w') + _totNoSum('td-stx td-stx-w') +
           _totNoSum('td-stx td-stx-g') + _totNoSum('td-stx td-stx-g') +
           '<td class="td-r td-stx td-stx-a">'+(T.nAdj ? Math.round(T.adj3).toLocaleString('en-US') : '—')+'</td>' +
           '<td class="td-r td-stx td-stx-a">'+(T.nAdj ? Math.round(T.adj4).toLocaleString('en-US') : '—')+'</td>' +
@@ -646,15 +666,23 @@ const ENG = (function(){
      Ô TRỐNG = chưa ai đối chiếu lot này, KHÔNG phải "lệch 0". Vì thế ô
      rỗng in dấu "·" xám kèm tooltip nói rõ, y như cột Open/End ◈ — không
      bao giờ in số 0 thay cho "chưa có dữ liệu". */
-  function _reconTd(c, col){
+  function _reconTd(c, col, realIdx){
+    const isWms = (col === S_WMS3 || col === S_WMS4);
     const isGap = (col === S_GAP3 || col === S_GAP4);
-    const isC3  = (col === S_GAP3 || col === S_ADJ3);
-    const cls = 'td-r td-stx ' + (isGap ? 'td-stx-g' : 'td-stx-a') + (isC3 ? ' k3' : ' k4');
+    const isC3  = (col === S_WMS3 || col === S_GAP3 || col === S_ADJ3);
+    const cls = 'td-r td-stx td-stx-ed '
+              + (isWms ? 'td-stx-w' : isGap ? 'td-stx-g' : 'td-stx-a')
+              + (isC3 ? ' k3' : ' k4');
+    /* v4.131 — mọi ô đối chiếu đều SỬA ĐƯỢC TAY. onclick phải chặn nổi bọt,
+       không thì cú bấm chạy tiếp lên <tr> và mở hẳn form sửa cả lot. */
+    const edAttr = (realIdx === undefined || realIdx === null) ? ''
+      : ' onclick="event.stopPropagation();ENG.stxEdit(' + realIdx + ',' + col + ',this)"';
+    const tipEd = '\nBấm vào ô để sửa tay · Enter lưu · Esc bỏ · để TRỐNG rồi Enter là xoá số.';
     const v = _num(c[col]);
     if(v === null)
-      return '<td class="' + cls + ' td-stx-na" title="' + _esc(
+      return '<td class="' + cls + ' td-stx-na"' + edAttr + ' title="' + _esc(
         'Chưa đối chiếu chuyển kho cho lot này. Mở 📏 Stock-transfer reconciliation '
-        + '(hoặc ✅ xác nhận ở ô thông báo Tank Mix) để ghi số vào đây.')
+        + '(hoặc ✅ xác nhận ở ô thông báo Tank Mix) để ghi số vào đây.' + tipEd)
         + '">·</td>';
     const r = Math.round(v);
     /* Dấu trừ dùng ký tự − (U+2212) y như bảng đối chiếu — cùng một con số
@@ -663,12 +691,98 @@ const ENG = (function(){
       ? ((r > 0 ? '+' : r < 0 ? '−' : '') + Math.abs(r).toLocaleString('en-US'))
       : r.toLocaleString('en-US');
     const scls = isGap ? (Math.abs(v) < 1 ? ' z' : (v > 0 ? ' p' : ' m')) : '';
-    return '<td class="' + cls + scls + '" title="' + _esc(
-      isGap ? 'Gap ở tồn đầu (kg) = tồn đầu THỰC TẾ (đo được × nền COQ) − tồn đầu HỆ THỐNG (SAP). '
-              + 'Số âm = hệ thống đang giữ nhiều hơn thực tế.'
-            : 'Số chuyển kho ĐÃ ĐIỀU CHỈNH (kg) = tồn cuối thực tế − tồn đầu hệ thống. '
-              + 'Đây là con số nên gõ vào SAP/WMS để tồn cuối hệ thống khớp tồn cuối thực tế.')
+    return '<td class="' + cls + scls + '"' + edAttr + ' title="' + _esc(
+      (isWms ? 'Tồn đầu HỆ THỐNG (kg) — đúng con số WMS/SAP đã dùng làm nền để tính gap. '
+               + 'Gap = tồn đầu thực tế − ô này.'
+     : isGap ? 'Gap ở tồn đầu (kg) = tồn đầu THỰC TẾ (đo được × nền COQ) − tồn đầu HỆ THỐNG (SAP). '
+               + 'Số âm = hệ thống đang giữ nhiều hơn thực tế.'
+             : 'Số chuyển kho ĐÃ ĐIỀU CHỈNH (kg) = tồn cuối thực tế − tồn đầu hệ thống. '
+               + 'Đây là con số nên gõ vào SAP/WMS để tồn cuối hệ thống khớp tồn cuối thực tế.')
+      + tipEd)
       + '">' + sgn + '</td>';
+  }
+
+  /* ══ v4.131 — SỬA TAY 6 Ô ĐỐI CHIẾU NGAY TRÊN BẢNG ═══════════════════
+     Số đối chiếu do máy tính ra nhưng người mới là người chịu trách nhiệm:
+     SAP sửa bút toán, nhân viên gõ nhầm một chữ số, hay lot cũ cần điền
+     bù cho đủ hồ sơ — trước đây đều phải mở lại bảng 📏 và tính lại từ
+     đầu. Nay bấm thẳng vào ô, gõ số, Enter.
+     Ô để TRỐNG rồi Enter = XOÁ số (trở về "chưa đối chiếu"), khác hẳn với
+     gõ số 0 — cùng một quy ước với cách đọc ô ở trên. */
+  function stxEdit(idx, col, td){
+    if(!STX_LBL[col]) return;
+    const row = ROWS[idx];
+    if(!row || !td) return;
+    if(typeof canWrite === 'function' && !canWrite('eng_tkmix')){
+      if(typeof toast === 'function') toast('No permission to edit the Tank Log','er');
+      return;
+    }
+    if(td.querySelector('input')) return;             /* đang sửa rồi */
+    const cur = _num(row[col]);
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.className = 'eng-stx-inp';
+    inp.setAttribute('inputmode','decimal');
+    inp.value = (cur === null ? '' : String(Math.round(cur)));
+    inp.title = STX_LBL[col] + ' (kg) — Enter lưu · Esc bỏ · để trống rồi Enter là xoá';
+    td.textContent = ''; td.appendChild(inp);
+    try{ inp.focus(); inp.select(); }catch(_){}
+    let settled = false;
+    /* Bỏ dở (Esc / bấm sang ô khác mà không đổi số) thì CHỈ vẽ lại đúng ô
+       đó, KHÔNG dựng lại cả bảng: dựng lại bảng lúc mất focus sẽ xoá mất
+       chính cái ô người ta vừa bấm sang, thành ra phải bấm hai lần. */
+    const redraw = ()=>{
+      try{
+        const cells = []; for(let i=0;i<ROW_W;i++) cells.push(row[i]||'');
+        td.outerHTML = _reconTd(cells, col, idx);
+      }catch(_){ try{ render(); }catch(__){} }
+    };
+    const close = (save)=>{
+      if(settled) return; settled = true;
+      if(save) _stxWriteCell(row, col, inp.value, redraw);
+      else redraw();
+    };
+    inp.onclick = e => e.stopPropagation();
+    inp.onkeydown = e => {
+      e.stopPropagation();
+      if(e.key === 'Enter'){ e.preventDefault(); close(true); }
+      else if(e.key === 'Escape'){ e.preventDefault(); close(false); }
+    };
+    inp.onblur = () => close(true);
+  }
+
+  /* Ghi MỘT ô đối chiếu. Chuỗi rỗng ⇒ xoá ô (''), số ⇒ làm tròn về kg. */
+  function _stxWriteCell(row, col, raw, redraw){
+    const txt = String(raw == null ? '' : raw)
+                  .replace(/[\s,]/g,'')
+                  .replace(/[−–—]/g,'-')
+                  .trim();
+    let val;
+    if(txt === '') val = '';
+    else {
+      const n = parseFloat(txt);
+      if(!isFinite(n)){
+        if(typeof toast === 'function') toast('❌ "'+raw+'" không phải là số — chưa lưu gì cả','er');
+        if(redraw) redraw(); else render();
+        return;
+      }
+      val = Math.round(n);
+    }
+    const before = String(row[col] == null ? '' : row[col]);
+    if(String(val) === before){ if(redraw) redraw(); else render(); return; }
+    while(row.length < ROW_W) row.push('');
+    row[col] = val;
+    _saveCache();
+    _pushRowFb(row._rid, row, (ok)=>{
+      if(!ok && typeof toast === 'function')
+        toast('❌ Lưu '+STX_LBL[col]+' thất bại (lỗi mạng/Firebase) — bấm lại vào ô để thử lần nữa','er');
+    });
+    try{ logAudit('eng:tank_log:stx_edit', row._rid, STX_LBL[col], before, String(val),
+                  'sửa tay ô đối chiếu chuyển kho trên Tank Log'); }catch(_){}
+    try{ render(); }catch(_){}
+    if(typeof toast === 'function')
+      toast((val === '' ? '🧹 Đã xoá ' : '✓ Đã lưu ') + STX_LBL[col]
+            + (val === '' ? '' : ' = ' + val.toLocaleString('en-US') + ' kg')
+            + ' · lot ' + (row[1]||'—') + ' (' + (row[2]||'—') + ')', 'ok');
   }
 
   function _totNoSum(cls){
@@ -1054,7 +1168,7 @@ const ENG = (function(){
     {
       const prev = RID_MAP[rid];
       if(prev){
-        [S_GAP3, S_GAP4, S_ADJ3, S_ADJ4].forEach(col=>{
+        [S_WMS3, S_WMS4, S_GAP3, S_GAP4, S_ADJ3, S_ADJ4].forEach(col=>{
           if(String(safe[col] == null ? '' : safe[col]).trim() === '' && prev[col] !== '' && prev[col] != null)
             safe[col] = prev[col];
         });
@@ -1158,7 +1272,7 @@ const ENG = (function(){
   /* ══ v4.111 — GHI KẾT QUẢ ĐỐI CHIẾU CHUYỂN KHO VÀO TANK LOG ═════════
      Gọi từ: nút 💾 SAVE của bảng ⚖ Stock-transfer reconciliation, và từ
      MIXNOTIFY.confirm khi nhân viên cân bấm ✅ ở ô thông báo Tank Mix.
-       fig = { gap3, gap4, adj3, adj4 }  — KG, có thể null/undefined
+       fig = { wms3, wms4, gap3, gap4, adj3, adj4 }  — KG, có thể null/undefined
      Quy ước: giá trị null/undefined/'' ⇒ KHÔNG đụng vào ô đó (giữ số cũ),
      chứ không ghi đè thành rỗng — để một lần lưu thiếu dữ liệu không xoá
      mất kết quả đối chiếu đã có. Muốn xoá thì truyền chuỗi rỗng có chủ ý
@@ -1178,11 +1292,13 @@ const ENG = (function(){
       const n = parseFloat(String(v).replace(/,/g,''));
       return isFinite(n) ? Math.round(n) : null;
     };
-    const want = { [S_GAP3]:pick(f.gap3), [S_GAP4]:pick(f.gap4),
+    const want = { [S_WMS3]:pick(f.wms3), [S_WMS4]:pick(f.wms4),
+                   [S_GAP3]:pick(f.gap3), [S_GAP4]:pick(f.gap4),
                    [S_ADJ3]:pick(f.adj3), [S_ADJ4]:pick(f.adj4) };
     const commit = (row) => {
       while(row.length < ROW_W) row.push('');
-      const before = [row[S_GAP3], row[S_GAP4], row[S_ADJ3], row[S_ADJ4]].join('/');
+      const before = [row[S_WMS3], row[S_WMS4], row[S_GAP3], row[S_GAP4],
+                      row[S_ADJ3], row[S_ADJ4]].join('/');
       let changed = false;
       Object.keys(want).forEach(k=>{
         const col = +k, v = want[k];
@@ -1195,7 +1311,8 @@ const ENG = (function(){
       _pushRowFb(row._rid, row, (ok)=> fin(ok, ok ? 'ok' : 'fb-error'));
       try{ render(); }catch(_){}
       try{ logAudit('eng:tank_log:stx_recon', row._rid, 'stxRecon', before,
-                    [row[S_GAP3], row[S_GAP4], row[S_ADJ3], row[S_ADJ4]].join('/'),
+                    [row[S_WMS3], row[S_WMS4], row[S_GAP3], row[S_GAP4],
+                     row[S_ADJ3], row[S_ADJ4]].join('/'),
                     'stock-transfer reconciliation'); }catch(_){}
       return true;
     };
@@ -1213,10 +1330,12 @@ const ENG = (function(){
   }
   /* Đọc lại 4 ô đối chiếu của một dòng (kg) — null = chưa đối chiếu. */
   function stxReconOf(row){
-    if(!row) return { gap3:null, gap4:null, adj3:null, adj4:null, has:false };
-    const o = { gap3:_num(row[S_GAP3]), gap4:_num(row[S_GAP4]),
+    if(!row) return { wms3:null, wms4:null, gap3:null, gap4:null, adj3:null, adj4:null, has:false };
+    const o = { wms3:_num(row[S_WMS3]), wms4:_num(row[S_WMS4]),
+                gap3:_num(row[S_GAP3]), gap4:_num(row[S_GAP4]),
                 adj3:_num(row[S_ADJ3]), adj4:_num(row[S_ADJ4]) };
-    o.has = (o.gap3 !== null || o.gap4 !== null || o.adj3 !== null || o.adj4 !== null);
+    o.has = (o.wms3 !== null || o.wms4 !== null || o.gap3 !== null || o.gap4 !== null
+             || o.adj3 !== null || o.adj4 !== null);
     return o;
   }
 
@@ -2330,7 +2449,9 @@ const ENG = (function(){
       'FilledC3_Table_retired','FilledC4_Table_retired',
       'IniCoqDensity','IniCoqC3wt','IniCoqSource','FilledC3_COQ','FilledC4_COQ','NotifyMethod',
       /* v4.111 — 4 cột đối chiếu chuyển kho, đơn vị KG */
-      'ReconGapC3_kg','ReconGapC4_kg','AdjTransferC3_kg','AdjTransferC4_kg'];
+      'ReconGapC3_kg','ReconGapC4_kg','AdjTransferC3_kg','AdjTransferC4_kg',
+      /* v4.131 — tồn đầu hệ thống (WMS/SAP), kg */
+      'WmsOpenC3_kg','WmsOpenC4_kg'];
     const csvLines = [headers.join(',')];
     /* v4.63 — export theo thứ tự lot MỚI NHẤT → CŨ NHẤT (khớp bảng) */
     const ordered = ROWS.slice().sort((a,b)=> _lotKey(b[1]) - _lotKey(a[1]));
@@ -3290,8 +3411,8 @@ const ENG = (function(){
     toggleST, setStockTransfer, pendingTransfers,
     ST_COL: C_ST, ST_TS_COL: C_ST_TS, ST_BY_COL: C_ST_BY,
     /* v4.111 — 4 cột đối chiếu chuyển kho (kg) */
-    setStxRecon, stxReconOf,
-    STX_COLS: { gap3:S_GAP3, gap4:S_GAP4, adj3:S_ADJ3, adj4:S_ADJ4 },
+    setStxRecon, stxReconOf, stxEdit,
+    STX_COLS: { wms3:S_WMS3, wms4:S_WMS4, gap3:S_GAP3, gap4:S_GAP4, adj3:S_ADJ3, adj4:S_ADJ4 },
     /* v4.85 — phương pháp lấy số Filled C3/C4 gửi sang Scale */
     cycleMethod, pickMethod, methodOf: _mthOf, filledBy: _filledBy,
     /* v4.107 — cột LPG = ΣCOQ (lùi GC khi lot chưa có COQ) */
