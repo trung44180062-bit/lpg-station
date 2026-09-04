@@ -687,12 +687,13 @@ const ENG = (function(){
        không thì cú bấm chạy tiếp lên <tr> và mở hẳn form sửa cả lot. */
     const edAttr = (realIdx === undefined || realIdx === null) ? ''
       : ' onclick="event.stopPropagation();ENG.stxEdit(' + realIdx + ',' + col + ',this)"';
-    const tipEd = '\nBấm vào ô để sửa tay · Enter lưu · Esc bỏ · để TRỐNG rồi Enter là xoá số.';
+    /* v4.133 — GIAO DIỆN V4 LÀ TIẾNG ANH (chú thích mã vẫn tiếng Việt). */
+    const tipEd = '\nClick the cell to edit · Enter saves · Esc cancels · leave it EMPTY and press Enter to clear.';
     const v = _num(c[col]);
     if(v === null)
       return '<td class="' + cls + ' td-stx-na"' + edAttr + ' title="' + _esc(
-        'Chưa đối chiếu chuyển kho cho lot này. Mở 📏 Stock-transfer reconciliation '
-        + '(hoặc ✅ xác nhận ở ô thông báo Tank Mix) để ghi số vào đây.' + tipEd)
+        'This lot has not been reconciled yet. Open 📏 Stock-transfer reconciliation '
+        + '(or press ✅ on the Tank Mix notification) to write the figures here.' + tipEd)
         + '">·</td>';
     const r = Math.round(v);
     /* Dấu trừ dùng ký tự − (U+2212) y như bảng đối chiếu — cùng một con số
@@ -702,12 +703,12 @@ const ENG = (function(){
       : r.toLocaleString('en-US');
     const scls = isGap ? (Math.abs(v) < 1 ? ' z' : (v > 0 ? ' p' : ' m')) : '';
     return '<td class="' + cls + scls + '"' + edAttr + ' title="' + _esc(
-      (isWms ? 'Tồn đầu HỆ THỐNG (kg) — đúng con số WMS/SAP đã dùng làm nền để tính gap. '
-               + 'Gap = tồn đầu thực tế − ô này.'
-     : isGap ? 'Gap ở tồn đầu (kg) = tồn đầu THỰC TẾ (đo được × nền COQ) − tồn đầu HỆ THỐNG (SAP). '
-               + 'Số âm = hệ thống đang giữ nhiều hơn thực tế.'
-             : 'Số chuyển kho ĐÃ ĐIỀU CHỈNH (kg) = tồn cuối thực tế − tồn đầu hệ thống. '
-               + 'Đây là con số nên gõ vào SAP/WMS để tồn cuối hệ thống khớp tồn cuối thực tế.')
+      (isWms ? 'SYSTEM opening stock (kg) — the exact WMS/SAP figure the gap was computed from. '
+               + 'Gap = actual opening stock − this cell.'
+     : isGap ? 'Gap at opening (kg) = ACTUAL opening stock (measured × COQ basis) − SYSTEM opening stock (SAP). '
+               + 'A negative figure means the system holds more than the tank actually does.'
+             : 'ADJUSTED transfer quantity (kg) = actual closing stock − system opening stock. '
+               + 'This is the figure to post in SAP/WMS so the system closing stock lands on the measured one.')
       + tipEd)
       + '">' + sgn + '</td>';
   }
@@ -733,7 +734,7 @@ const ENG = (function(){
     inp.type = 'text'; inp.className = 'eng-stx-inp';
     inp.setAttribute('inputmode','decimal');
     inp.value = (cur === null ? '' : String(Math.round(cur)));
-    inp.title = STX_LBL[col] + ' (kg) — Enter lưu · Esc bỏ · để trống rồi Enter là xoá';
+    inp.title = STX_LBL[col] + ' (kg) — Enter saves · Esc cancels · leave empty and press Enter to clear';
     td.textContent = ''; td.appendChild(inp);
     try{ inp.focus(); inp.select(); }catch(_){}
     let settled = false;
@@ -771,7 +772,7 @@ const ENG = (function(){
     else {
       const n = parseFloat(txt);
       if(!isFinite(n)){
-        if(typeof toast === 'function') toast('❌ "'+raw+'" không phải là số — chưa lưu gì cả','er');
+        if(typeof toast === 'function') toast('❌ "'+raw+'" is not a number — nothing was saved','er');
         if(redraw) redraw(); else render();
         return;
       }
@@ -784,13 +785,13 @@ const ENG = (function(){
     _saveCache();
     _pushRowFb(row._rid, row, (ok)=>{
       if(!ok && typeof toast === 'function')
-        toast('❌ Lưu '+STX_LBL[col]+' thất bại (lỗi mạng/Firebase) — bấm lại vào ô để thử lần nữa','er');
+        toast('❌ Could not save '+STX_LBL[col]+' (network/Firebase error) — click the cell to try again','er');
     });
     try{ logAudit('eng:tank_log:stx_edit', row._rid, STX_LBL[col], before, String(val),
-                  'sửa tay ô đối chiếu chuyển kho trên Tank Log'); }catch(_){}
+                  'manual edit of a stock-transfer reconciliation cell in the Tank Log'); }catch(_){}
     try{ render(); }catch(_){}
     if(typeof toast === 'function')
-      toast((val === '' ? '🧹 Đã xoá ' : '✓ Đã lưu ') + STX_LBL[col]
+      toast((val === '' ? '🧹 Cleared ' : '✓ Saved ') + STX_LBL[col]
             + (val === '' ? '' : ' = ' + val.toLocaleString('en-US') + ' kg')
             + ' · lot ' + (row[1]||'—') + ' (' + (row[2]||'—') + ')', 'ok');
   }

@@ -1191,6 +1191,15 @@ function _makePlanModule(opts){
       + '<span class="lnk-c plate">'+escapeHtml(String(r.plate||'—'))+'</span>'
       + '<span class="lnk-c do">'+escapeHtml(dn)+'</span>'
       + '<span class="lnk-c drv">'+escapeHtml(String(r.driver||'—'))+'</span>'
+      /* v4.133 — CỘT NOTE. Lý do phải link hai dòng lại gần như luôn nằm ở
+         ô Note của kế hoạch ("xe thay thế", "1 xe 2 DO", tên xe dự phòng…).
+         Trước đây modal không hiện Note nên nhân viên phải nhớ hoặc mở lại
+         Today Plan để dò — dễ link nhầm hai dòng khác đơn. Ô trống để TRẮNG
+         (không in dấu —) để mắt chỉ dừng ở dòng thật sự có ghi chú. */
+      + (function(){ const nt = String(r.note||'').trim();
+          return '<span class="lnk-c note'+(nt?'':' empty')+'" title="'
+               + escapeHtml(nt ? ('Note: '+nt) : 'No note on this plan row')+'">'
+               + escapeHtml(nt)+'</span>'; })()
       + '<span class="lnk-c qty">'+escapeHtml(String(r.qty||'—'))+' MT</span>'
       + '<span class="lnk-c date">'+escapeHtml(isoLabel(r._forDate||''))+'</span>'
       + '<span class="lnk-c st">'+stTxt+'</span>'
@@ -1227,6 +1236,8 @@ function _makePlanModule(opts){
         +   ms.map(m=>'<div class="lnk-mini">'
         +     '<b>'+escapeHtml(String(m.plate||'—'))+'</b> · '+escapeHtml(String(m.doNum||'—'))
         +     ' · '+escapeHtml(String(m.qty||'—'))+' MT · '+escapeHtml(String(m.customer||'—'))
+        +     (String(m.note||'').trim()
+                ? ' · <span class="lnk-mnote">'+escapeHtml(String(m.note).trim())+'</span>' : '')
         +     (lnkIsParked(m)?' <span class="lnk-parked">⏸ parked</span>':'')+'</div>').join('')
         + '</div></div>');
     });
@@ -1251,6 +1262,18 @@ function _makePlanModule(opts){
       + '</div>'
       + (gHtml.length ? '<div class="lnk-sect">Existing groups</div>' + gHtml.join('') : '')
       + '<div class="lnk-sect">Plan rows — tick the ones that belong to the same order</div>'
+      /* v4.133 — hàng tiêu đề cột: có Note rồi thì phải nói rõ cột nào là cột nào,
+         không thì nhìn một dãy chữ nghiêng chẳng biết đó là gì. */
+      + (rows.length ? '<div class="lnk-row lnk-hd">'
+        +   '<span></span>'
+        +   '<span class="lnk-c">Truck</span>'
+        +   '<span class="lnk-c">DO</span>'
+        +   '<span class="lnk-c drv">Driver</span>'
+        +   '<span class="lnk-c">Note</span>'
+        +   '<span class="lnk-c qty">Qty</span>'
+        +   '<span class="lnk-c">Date</span>'
+        +   '<span class="lnk-c">Status</span>'
+        +   '<span></span></div>' : '')
       + list;
     _lnkRenderFoot();
   }

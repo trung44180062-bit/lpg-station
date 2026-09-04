@@ -45,18 +45,34 @@ const FCHECK = (function(){
      write path (local edit AND remote child event) already calls —
      invalidates it synchronously. */
   var _fidx = null;
+  var _twStaleSaid = false;      /* v4.134 — chỉ cảnh báo cờ ⛔ sót ở TW AVG một lần/phiên */
   function _fleetIdx(){
     if(_fidx) return _fidx;
     var idx = { tanklorry:{}, tractor:{}, rmooc:{}, driver:{}, twavg:{} };
     if(typeof DATA !== 'undefined'){
-      /* v4.80 — TW AVG cũng có cột ⛔ BLOCK; nó lưu biển số ở field `truck`.
-         Index riêng để _blockedFor() đọc được lệnh cấm ghi ở tab đó. */
+      /* v4.80 — TW AVG lưu biển số ở field `truck`. Vẫn đánh chỉ mục để
+         tra khối lượng bì, NHƯNG từ v4.134 KHÔNG còn đọc cờ ⛔ từ đây. */
       var tw = DATA.twavg || {};
+      var twStale = [];
       Object.keys(tw).forEach(function(rid){
         var row = tw[rid]; if(!row) return;
         var kt = plateKey(row.truck);
         if(kt && !idx.twavg[kt]) idx.twavg[kt] = row;
+        if(row.blocked) twStale.push(String(row.truck||'?').trim());
       });
+      /* ══ v4.134 — CỜ ⛔ CŨ CÒN SÓT LẠI Ở TW AVG ═══════════════════════
+         Tab TW AVG không còn cột ⛔ nên cờ cũ nằm đó sẽ KHÔNG ai thấy và
+         cũng KHÔNG còn tác dụng. Im lặng bỏ qua là bẫy: xe từng bị cấm
+         bỗng nhiên nhận hàng được mà không ai biết. Nói ra ĐÚNG MỘT LẦN
+         mỗi phiên, kèm biển số, để staff tick lại ở tab hồ sơ xe. */
+      if(twStale.length && !_twStaleSaid){
+        _twStaleSaid = true;
+        var msg = '⛔ ' + twStale.length + ' vehicle(s) still carry an old BLOCK flag on the TW AVG tab — '
+                + 'that tab no longer blocks anything. Re-tick them on TANK LORRY / TRACTOR / RMOOC: '
+                + twStale.slice(0, 6).join(', ') + (twStale.length > 6 ? '…' : '');
+        console.warn('[FCHECK] ' + msg, twStale);
+        if(typeof toast === 'function') setTimeout(function(){ toast(msg, 'warn'); }, 1200);
+      }
       ['tanklorry','tractor','rmooc'].forEach(function(tab){
         var store = DATA[tab] || {};
         Object.keys(store).forEach(function(rid){
@@ -139,13 +155,16 @@ const FCHECK = (function(){
     if(typeof rowBlockNote === 'function') return rowBlockNote(row);
     return String((row && row.blockNote) || '').trim();
   }
-  /* Mọi lệnh cấm áp lên một PHƯƠNG TIỆN (quét cả tanklorry/tractor/rmooc/twavg). */
+  /* Mọi lệnh cấm áp lên một PHƯƠNG TIỆN.
+     v4.134 — CHỈ quét tanklorry / tractor / rmooc. TW AVG bị loại khỏi
+     danh sách vì tab đó không còn cột ⛔: một lệnh cấm phải nhìn thấy được
+     ở đúng chỗ tick nó, không thì không ai gỡ được. */
   function blockedForPlate(plate, tabs){
     var key = plateKey(plate);
     if(!key) return [];
     var idx = _fleetIdx();
     var out = [], seen = {};
-    (tabs || ['tanklorry','tractor','rmooc','twavg']).forEach(function(t){
+    (tabs || ['tanklorry','tractor','rmooc']).forEach(function(t){
       var row = idx[t] && idx[t][key];
       if(!row || !_blkSafe(row)) return;
       var note = _blkNote(row);
@@ -188,8 +207,9 @@ const FCHECK = (function(){
           expiredCerts(veh.row, veh.tab, cd, normPlate(plate)+' ('+(veh.tab==='tractor'?'Tractor':'Tank Lorry')+')', plate)
         );
       }
-      /* Lệnh cấm đọc độc lập với kết quả findVehicle: một xe có thể chỉ nằm ở
-         tab TW AVG mà vẫn bị cấm. */
+      /* Lệnh cấm đọc độc lập với kết quả findVehicle: xe có thể chưa khai đủ
+         hồ sơ ở tab này nhưng vẫn bị cấm ở tab kia.
+         v4.134 — KHÔNG còn đọc cờ ⛔ từ TW AVG (tab đó không có cột ⛔ nữa). */
       blockedForPlate(plate).forEach(function(b){
         res.blocked.push({ subject:'Vehicle', label: normPlate(plate), note: b.note });
       });
@@ -205,7 +225,7 @@ const FCHECK = (function(){
           expiredCerts(rm.row, 'rmooc', cd, normPlate(rmooc)+' (Rmooc)', rmooc)
         );
       }
-      blockedForPlate(rmooc, ['rmooc','twavg']).forEach(function(b){
+      blockedForPlate(rmooc, ['rmooc']).forEach(function(b){
         res.blocked.push({ subject:'Rmooc', label: normPlate(rmooc), note: b.note });
       });
     }

@@ -4073,7 +4073,8 @@ input.stx-inp::placeholder{font-weight:400;color:#b9c6d3;}
 .lnk-cust{margin:10px 0 3px;padding:3px 8px;background:#eef3f7;border-radius:5px;
   font-size:11.5px;font-weight:800;color:var(--ink);display:flex;justify-content:space-between;}
 .lnk-cust span{font-weight:600;color:var(--ink-3);font-size:10.5px;}
-.lnk-row{display:grid;grid-template-columns:22px 96px 118px 1fr 78px 74px 88px auto;
+/* v4.133 — thêm cột Note giữa Driver và Qty (lý do link nằm ở đó) */
+.lnk-row{display:grid;grid-template-columns:22px 96px 118px 1.05fr 1.25fr 78px 74px 88px auto;
   align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--line-2);
   font-size:11.5px;cursor:pointer;}
 .lnk-row:hover{background:#f5faff;}
@@ -4084,6 +4085,17 @@ input.stx-inp::placeholder{font-weight:400;color:#b9c6d3;}
 .lnk-c.do{font-family:'Courier New',monospace;font-weight:700;color:#0b5c94;}
 .lnk-c.qty{text-align:right;font-weight:700;}
 .lnk-c.date,.lnk-c.st{color:var(--ink-2);font-size:10.5px;}
+.lnk-c.note{color:#8a5a09;font-style:italic;font-size:10.5px;}
+.lnk-row.lnk-hd{cursor:default;background:#fbfcfd;border-bottom:1.5px solid var(--line);
+  font-size:9.5px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--ink-3);}
+.lnk-row.lnk-hd:hover{background:#fbfcfd;}
+.lnk-c.note.empty{color:transparent;}
+.lnk-mnote{color:#8a5a09;font-style:italic;}
+@media (max-width:1100px){
+  /* màn hẹp: bỏ Driver để Note — thứ quyết định có link hay không — còn chỗ */
+  .lnk-row{grid-template-columns:22px 92px 112px 1fr 74px 70px 84px auto;}
+  .lnk-row .lnk-c.drv{display:none;}
+}
 .lnk-empty{padding:18px;text-align:center;color:var(--ink-3);font-size:12px;}
 
 .lnk-foot{display:flex;align-items:center;gap:9px;flex-wrap:wrap;

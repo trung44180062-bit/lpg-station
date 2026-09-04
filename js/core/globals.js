@@ -146,7 +146,9 @@ function lastEditFormatter(cell){
 /* ============================================================
    ⛔ BLOCK COLUMNS (v4.80 → tách đôi ở v4.82)
    ------------------------------------------------------------
-   HAI cột riêng trên MỌI bảng Fleet, sửa THẲNG trong ô (v4.82 —
+   HAI cột riêng trên mọi bảng Fleet — TRỪ TW AVG (v4.134: tab đó chỉ
+   giữ khối lượng bì cho trạm cân tra, cấm xe tick ở tab hồ sơ phương
+   tiện) — sửa THẲNG trong ô (v4.82 —
    bản đầu dùng modal, thao tác chậm nên bỏ). Cả hai nằm liền nhau
    ngay SAU cột Remark, theo thứ tự đọc tự nhiên "lý do rồi mới tick"
    (v4.83 — trước đó ô tick bị tách lên đầu bảng, phải nhìn hai nơi):
@@ -240,8 +242,13 @@ function buildColumns(){
       {title:'Avg Wt (kg)',field:'avgWt',width:130,editor:'number',cssClass:'cell-avgwt',
         formatter:c=>c.getValue()?Number(c.getValue()).toLocaleString():''},
       {title:'Remark',field:'remark',editor:'input'},
-      blockNoteColumn(),
-      blockTickColumn(),
+      /* ══ v4.134 — TW AVG KHÔNG CÓ CỘT ⛔ BLOCK ═══════════════════════
+         Tab này chỉ làm MỘT việc: giữ khối lượng bì trung bình của cặp
+         xe–rơ-moóc để trạm cân tra lúc assign. Cấm xe là chuyện của hồ sơ
+         phương tiện ⇒ tick ở TANK LORRY / TRACTOR / RMOOC / DRIVER. Để cột
+         cấm ở cả hai nơi thì cùng một chiếc xe có hai chỗ tick, ai cũng
+         tưởng chỗ kia đã làm — và gỡ cấm ở tab này lại không gỡ ở tab kia.
+         (Bỏ CỘT thôi; xem fcheck.js cho phần bỏ ĐỌC cờ cũ ở đây.) */
       {title:'Last Edit',field:'lastAt',width:90,headerSort:true,formatter:lastEditFormatter,cssClass:'cell-lastedit-wrap'},
       {title:'🗑',width:44,hozAlign:'center',headerSort:false,formatter:()=>'✕',cssClass:'cell-del',
         cellClick:(e,cell)=>{ requestDeleteRow(cell.getRow().getData()); }}
@@ -286,8 +293,10 @@ function rowFormatter(row){
   const el=row.getElement();
   el.classList.remove('row-exp','row-due','row-missing','row-blocked');
   const data = row.getData();
-  /* ⛔ BLOCK thắng mọi trạng thái cert — tô nền xám-đỏ cho cả dòng. */
-  if(isRowBlocked(data)) el.classList.add('row-blocked');
+  /* ⛔ BLOCK thắng mọi trạng thái cert — tô nền xám-đỏ cho cả dòng.
+     v4.134 — TRỪ tab TW AVG: ở đó không còn cột ⛔ nên tô đỏ một dòng mà
+     không có ô nào giải thích vì sao chỉ làm người dùng hoang mang. */
+  if(curTab !== 'twavg' && isRowBlocked(data)) el.classList.add('row-blocked');
   if(curTab!=='twavg'){
     const miss = missingCount(data);
     const st = rowState(data);

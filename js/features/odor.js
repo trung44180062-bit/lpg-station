@@ -292,9 +292,9 @@ const ODOR = (function(){
       _fbSet(ym, D[ym]);
       render();
       toast(s
-        ? '↻ '+_ymLabel(ym)+' · '+s.lots+' lot · Mixing '+_fmt(D[ym].c,2)+' MT (COQ'
-          + (s.nGc ? ', '+s.nGc+' lot lùi về GC' : '')+') · FQ '+_fmt(D[ym].d,2)+' kg — đã lưu'
-        : '⚠ '+_ymLabel(ym)+': không có lot nào trong Tank Log', s ? 'ok' : 'warn');
+        ? '↻ '+_ymLabel(ym)+' · '+s.lots+' lot(s) · Mixing '+_fmt(D[ym].c,2)+' MT (COQ'
+          + (s.nGc ? ', '+s.nGc+' fell back to GC' : '')+') · FQ '+_fmt(D[ym].d,2)+' kg — saved'
+        : '⚠ '+_ymLabel(ym)+': no lot found in the Tank Log', s ? 'ok' : 'warn');
     });
   }
   function scanAll(){
@@ -317,9 +317,9 @@ const ODOR = (function(){
       _saveCache();
       if(n) _fbBulk(fb);
       render();
-      toast('↻ Đã quét Tank Log: cập nhật '+n+' tháng theo khối lượng COQ'
-        + (nGcAll ? ' ('+nGcAll+' lot chưa có COQ, tạm lùi về GC)' : '')
-        + ' — đã lưu Firebase','ok');
+      toast('↻ Tank Log scanned: '+n+' month(s) updated on the COQ mass'
+        + (nGcAll ? ' ('+nGcAll+' lot(s) without COQ fell back to GC)' : '')
+        + ' — saved to Firebase','ok');
     });
   }
 
@@ -444,8 +444,8 @@ const ODOR = (function(){
           ' onclick="ODOR.deleteRow(\''+r.ym+'\')">✕</button></td>'+
         '<td class="c">'+noAsc+'</td><td class="c">'+_rowDateLabel(r.ym, r.ud)+'</td>'+
         '<td class="r">'+inp(r.ym,'c', r.c, '', '↻ để quét', 3)
-          + (r.cgc ? '<span class="odor-gc" title="'+_esc(r.cgc+' lot của tháng này CHƯA có kết quả COQ nên phần đó '
-              + 'vẫn lấy khối lượng theo GC. Chạy ◈ COQ audit ở Tank Log rồi bấm ↻ quét lại tháng này.')
+          + (r.cgc ? '<span class="odor-gc" title="'+_esc(r.cgc+' lot(s) this month have NO COQ result yet, so that part '
+              + 'still uses the GC figure. Run ◈ COQ audit in the Tank Log, then press ↻ to rescan this month.')
               +'">ᴳᶜ</span>' : '')+'</td>'+
         '<td class="r">'+inp(r.ym,'d', r.d, '', '↻ để quét', 2)+'</td>'+
         '<td class="r">'+grav(r.ym, (D[r.ym]&&D[r.ym].e!==''&&D[r.ym].e!=null), r.e)+'</td>'+
@@ -494,7 +494,7 @@ const ODOR = (function(){
     if(stats){
       stats.innerHTML = '<b>'+rows.length+'</b> tháng · giá '+_fmt(PRICE,2)+' VND/kg · '+PPM_BASE+' ppm'
         + ' · C = Σ Filled LPG theo <b>COQ</b> · D = Σ Odorant (Tank Log)'
-        + ' · <span style="color:#b45309">ᴳᶜ</span> = tháng còn lot chưa có COQ, phần đó tạm lấy theo GC';
+        + ' · <span style="color:#b45309">ᴳᶜ</span> = month still has lots without COQ; that part falls back to GC';
     }
   }
 
