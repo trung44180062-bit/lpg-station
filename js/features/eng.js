@@ -499,7 +499,9 @@ const ENG = (function(){
         const s = _monthSummary(qMonth);
         html += ' <span style="color:var(--blue,#2f80ed);font-weight:600">· Tháng '+_ymLabelEng(qMonth)+': '
           + '<b>'+s.lots+'</b> lượt mix · Filled LPG <b>'+_fmtNum(s.lpg,3)+'</b> MT · Odorant <b>'
-          + _fmtNum(s.odo,2)+'</b> kg</span>';
+          + _fmtNum(s.odo,2)+'</b> kg'
+          + (s.nGc ? ' <i style="font-style:normal;color:#b45309">· '+s.nGc+' lot ᴳᶜ</i>' : '')
+          + '</span>';
       }
       html += (_allLoaded ? '' :
            ' <span style="color:var(--orange);font-weight:600">· '+INIT_LOTS+' lot mới nhất — bấm 📥 Load All để tải toàn bộ</span>');
@@ -521,15 +523,23 @@ const ENG = (function(){
   }
 
   /* v4.63 — tổng hợp tháng: số lượt mix · Σ Filled LPG (MT) · Σ Odorant (kg) */
+  /* v4.132 — Σ Filled LPG của tháng cộng theo ĐÚNG con số đang hiện trên
+     cột Filled LPG: ưu tiên COQ, lot nào chưa có COQ mới lùi về GC.
+     Trước đây hàm này đọc THẲNG ô [15] (tổng theo GC) nên tổng tháng lệch
+     hẳn so với tổng của bảng và so với cột — cùng một bảng mà hai con số
+     khác nhau là mất tin. nGc đếm số lot đang phải lùi về GC để chỗ nào
+     hiện số cũng nói được là "còn N lot chưa có COQ". */
   function _monthSummary(ym){
-    let lots = 0, lpg = 0, odo = 0;
+    let lots = 0, lpg = 0, odo = 0, nGc = 0;
     ROWS.forEach(r=>{
       if(_ymOf(r[3]) !== ym) return;
       lots++;
-      const q = parseFloat(String(r[15]||'').replace(/,/g,'')); if(!isNaN(q)) lpg += q;
+      const L = _lpgOf(r);
+      if(L.v !== null) lpg += L.v;
+      if(L.src === 'gc') nGc++;
       const o = parseFloat(String(r[26]||'').replace(/,/g,'')); if(!isNaN(o)) odo += o;
     });
-    return { lots, lpg, odo };
+    return { lots, lpg, odo, nGc };
   }
 
   /* v4.76 — cộng dồn 1 tập row bất kỳ.

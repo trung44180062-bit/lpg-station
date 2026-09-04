@@ -15,7 +15,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-build" content="4.131">
+<meta name="app-build" content="4.132">
 
 <!-- Fonts (giữ từ V4-54) -->
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Barlow:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -4763,7 +4763,7 @@
      ============================================================ -->
 <!-- core (thứ tự: nav → config → helpers → sync → auth → globals; globals PHẢI trước data) -->
 <script src="js/core/nav.js"></script>
-<script src="js/core/config.js?v=4131"></script><!-- v4.127 — APP_BUILD: số hiệu bản đang chạy -->
+<script src="js/core/config.js?v=4132"></script><!-- v4.127 — APP_BUILD: số hiệu bản đang chạy -->
 <script src="js/core/helpers.js?v=4127"></script><!-- v4.127 — window.TWAVG: nguồn DUY NHẤT tra khối lượng xe rỗng, khớp CẶP đầu xe + rơ-moóc -->
 <script src="js/core/sync.js?v=4130"></script><!-- v4.127 — SC.upsertRows: dán theo kiểu GỘP (cập nhật / thêm mới / giữ nguyên dòng không dán) -->
 <script src="js/core/forcesync.js"></script>
@@ -4790,9 +4790,9 @@
 <script src="js/features/plan.js?v=4124"></script><!-- v4.124 — GIỮ NGUYÊN VỊ TRÍ CUỘN khi đổi trạng thái: ledger vẽ lại bằng innerHTML nên khung .pv-scroll bị thay mới và văng lên đầu bảng; nay mỗi dòng có data-oid, trước khi vẽ ghi lại dòng sát mép trên + khoảng lệch, vẽ xong kéo về đúng chỗ (bù được cả khi bảng đổi chiều cao). Chế độ TABLE giữ scrollTop của .tabulator-tableholder quanh replaceData · v4.109 — 🔗 LINK ORDERS: một đơn hàng thật nằm trên nhiều dòng kế hoạch. Nhóm ALT (một trong N xe sẽ vào lấy) chỉ được tính MỘT lần vào PLAN/LOADED/REMAIN — trước đây 1 đơn 25 MT khai 3 xe bị cộng thành 75 MT; xe nào vào station trước thì các dòng anh em tự park (cancel + cờ _altSkip) và tự mở lại nếu xe đó rời station. Nhóm MDO (một xe nhiều DO) khai trước để tab Scale gộp thẳng lúc assign. Cột ACTUAL + mọi số MT hiện 3 số thập phân (đọc được tới kg) · v4.112 — TP.lnkLinkMdo: nhân viên cân chọn "bán gộp" ngay lúc assign thì nhóm 🔗 MULTI-DO được lập luôn trên Today Plan -->
 <script src="js/features/scale.js?v=4127"></script><!-- v4.110 — SỬA LỖI IN GỘP/TÁCH MULTI-DO chạy chập chờn: hộp hỏi chuyển từ ô kết quả tìm kiếm của trạm (bị handler click-outside + scRenderCtrl ghi đè) sang MODAL riêng không đóng khi bấm ra nền; CẢ HAI đường assign (dò tìm & đã link) đều hỏi cách in một lần duy nhất; số chia per-DO (_mdoNets), turn đã chốt (_tlTurn) và cách in (_pttMode) lưu lên trạm nên sống sót qua F5 và sang máy khác; chặn dòng thiếu số DO; hộp hỏi phiếu DN mở sẵn đúng lựa chọn lúc assign · v4.109 — thẻ PLAN dùng chung TP.lnkTotals nên không còn lệch với Today Plan (+3 số thập phân) · v4.112 — KHÔI PHỤC phép dò tìm multi-DO lúc assign chạy SONG SONG với 🔗 Link Orders: bỏ cửa chặn im lặng (tổng ≤27, bắt buộc trùng tài xế, anh em đang xếp hàng đợi), chọn gộp thì link ngược về Today Plan, PTT in đủ mọi DO, TL Data ghi khoá mdoG -->
 <script src="js/features/fnote.js?v=484"></script><!-- Sổ ghi chú xe/tài xế — lazy, không tự đọc Firebase -->
-<script src="js/features/eng.js?v=4131"></script><!-- v4.107 — cột Filled LPG = ΣCOQ (lùi GC khi lot chưa có COQ), hai cột Filled C3/C4 (GC) hạ nổi bật · v4.108 — thêm 4 cột Open/End C3/C4 THỰC TẾ (INIT/FINAL VOL đo được × nền COQ), chỉ tính trên máy · v4.111 — thêm 4 cột Gap C3/C4 + Adj ST C3/C4 (kg) ghi kết quả đối chiếu chuyển kho · v4.131 — thêm 2 cột WMS C3/C4 (kg) đứng TRƯỚC Gap, và cả 6 ô đối chiếu SỬA ĐƯỢC TAY ngay trên bảng (ENG.stxEdit) -->
+<script src="js/features/eng.js?v=4132"></script><!-- v4.107 — cột Filled LPG = ΣCOQ (lùi GC khi lot chưa có COQ), hai cột Filled C3/C4 (GC) hạ nổi bật · v4.108 — thêm 4 cột Open/End C3/C4 THỰC TẾ (INIT/FINAL VOL đo được × nền COQ), chỉ tính trên máy · v4.111 — thêm 4 cột Gap C3/C4 + Adj ST C3/C4 (kg) ghi kết quả đối chiếu chuyển kho · v4.131 — thêm 2 cột WMS C3/C4 (kg) đứng TRƯỚC Gap, và cả 6 ô đối chiếu SỬA ĐƯỢC TAY ngay trên bảng (ENG.stxEdit) · v4.132 — tổng THEO THÁNG cũng cộng theo COQ (lùi GC từng lot), khớp với cột Filled LPG -->
 <!-- v4.101 — Density (cột 33) & ρ COQ đầu (cột 63) giữ ĐỦ 4 số thập phân ở ô sửa dòng + bảng Tank Log + bản in -->
-<script src="js/features/odor.js"></script>
+<script src="js/features/odor.js?v=4132"></script><!-- v4.132 — C (LPG Mixing Q'Ty) = Σ Filled LPG theo COQ (lot chưa có COQ mới lùi về GC), dấu ᴳᶜ trên ô C -->
 <script src="js/features/rpt.js?v=4112"></script><!-- v4.112 — cột Trips: dòng TL mang chung khoá mdoG chỉ tính MỘT lượt xe -->
 <script src="js/features/mthr.js"></script>
 <script src="js/features/bond.js?v=4118"></script><!-- v4.106 — ⭐ KHO NGOẠI QUAN GỘP THẲNG VÀO TAB SAP: nút gạt "📊 SAP thô | 🛃 Kho ngoại quan", bảng KNQ đọc SỐ SỐNG từ SP.ROWS (SLoc 1100 tại D-1) chứ không giữ sổ riêng nữa. Cột TRÁI = STT tàu · Tên tàu · TK nhập · TK get out (người dùng gõ, lưu ở node knq_info theo mã batch, dán SAP ngày mới là tự ghép lại); GIỮA = nguyên văn SAP (Date·SLoc·Mat·Batch·Batch code·Init·GR·GI·Trs·End); PHẢI = HQ approved · Thực còn · % · VASSCM · Ghi chú. TRỪ LÙI: lô P/X lấy thẳng End Stock D-1 làm tồn đầu kỳ (đã kiểm chứng SAP KHÔNG động vào P/X suốt tháng) rồi trừ FIFO theo FEED OL1 của kỳ — BỎ HẲN đóng kỳ / tồn đầu kỳ op[] / cờ ✔Done / 🔒 khoá lô. Lô End=0 hoặc rơi khỏi ZMMFR022 thì tô màu mời xoá. 💾 Lưu kỳ = ảnh chụp cả bảng vào knq_period/<kỳ>, xem lại và xoá được để Firebase khỏi phình. Sửa ô bằng Tabulator tại chỗ ⇒ HẾT lỗi nuốt chữ khi gõ. Tab KNQ cũ vẫn chạy song song để đối chiếu, dùng chung node FEED OL1. -->
